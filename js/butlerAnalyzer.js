@@ -69,9 +69,15 @@ class ButlerAnalyzer {
         // Enrich data with parsed values and flags
         const enrichedData = this.enrichData(data);
 
-        // Update status badge
-        statusBadge.textContent = `${enrichedData.length} artikkler`;
-        statusBadge.className = 'status-badge ok';
+        // Update status badge with detailed info
+        const criticalIssues = enrichedData.filter(item =>
+            (item._isActive && item._isZeroStock && item._minNum > 0) ||
+            item._isNegative ||
+            (item._hasBelowMin && item._stockNum < item._minNum * 0.5)
+        ).length;
+
+        statusBadge.textContent = `${enrichedData.length} artikkler lastet`;
+        statusBadge.className = 'status-badge ' + (criticalIssues > 50 ? 'critical' : criticalIssues > 0 ? 'warning' : 'ok');
 
         // Render the Butler module with tabs
         resultsDiv.innerHTML = this.renderButlerModule(enrichedData);
@@ -155,13 +161,13 @@ class ButlerAnalyzer {
     static renderButlerModule(data) {
         let html = '';
 
-        // Tab navigation
+        // Tab navigation with icons
         html += '<div class="butler-tabs">';
-        html += '<button class="tab active" data-view="zeroStock">0 i saldo (Aktiv)</button>';
-        html += '<button class="tab" data-view="negative">Negativ saldo</button>';
-        html += '<button class="tab" data-view="belowMin">Under minimum</button>';
-        html += '<button class="tab" data-view="noMovement">Ingen bevegelse R12</button>';
-        html += '<button class="tab" data-view="highReserve">Høy reservasjon</button>';
+        html += '<button class="tab active" data-view="zeroStock">⚠️ 0 i saldo (Aktiv)</button>';
+        html += '<button class="tab" data-view="negative">🔴 Negativ saldo</button>';
+        html += '<button class="tab" data-view="belowMin">📉 Under minimum</button>';
+        html += '<button class="tab" data-view="noMovement">💤 Ingen bevegelse R12</button>';
+        html += '<button class="tab" data-view="highReserve">🔒 Høy reservasjon</button>';
         html += '</div>';
 
         // Results area for each view
@@ -210,52 +216,66 @@ class ButlerAnalyzer {
         let filteredData = [];
         let viewTitle = '';
         let columns = [];
+        let viewIcon = '';
 
         switch(viewName) {
             case 'zeroStock':
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
+                viewIcon = '⚠️';
                 columns = ['_itemNo', '_itemName', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
                 break;
 
             case 'negative':
                 filteredData = data.filter(item => item._isNegative);
                 viewTitle = 'Negativ saldo';
+                viewIcon = '🔴';
                 columns = ['_itemNo', '_itemName', '_stock', '_availableStock', '_reserved', '_location', '_supplier'];
                 break;
 
             case 'belowMin':
                 filteredData = data.filter(item => item._hasBelowMin);
                 viewTitle = 'Under minimum (BP)';
+                viewIcon = '📉';
                 columns = ['_itemNo', '_itemName', '_stock', '_min', '_max', '_r12Sales', '_supplier'];
                 break;
 
             case 'noMovement':
                 filteredData = data.filter(item => item._hasNoMovement && item._isActive);
                 viewTitle = 'Ingen bevegelse R12';
+                viewIcon = '💤';
                 columns = ['_itemNo', '_itemName', '_stock', '_availableStock', '_r12Sales', '_location', '_supplier'];
                 break;
 
             case 'highReserve':
                 filteredData = data.filter(item => item._hasHighReserve);
                 viewTitle = 'Høy reservasjon (>70%)';
+                viewIcon = '🔒';
                 columns = ['_itemNo', '_itemName', '_stock', '_reserved', '_reservePercent', '_availableStock', '_supplier'];
                 break;
 
             default:
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
+                viewIcon = '⚠️';
                 columns = ['_itemNo', '_itemName', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
         }
 
         let html = '';
 
-        // Header with count
-        html += `<h3 style="margin-top: 20px;">${viewTitle} <span style="color: #7f8c8d; font-weight: normal;">(${filteredData.length} artikkler)</span></h3>`;
+        // Quick stats card
+        html += this.renderStatsCard(filteredData, data, viewName);
 
-        // Table controls (search + export)
+        // Header with count
+        html += `<h3 style="margin-top: 20px; margin-bottom: 15px;">${viewIcon} ${viewTitle}</h3>`;
+
+        // Table controls (search + result count + export)
         html += '<div class="table-controls">';
-        html += `<input type="text" id="butlerSearch" placeholder="Søk i tabellen..." class="search-input">`;
+        html += '<div class="butler-search-wrapper">';
+        html += `<input type="text" id="butlerSearch" placeholder="Søk etter artikelnr, beskrivelse, leverandør..." class="search-input">`;
+        html += `<button class="butler-search-clear" id="butlerSearchClear">Tøm</button>`;
+        html += '</div>';
+        html += `<span class="butler-result-count" id="butlerResultCount">Viser ${filteredData.length} av ${filteredData.length} artikkler</span>`;
         html += `<button onclick="ButlerAnalyzer.exportCurrentView('${viewName}', '${viewTitle}')" class="btn-secondary">📥 Eksporter til CSV</button>`;
         html += '</div>';
 
@@ -265,8 +285,100 @@ class ButlerAnalyzer {
             return;
         }
 
-        // Data table
-        html += '<div style="overflow-x: auto;">';
+        // Initialize pagination
+        this._currentPage = 1;
+        this._itemsPerPage = 100;
+        this._allFilteredData = filteredData;
+
+        // Render table with pagination
+        html += this.renderTableWithPagination(filteredData, columns, viewName);
+
+        contentDiv.innerHTML = html;
+
+        // Store current view data for export and details
+        this._currentViewData = filteredData;
+        this._currentViewName = viewName;
+
+        // Initialize search and pagination
+        this.initializeSearch();
+        this.initializePagination();
+    }
+
+    /**
+     * Render stats card for the current view
+     */
+    static renderStatsCard(filteredData, allData, viewName) {
+        let html = '<div class="butler-stats-card">';
+
+        // Total items in view
+        html += '<div class="butler-stat-item">';
+        html += '<div class="stat-icon">📊</div>';
+        html += `<span class="stat-value">${filteredData.length}</span>`;
+        html += '<div class="stat-label">Artikkler i visning</div>';
+        html += '</div>';
+
+        // Total items loaded
+        html += '<div class="butler-stat-item ok">';
+        html += '<div class="stat-icon">🏭</div>';
+        html += `<span class="stat-value">${allData.length}</span>`;
+        html += '<div class="stat-label">Totalt lastet</div>';
+        html += '</div>';
+
+        // View-specific stats
+        if (viewName === 'zeroStock') {
+            const criticalCount = filteredData.filter(i => i._minNum > 0).length;
+            html += `<div class="butler-stat-item ${criticalCount > 0 ? 'critical' : 'ok'}">`;
+            html += '<div class="stat-icon">🚨</div>';
+            html += `<span class="stat-value">${criticalCount}</span>`;
+            html += '<div class="stat-label">Har definert minimum</div>';
+            html += '</div>';
+        } else if (viewName === 'negative') {
+            const veryNegative = filteredData.filter(i => i._stockNum < -10).length;
+            html += `<div class="butler-stat-item ${veryNegative > 0 ? 'critical' : 'warning'}">`;
+            html += '<div class="stat-icon">⚠️</div>';
+            html += `<span class="stat-value">${veryNegative}</span>`;
+            html += '<div class="stat-label">Under -10</div>';
+            html += '</div>';
+        } else if (viewName === 'belowMin') {
+            const critical = filteredData.filter(i => i._stockNum < (i._minNum * 0.5)).length;
+            html += `<div class="butler-stat-item ${critical > 0 ? 'critical' : 'warning'}">`;
+            html += '<div class="stat-icon">🔴</div>';
+            html += `<span class="stat-value">${critical}</span>`;
+            html += '<div class="stat-label">Under 50% av minimum</div>';
+            html += '</div>';
+        } else if (viewName === 'noMovement') {
+            const hasStock = filteredData.filter(i => i._stockNum > 0).length;
+            html += `<div class="butler-stat-item warning">`;
+            html += '<div class="stat-icon">📦</div>';
+            html += `<span class="stat-value">${hasStock}</span>`;
+            html += '<div class="stat-label">Med lagerbeholdning</div>';
+            html += '</div>';
+        } else if (viewName === 'highReserve') {
+            const veryHigh = filteredData.filter(i => i._reservePercent > 90).length;
+            html += `<div class="butler-stat-item ${veryHigh > 0 ? 'critical' : 'warning'}">`;
+            html += '<div class="stat-icon">🔒</div>';
+            html += `<span class="stat-value">${veryHigh}</span>`;
+            html += '<div class="stat-label">Over 90% reservert</div>';
+            html += '</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Render table with pagination
+     */
+    static renderTableWithPagination(filteredData, columns, viewName) {
+        const startIdx = (this._currentPage - 1) * this._itemsPerPage;
+        const endIdx = Math.min(startIdx + this._itemsPerPage, filteredData.length);
+        const pageData = filteredData.slice(startIdx, endIdx);
+        const totalPages = Math.ceil(filteredData.length / this._itemsPerPage);
+
+        let html = '';
+
+        // Data table with wrapper for sticky header
+        html += '<div class="butler-table-wrapper">';
         html += '<table class="data-table" id="butlerDataTable">';
         html += '<thead><tr>';
 
@@ -292,7 +404,8 @@ class ButlerAnalyzer {
         html += '</tr></thead><tbody>';
 
         // Data rows
-        filteredData.forEach((item, index) => {
+        pageData.forEach((item, index) => {
+            const absoluteIndex = startIdx + index;
             html += '<tr>';
 
             columns.forEach(col => {
@@ -312,41 +425,111 @@ class ButlerAnalyzer {
             });
 
             // Details button
-            html += `<td><button class="btn-small" onclick="ButlerAnalyzer.showDetails(${index}, '${viewName}')">Detaljer</button></td>`;
+            html += `<td><button class="btn-small" onclick="ButlerAnalyzer.showDetails(${absoluteIndex}, '${viewName}')">Detaljer</button></td>`;
             html += '</tr>';
         });
 
         html += '</tbody></table>';
         html += '</div>';
 
-        contentDiv.innerHTML = html;
+        // Pagination controls
+        if (totalPages > 1) {
+            html += '<div class="butler-pagination">';
+            html += `<button onclick="ButlerAnalyzer.goToPage(1)" ${this._currentPage === 1 ? 'disabled' : ''}>⏮️ Første</button>`;
+            html += `<button onclick="ButlerAnalyzer.goToPage(${this._currentPage - 1})" ${this._currentPage === 1 ? 'disabled' : ''}>◀️ Forrige</button>`;
+            html += `<span class="page-info">Side ${this._currentPage} av ${totalPages} (Viser ${startIdx + 1}-${endIdx} av ${filteredData.length})</span>`;
+            html += `<button onclick="ButlerAnalyzer.goToPage(${this._currentPage + 1})" ${this._currentPage === totalPages ? 'disabled' : ''}>Neste ▶️</button>`;
+            html += `<button onclick="ButlerAnalyzer.goToPage(${totalPages})" ${this._currentPage === totalPages ? 'disabled' : ''}>Siste ⏭️</button>`;
+            html += '</div>';
+        }
 
-        // Store current view data for export and details
-        this._currentViewData = filteredData;
-        this._currentViewName = viewName;
-
-        // Initialize search
-        this.initializeSearch();
+        return html;
     }
 
     /**
-     * Initialize search functionality
+     * Go to specific page
+     */
+    static goToPage(pageNum) {
+        const totalPages = Math.ceil(this._allFilteredData.length / this._itemsPerPage);
+
+        if (pageNum < 1 || pageNum > totalPages) return;
+
+        this._currentPage = pageNum;
+
+        // Re-render the view
+        this.renderView(this._currentViewName, this._enrichedData);
+    }
+
+    /**
+     * Initialize pagination
+     */
+    static initializePagination() {
+        // Pagination is handled via onclick handlers in the HTML
+    }
+
+    /**
+     * Initialize search functionality with debouncing
      */
     static initializeSearch() {
         const searchInput = document.getElementById('butlerSearch');
+        const searchClear = document.getElementById('butlerSearchClear');
         const table = document.getElementById('butlerDataTable');
+        const resultCount = document.getElementById('butlerResultCount');
 
         if (!searchInput || !table) return;
 
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            const rows = table.querySelectorAll('tbody tr');
+        let searchTimeout;
 
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
+        // Search with debouncing
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+
+            const searchTerm = e.target.value.toLowerCase();
+
+            // Show/hide clear button
+            if (searchClear) {
+                searchClear.classList.toggle('visible', searchTerm.length > 0);
+            }
+
+            // Debounce search by 300ms
+            searchTimeout = setTimeout(() => {
+                const rows = table.querySelectorAll('tbody tr');
+                let visibleCount = 0;
+
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    const matches = text.includes(searchTerm);
+                    row.style.display = matches ? '' : 'none';
+                    if (matches) visibleCount++;
+                });
+
+                // Update result count
+                if (resultCount) {
+                    const totalCount = this._currentViewData.length;
+                    if (searchTerm) {
+                        resultCount.textContent = `Viser ${visibleCount} av ${totalCount} artikkler`;
+                    } else {
+                        resultCount.textContent = `Viser ${totalCount} av ${totalCount} artikkler`;
+                    }
+                }
+            }, 300);
         });
+
+        // Clear button
+        if (searchClear) {
+            searchClear.addEventListener('click', () => {
+                searchInput.value = '';
+                searchClear.classList.remove('visible');
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => row.style.display = '');
+
+                // Reset result count
+                if (resultCount) {
+                    const totalCount = this._currentViewData.length;
+                    resultCount.textContent = `Viser ${totalCount} av ${totalCount} artikkler`;
+                }
+            });
+        }
     }
 
     /**

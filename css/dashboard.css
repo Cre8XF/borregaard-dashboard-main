@@ -234,12 +234,33 @@ input[type='file']:hover {
   color: var(--text-muted);
 }
 
-/* Dashboard Grid */
+/* Dashboard Grid - 2x2 for other modules */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 25px;
   margin-bottom: 30px;
+}
+
+/* Full-width Butler module (primary command center) */
+.butler-module-full-width {
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 8px var(--shadow);
+}
+
+.butler-module-full-width .module-header {
+  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  padding: 25px 30px;
+}
+
+.butler-module-full-width .module-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.butler-module-full-width .module-content {
+  padding: 25px 30px;
 }
 
 /* Module Cards */
@@ -962,36 +983,259 @@ input[type='file']:hover {
   background: var(--info);
 }
 
-/* Butler Tabs */
+/* Butler Stats Card */
+.butler-stats-card {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+}
+
+.butler-stat-item {
+  text-align: center;
+  padding: 15px;
+  background: var(--white);
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.butler-stat-item .stat-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.butler-stat-item .stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--dark);
+  display: block;
+  margin-bottom: 5px;
+}
+
+.butler-stat-item .stat-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.butler-stat-item.critical .stat-value {
+  color: var(--danger);
+}
+
+.butler-stat-item.warning .stat-value {
+  color: var(--warning);
+}
+
+.butler-stat-item.ok .stat-value {
+  color: var(--success);
+}
+
+/* Enhanced Search Box for Butler */
+.butler-search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 300px;
+  max-width: 500px;
+}
+
+.butler-search-wrapper::before {
+  content: '🔍';
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.butler-search-wrapper input {
+  padding-left: 40px;
+  padding-right: 80px;
+  font-size: 14px;
+  height: 42px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.butler-search-wrapper input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.butler-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--gray);
+  color: var(--white);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: none;
+  transition: all 0.2s;
+}
+
+.butler-search-clear:hover {
+  background: #7f8c8d;
+}
+
+.butler-search-clear.visible {
+  display: block;
+}
+
+/* Result Count Badge */
+.butler-result-count {
+  padding: 10px 18px;
+  background: var(--info);
+  color: var(--white);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Enhanced Table for Butler */
+.butler-table-wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 600px;
+  border: 1px solid var(--light-gray);
+  border-radius: 6px;
+  margin-top: 15px;
+  position: relative;
+}
+
+.butler-table-wrapper table {
+  width: 100%;
+  background: var(--white);
+}
+
+.butler-table-wrapper table thead th {
+  position: sticky;
+  top: 0;
+  background: #2c3e50 !important;
+  color: var(--white) !important;
+  z-index: 10;
+  padding: 12px;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 2px solid #1a252f;
+}
+
+.butler-table-wrapper table tbody tr {
+  border-bottom: 1px solid #ecf0f1;
+  transition: all 0.15s ease;
+}
+
+.butler-table-wrapper table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+.butler-table-wrapper table tbody tr:hover {
+  background: #e3f2fd !important;
+  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.15);
+  transform: scale(1.005);
+}
+
+.butler-table-wrapper table tbody td {
+  padding: 10px 12px;
+}
+
+/* Pagination Controls */
+.butler-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.butler-pagination button {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.butler-pagination button:hover:not(:disabled) {
+  background: var(--primary);
+  color: var(--white);
+  border-color: var(--primary);
+}
+
+.butler-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.butler-pagination .page-info {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  padding: 0 10px;
+}
+
+/* Butler Tabs - Enhanced for Command Center */
 .butler-tabs {
   display: flex;
-  gap: 5px;
-  margin-bottom: 15px;
-  border-bottom: 2px solid #ecf0f1;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 3px solid #ecf0f1;
   flex-wrap: wrap;
+  background: #f8f9fa;
+  padding: 10px 10px 0 10px;
+  border-radius: 8px 8px 0 0;
 }
 
 .butler-tabs .tab {
-  padding: 10px 15px;
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
+  padding: 12px 18px;
+  background: var(--white);
+  border: 2px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-radius: 6px 6px 0 0;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
   color: #7f8c8d;
-  transition: all 0.2s;
+  transition: all 0.25s ease;
   font-family: inherit;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .butler-tabs .tab.active {
   color: #2c3e50;
+  background: var(--white);
   border-bottom-color: #3498db;
-  font-weight: 600;
+  border-top-color: #3498db;
+  border-left-color: #3498db;
+  border-right-color: #3498db;
+  font-weight: 700;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(52, 152, 219, 0.2);
 }
 
-.butler-tabs .tab:hover {
+.butler-tabs .tab:hover:not(.active) {
   color: #2c3e50;
-  background: #f8f9fa;
+  background: var(--white);
+  border-color: #bdc3c7;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 /* Footer */
@@ -1014,6 +1258,20 @@ footer {
 
   .analytics-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Butler module stays full-width on tablet */
+  .butler-module-full-width {
+    width: 100%;
+  }
+
+  .butler-stats-card {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .butler-search-wrapper {
+    min-width: 200px;
+    max-width: 100%;
   }
 }
 

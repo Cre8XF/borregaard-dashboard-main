@@ -112,7 +112,21 @@
           </button>
         </section>
 
-        <!-- Dashboard Modules -->
+        <!-- PRIMARY MODULE: Butler Analyzer (Full Width) -->
+        <section class="module butler-module-full-width" id="butlerModule">
+          <div class="module-header">
+            <h2>🏭 Butler Analyse - Kommandosenter</h2>
+            <span class="status-badge" id="butlerStatus">Ingen data</span>
+          </div>
+          <div class="module-content">
+            <p class="placeholder">
+              Last opp daglig Butler Excel-eksport for å analysere lagerdata.
+            </p>
+            <div id="butlerResults"></div>
+          </div>
+        </section>
+
+        <!-- Dashboard Modules (2x2 Grid) -->
         <div class="dashboard-grid">
           <!-- Module A: Maintenance Shutdown Planner -->
           <section class="module" id="shutdownModule">
@@ -174,20 +188,6 @@
                 + Legg til produkt
               </button>
               <div id="assortmentResults"></div>
-            </div>
-          </section>
-
-          <!-- Module E: Butler Analyzer -->
-          <section class="module" id="butlerModule">
-            <div class="module-header">
-              <h2>Butler Analyse (2800 artikkler)</h2>
-              <span class="status-badge" id="butlerStatus">Ingen data</span>
-            </div>
-            <div class="module-content">
-              <p class="placeholder">
-                Last opp daglig Butler Excel-eksport for å analysere lagerdata.
-              </p>
-              <div id="butlerResults"></div>
             </div>
           </section>
         </div>
