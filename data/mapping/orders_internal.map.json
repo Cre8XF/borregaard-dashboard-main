@@ -1,0 +1,8 @@
+{
+  "_comment": "Mapping mellom CSV-kolonner og interne felter for interne ordre (etterfylling)",
+  "_instructions": "Fyll inn kolonnenavn fra CSV-filen som tilsvarer hvert felt. Eksempel: 'articleId': 'Varenr' hvis CSV har kolonnen 'Varenr'",
+  "articleId": "",
+  "warehouse": "",
+  "quantity": "",
+  "date": ""
+}

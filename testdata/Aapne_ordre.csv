@@ -1,0 +1,11 @@
+Ordrenr,Dato,Kunde,Varenummer,Varenavn,Antall,Status,Forventet_levering,System,Notater
+ORD-2025-001,2025-01-05,BORG-MEC,10001,Skruer M8x40 DIN933,200,Bekreftet,2025-01-12,Jeeves,Normal prioritet
+ORD-2025-002,2025-01-06,BORG-EL,10005,Kontaktor 3-pol 25A,15,Forsinket,2025-01-20,Jeeves,Leverandør forsinket
+ORD-2025-003,2025-01-06,BORG-BYGG,20002,Borekrone 68mm,10,Under behandling,2025-01-18,SAP,Venter godkjenning
+ORD-2025-004,2025-01-07,BORG-DRIFT,30001,Motorolje 15W40 20L,50,Bekreftet,2025-01-14,Jeeves,
+ORD-2025-005,2025-01-07,BORG-MEC,10014,Lager 6205 2RS,25,Bekreftet,2025-01-21,Jeeves,Premium kvalitet
+ORD-2025-006,2025-01-08,BORG-EL,10004,Sveisekabel 35mm2,100,Forsinket,2025-01-25,SAP,Produksjonsforsinkelse
+ORD-2025-007,2025-01-08,BORG-BYGG,20005,Sirkelsagblad 250mm,8,Bekreftet,2025-01-15,Jeeves,
+ORD-2025-008,2025-01-08,BORG-DRIFT,30013,Elektrode 2.5mm,200,Under behandling,2025-01-16,Jeeves,Kvalitetskontroll
+ORD-2024-456,2024-12-20,BORG-MEC,10011,Filter 10 micron,12,Kritisk forsinket,2025-01-10,SAP,Hasteordre - følg opp daglig
+ORD-2024-457,2024-12-28,BORG-EL,10006,Sikring 16A gL/gG,500,Bekreftet,2025-01-09,Jeeves,Stort volum

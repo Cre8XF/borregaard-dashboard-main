@@ -1,0 +1,65 @@
+[
+  {
+    "id": "lager1-test",
+    "name": "Testbruker Lager 1",
+    "role": "Kontaktperson",
+    "department": "Lager 1",
+    "email": "lager1@test.no",
+    "phone": "",
+    "active": true
+  },
+  {
+    "id": "lager2-test",
+    "name": "Testbruker Lager 2",
+    "role": "Kontaktperson",
+    "department": "Lager 2",
+    "email": "lager2@test.no",
+    "phone": "",
+    "active": true
+  },
+  {
+    "id": "lager3-test",
+    "name": "Testbruker Lager 3",
+    "role": "Kontaktperson",
+    "department": "Lager 3",
+    "email": "lager3@test.no",
+    "phone": "123 45 678",
+    "active": true
+  },
+  {
+    "id": "lager4-test",
+    "name": "Testbruker Lager 4",
+    "role": "Kontaktperson",
+    "department": "Lager 4",
+    "email": "lager4@test.no",
+    "phone": "",
+    "active": true
+  },
+  {
+    "id": "lager5-test",
+    "name": "Testbruker Lager 5",
+    "role": "Kontaktperson",
+    "department": "Lager 5",
+    "email": "lager5@test.no",
+    "phone": "987 65 432",
+    "active": true
+  },
+  {
+    "id": "lager6-test",
+    "name": "Testbruker Lager 6",
+    "role": "Kontaktperson",
+    "department": "Lager 6",
+    "email": "lager6@test.no",
+    "phone": "",
+    "active": true
+  },
+  {
+    "id": "lager7-test",
+    "name": "Testbruker Lager 7",
+    "role": "Kontaktperson",
+    "department": "Lager 7",
+    "email": "lager7@test.no",
+    "phone": "555 12 345",
+    "active": true
+  }
+]

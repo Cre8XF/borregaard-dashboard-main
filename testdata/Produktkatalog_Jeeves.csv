@@ -1,0 +1,21 @@
+Varenummer,Beskrivelse,Pris,Enhet,Produktgruppe,Leverandør,Leverandørnr,Status,Sist_oppdatert
+10001,Skruer M8x40 DIN933 8.8 FZB,2.50,STK,Festemateriell,Würth,W-08040933,Aktiv,2024-11-15
+10002,Mutter M8 DIN934 8 FZB,1.20,STK,Festemateriell,Würth,W-08000934,Aktiv,2024-11-15
+10003,Bricka M8 DIN125 FZB,0.30,STK,Festemateriell,Biltema,B-125-M8,Aktiv,2024-12-01
+10004,Kabel sveise 35mm2 svart 450/750V,45.00,M,Elektro,Elfa,E-SVKAB35,Aktiv,2024-10-20
+10005,Kontaktor 3-pol 25A 230VAC spole,450.00,STK,Elektro,Schneider,LC1D25P7,Aktiv,2024-11-30
+10006,Sikring 16A gL/gG 500V keramisk,8.50,STK,Elektro,ABB,OT16G3,Aktiv,2024-12-10
+10007,Kabelsko ring Cu 25mm2 M8,12.00,STK,Elektro,HellermannTyton,HT-RK2508,Aktiv,2024-09-15
+10008,Slange PVC 19x26mm klar,28.00,M,Hydraulikk,Parker,P-PVC1926,Aktiv,2024-11-01
+10009,Kobling hurtig 3/4" BSP hu/ha messing,85.00,STK,Hydraulikk,Georg Fischer,GF-QC075,Aktiv,2024-10-10
+10010,Ventil kulehane 1" BSP RF PN40,350.00,STK,Hydraulikk,Danfoss,DN-BV100,Aktiv,2024-12-05
+10011,Filter 10 micron 60L/min 350bar,1200.00,STK,Hydraulikk,Pall,P-HF10-60,Aktiv,2024-08-20
+10012,O-ring NBR 70 shore 40x3mm,3.50,STK,Tetninger,Trelleborg,TR-OR403,Aktiv,2024-11-25
+10013,Pakning flat PTFE 2" PN16,45.00,STK,Tetninger,Garlock,GL-FG2-16,Utgående,2024-07-30
+10014,Lager radialkule 6205 2RS1,125.00,STK,Lager,SKF,SKF-62052RS1,Aktiv,2024-12-01
+10015,Rem kile B-42 Li=1070mm,280.00,STK,Drivverk,Gates,GT-KB42-1070,Utgående,2024-06-15
+10016,Kile parallell 8x7x40 DIN6885,4.50,STK,Drivverk,Norelem,NL-07120-0807040,Aktiv,2024-11-10
+10017,Bolt sekskant M12x60 8.8 FZB,3.80,STK,Festemateriell,Würth,W-12060933,Aktiv,2024-11-15
+10018,Gummifot M10x50 D=40mm,18.00,STK,Montering,Elesa,EL-GN342-M10,Aktiv,2024-10-25
+10019,Fjær kompresjon D=12 d=1.2 L=25mm,8.50,STK,Fjærer,Lesjöfors,LJ-C1212025,Aktiv,2024-09-20
+10020,Pinne sylinder 6x40 m6 DIN1,2.20,STK,Festemateriell,Norelem,NL-07150-106040,Aktiv,2024-11-05

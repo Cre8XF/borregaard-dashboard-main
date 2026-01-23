@@ -1,0 +1,25 @@
+Varenummer,Status,Erstatning,Katalog,Leverandør,Ledtid,Notater
+10001,Aktiv,,A,Würth,7,Standard sortiment
+10002,Aktiv,,A,Würth,7,Standard sortiment
+10003,Aktiv,,A,Biltema,3,Hurtiglevering
+10004,Utgående,10004-NY,A,Elfa,14,Fases ut Q2 2025
+10005,Aktiv,,A,Schneider,21,
+10006,Aktiv,,A,ABB,7,Standard sortiment
+10007,Utgående,10007-B,A,HellermannTyton,10,Ny versjon tilgjengelig
+10008,Aktiv,,A,Parker,14,
+10009,Aktiv,,Outside,Georg Fischer,7,Spesialbestilling
+10010,Aktiv,,A,Danfoss,21,
+10011,Aktiv,,A,Pall,28,Lang leveringstid
+10012,Aktiv,,A,Trelleborg,14,Høyt forbruk
+10013,Utgående,10013-V2,Outside,Garlock,21,Erstattes av V2
+10014,Aktiv,,A,SKF,14,Premium kvalitet
+10015,Utgående,,A,Gates,28,Utgår - ikke erstatning
+20001,Aktiv,,A,Bosch,7,Bygg-sortiment
+20002,Aktiv,,A,Hilti,14,Premium verktøy
+20005,Aktiv,,A,Makita,14,Bygg-sortiment
+20011,Aktiv,,A,Ansell,7,Sikkerhetsutstyr
+20012,Aktiv,,A,3M,7,Sikkerhetsutstyr
+30001,Aktiv,,A,Shell,7,Drift-sortiment
+30002,Aktiv,,A,Mobil,14,Drift-sortiment
+30003,Aktiv,,A,SKF,7,Smøring
+30013,Aktiv,,A,ESAB,14,Sveiseutstyr

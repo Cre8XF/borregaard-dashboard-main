@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Kontaktoversikt - Borregaard Dashboard"
+    />
+    <title>Kontaktoversikt - Borregaard</title>
+    <link rel="stylesheet" href="css/dashboard.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Kontaktoversikt</h1>
+        <p class="subtitle">Borregaard - Kontaktpersoner per lager</p>
+
+        <!-- Tilbake-knapp -->
+        <div class="card-actions">
+          <a href="index.html" class="btn btn-secondary">
+            ← Tilbake til dashboard
+          </a>
+        </div>
+      </header>
+
+      <main>
+        <!-- Filter Section -->
+        <section class="upload-section">
+          <h2>Filter</h2>
+          <div class="table-controls">
+            <select id="departmentFilter" class="filter-select">
+              <option value="Alle">Alle lagre</option>
+              <option value="Lager 1">Lager 1</option>
+              <option value="Lager 2">Lager 2</option>
+              <option value="Lager 3">Lager 3</option>
+              <option value="Lager 4">Lager 4</option>
+              <option value="Lager 5">Lager 5</option>
+              <option value="Lager 6">Lager 6</option>
+              <option value="Lager 7">Lager 7</option>
+            </select>
+            <span id="contactCount" class="text-muted">0 kontakter</span>
+          </div>
+        </section>
+
+        <!-- Contacts Grid -->
+        <section class="module">
+          <div class="module-header">
+            <h2>Kontaktpersoner</h2>
+            <span class="status-badge" id="statusBadge">Laster...</span>
+          </div>
+          <div class="module-content">
+            <div id="contactsGrid" class="warehouse-grid">
+              <!-- Kontakter vises her via JavaScript -->
+              <p class="placeholder">Laster kontakter...</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <p>
+          Dashboard v2.0 - Lokal databehandling - Ingen data sendes til skyen
+        </p>
+      </footer>
+    </div>
+
+    <!-- Application Script -->
+    <script src="js/contacts.js"></script>
+  </body>
+</html>

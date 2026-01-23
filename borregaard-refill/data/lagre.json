@@ -1,0 +1,38 @@
+[
+  {
+    "id": "ost-spriten",
+    "navn": "Øst – Spriten",
+    "rKode": "R229",
+    "aktiv": true
+  },
+  {
+    "id": "vest-cellulose",
+    "navn": "Vest – Cellulose",
+    "rKode": "R275",
+    "aktiv": true
+  },
+  {
+    "id": "kokeri",
+    "navn": "Kokeri",
+    "rKode": "R125",
+    "aktiv": true
+  },
+  {
+    "id": "alva",
+    "navn": "Alva",
+    "rKode": "R265",
+    "aktiv": true
+  },
+  {
+    "id": "sentralv",
+    "navn": "SentralV",
+    "rKode": "R156",
+    "aktiv": true
+  },
+  {
+    "id": "grace",
+    "navn": "Grace",
+    "rKode": null,
+    "aktiv": true
+  }
+]

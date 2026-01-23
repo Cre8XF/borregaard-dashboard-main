@@ -1,0 +1,17 @@
+Lager,Varenummer,Navn,Beholdning,Min,Max,Leveringstid,Forbruk
+Lager A,10001,Skrue M6x20,25,50,200,7,5
+Lager A,10002,Mutter M6,100,50,200,7,8
+Lager A,10003,Pakning 50mm,10,20,100,14,2
+Lager B,10001,Skrue M6x20,150,50,200,7,3
+Lager B,10002,Mutter M6,30,50,200,7,6
+Lager B,10004,Bolt M8x30,80,40,150,10,4
+Lager C,10003,Pakning 50mm,5,20,100,14,3
+Lager C,10005,Tetning stor,0,10,50,21,1
+Lager D,10001,Skrue M6x20,200,50,200,7,2
+Lager D,10006,Ventil 3/4,8,15,60,30,1
+Lager E,10002,Mutter M6,15,50,200,7,8
+Lager E,10007,Slange 10m,25,10,40,14,2
+Lager F,10001,Skrue M6x20,60,50,200,7,4
+Lager F,10003,Pakning 50mm,45,20,100,14,2
+Lager G,10004,Bolt M8x30,12,40,150,10,5
+Lager G,10005,Tetning stor,20,10,50,21,2

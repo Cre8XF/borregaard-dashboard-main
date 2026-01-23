@@ -1,0 +1,16 @@
+Varenummer,Varenavn,Beholdning,Bestillingspunkt,Ordreantall,Leverandør,Ledtid
+30001,Motorolje 15W40 20L,145,150,50,Shell,7
+30002,Hydraulikkolje HLP 46,234,200,0,Mobil,14
+30003,Smørefett EP2 400g,89,100,50,SKF,7
+30004,Rengjøringsmiddel 5L,45,50,0,Würth,7
+30005,Kjølevæske 50/50 10L,67,60,0,Texaco,14
+30006,Slipepapir 120 grit,234,200,0,3M,7
+30007,Maling grå RAL7035 5L,12,15,10,Jotun,21
+30008,Tynner 5L,23,25,0,Jotun,14
+30009,Pensel 50mm,34,30,0,Harris,7
+30010,Malerrulle 25cm,45,40,0,Harris,7
+30011,Maskeringstape 50mm,89,80,0,Tesa,7
+30012,Plastfolie 4x5m,56,60,20,Finja,7
+30013,Elektrode 2.5mm,234,250,100,ESAB,14
+30014,Skjæreblad 76x1mm,145,150,0,Rhodius,7
+30015,Slipeskive 125x6mm,167,150,0,Norton,7

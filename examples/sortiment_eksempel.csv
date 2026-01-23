@@ -1,0 +1,9 @@
+Varenummer,Navn,Status,Katalog,Kunde,Leverandør,Ledtid,Erstatning,Notater
+10001,Skrue M6x20,Active,A,,Leverandør AS,7,,Standardvare
+10002,Mutter M6,Active,A,,Leverandør AS,7,,Standardvare
+10003,Pakning 50mm,Active,A,,Pakning Norge,14,,Brukes ved stopp
+10004,Bolt M8x30,Outgoing,A,,Leverandør AS,10,10008,Fases ut Q2
+10005,Tetning stor,Active,Customer,Kunde X,Spesial AS,21,,Kundespesifikk
+10006,Ventil 3/4,Active,A,,Ventiler Norge,30,,Lang ledtid
+10007,Slange 10m,Active,Outside,,Import AS,14,,Utenfor katalog
+10008,Bolt M10x30,Active,A,,Leverandør AS,10,,Erstatter 10004

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Plass Responsible Dashboard for Borregaard - Operasjonell kontroll og styring"
+    />
+    <title>Plass Responsible Dashboard - Borregaard</title>
+    <link rel="stylesheet" href="css/dashboard.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Plass Responsible Dashboard</h1>
+        <p class="subtitle">Borregaard - Operasjonell kontroll</p>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📦 Ukentlig lagerkontroll</h3>
+            <span class="status">Operativ</span>
+          </div>
+
+          <p>
+            Start mobilbasert gjennomgang av utskutte lagre. Scan artikler som
+            må etterfylles og eksporter direkte til Excel.
+          </p>
+
+          <div class="card-actions">
+            <a href="borregaard-refill/refill.html" class="btn btn-primary">
+              Start lagerkontroll
+            </a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>👥 Kontaktoversikt</h3>
+            <span class="status">Operativ</span>
+          </div>
+
+          <p>
+            Se kontaktpersoner for alle lagre. Finn e-post og telefon
+            til ansvarlige per lager.
+          </p>
+
+          <div class="card-actions">
+            <a href="contacts.html" class="btn btn-primary">
+              Se kontakter
+            </a>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <!-- File Upload Section -->
+        <section class="upload-section">
+          <h2>Last opp data</h2>
+          <div class="upload-controls">
+            <input type="file" id="fileInput" accept=".csv,.xlsx" multiple />
+            <button id="uploadBtn" class="btn-primary">Last inn filer</button>
+          </div>
+          <div id="uploadStatus" class="status-message"></div>
+        </section>
+
+        <!-- Data Mapping Status Section -->
+        <section class="upload-section">
+          <h2>Datamapping-status</h2>
+          <p style="margin-bottom: 15px; color: #666;">
+            Viser status for CSV-data og mapping-konfigurasjon. Mapping-filer kobler CSV-kolonner til interne felt.
+          </p>
+
+          <!-- Artikler -->
+          <div class="module" style="margin-bottom: 15px;">
+            <div class="module-header">
+              <h3>1️⃣ Artikler (grunndata)</h3>
+              <span class="status-badge" id="articlesStatusBadge">Ikke lastet</span>
+            </div>
+            <div class="module-content">
+              <p id="articlesStatusText" class="placeholder">Laster status...</p>
+              <div id="articlesDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
+            </div>
+          </div>
+
+          <!-- Interne ordre -->
+          <div class="module" style="margin-bottom: 15px;">
+            <div class="module-header">
+              <h3>2️⃣ Interne ordre / etterfylling</h3>
+              <span class="status-badge" id="ordersInternalStatusBadge">Ikke lastet</span>
+            </div>
+            <div class="module-content">
+              <p id="ordersInternalStatusText" class="placeholder">Laster status...</p>
+              <div id="ordersInternalDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
+            </div>
+          </div>
+
+          <!-- Eksterne innkjøp -->
+          <div class="module" style="margin-bottom: 15px;">
+            <div class="module-header">
+              <h3>3️⃣ Eksterne innkjøp</h3>
+              <span class="status-badge" id="ordersExternalStatusBadge">Ikke lastet</span>
+            </div>
+            <div class="module-content">
+              <p id="ordersExternalStatusText" class="placeholder">Laster status...</p>
+              <div id="ordersExternalDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
+            </div>
+          </div>
+
+          <button id="refreshDataBtn" class="btn-primary" style="margin-top: 10px;">
+            🔄 Oppdater datamapping-status
+          </button>
+        </section>
+
+        <!-- Dashboard Modules -->
+        <div class="dashboard-grid">
+          <!-- Module A: Maintenance Shutdown Planner -->
+          <section class="module" id="shutdownModule">
+            <div class="module-header">
+              <h2>Vedlikeholdsstopp (Uke 16 & 42)</h2>
+              <span class="status-badge" id="shutdownStatus">Ingen data</span>
+            </div>
+            <div class="module-content">
+              <p class="placeholder">
+                Last opp historiske ordredata for å analysere kritiske produkter
+                før stopp.
+              </p>
+              <div id="shutdownResults"></div>
+            </div>
+          </section>
+
+          <!-- Module B: Inventory Risk Overview -->
+          <section class="module" id="inventoryModule">
+            <div class="module-header">
+              <h2>Lagerrisiko (7 satellittlagre)</h2>
+              <span class="status-badge" id="inventoryStatus">Ingen data</span>
+            </div>
+            <div class="module-content">
+              <p class="placeholder">
+                Last opp lagerdata for å se risikooversikt.
+              </p>
+              <div id="inventoryResults"></div>
+            </div>
+          </section>
+
+          <!-- Module C: SAP ↔ Jeeves Flow Issues -->
+          <section class="module" id="flowModule">
+            <div class="module-header">
+              <h2>SAP ↔ Jeeves Flytproblemer</h2>
+              <span class="status-badge" id="flowStatus">0 åpne</span>
+            </div>
+            <div class="module-content">
+              <p class="placeholder">
+                Logg og følg opp systemintegrasjonsproblemer.
+              </p>
+              <button id="addIssueBtn" class="btn-secondary">
+                + Legg til problem
+              </button>
+              <div id="flowResults"></div>
+            </div>
+          </section>
+
+          <!-- Module D: Customer Assortment -->
+          <section class="module" id="assortmentModule">
+            <div class="module-header">
+              <h2>Kundesortiment & Katalog</h2>
+              <span class="status-badge" id="assortmentStatus">Ingen data</span>
+            </div>
+            <div class="module-content">
+              <p class="placeholder">
+                Administrer kundesspesifikt sortiment og erstatningsprodukter.
+              </p>
+              <button id="addItemBtn" class="btn-secondary">
+                + Legg til produkt
+              </button>
+              <div id="assortmentResults"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer>
+        <p>
+          Dashboard v2.0 - Lokal databehandling - Ingen data sendes til skyen
+        </p>
+      </footer>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+    <!-- Data Mapping Modules (load first) -->
+    <script src="js/dataMapper.js"></script>
+    <script src="js/dataAggregator.js"></script>
+    <script src="js/dataMappingUI.js"></script>
+
+    <!-- Application Modules -->
+    <script src="js/dataLoader.js"></script>
+    <script src="js/shutdownAnalyzer.js"></script>
+    <script src="js/inventoryRisk.js"></script>
+    <script src="js/flowIssues.js"></script>
+    <script src="js/assortment.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

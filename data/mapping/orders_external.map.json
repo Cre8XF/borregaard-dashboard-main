@@ -1,0 +1,8 @@
+{
+  "_comment": "Mapping mellom CSV-kolonner og interne felter for eksterne innkjøp",
+  "_instructions": "Fyll inn kolonnenavn fra CSV-filen som tilsvarer hvert felt. Eksempel: 'supplier': 'Leverandør' hvis CSV har kolonnen 'Leverandør'",
+  "articleId": "",
+  "supplier": "",
+  "quantity": "",
+  "expectedDate": ""
+}

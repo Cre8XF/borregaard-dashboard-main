@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Borregaard – Lagerkontroll</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/refill.css" />
+  </head>
+  <body>
+    <!-- ========================= -->
+    <!-- STEG 1 – START RUNDE -->
+    <!-- ========================= -->
+    <section id="step-start" class="step active">
+      <h1>📦 Start lagerkontroll</h1>
+
+      <label for="lagerSelect">Velg lager</label>
+      <select id="lagerSelect">
+        <option value="">– Velg lager –</option>
+        <!-- fylles via JS fra lagre.json -->
+      </select>
+
+      <div class="meta">
+        <p>📅 <span id="dato">–</span></p>
+        <p>🕒 Uke <span id="uke">–</span></p>
+      </div>
+
+      <button id="startBtn" disabled>Start runde</button>
+    </section>
+
+    <!-- ========================= -->
+    <!-- STEG 2 – REGISTRER VARER -->
+    <!-- ========================= -->
+    <section id="step-register" class="step">
+      <header class="session-info">
+        <p>📍 <strong id="aktivtLager">–</strong></p>
+        <p>🕒 Uke <span id="aktivUke">–</span></p>
+      </header>
+
+      <div class="scan-area">
+        <button id="scanBtn">📷 Scan strekkode</button>
+        <button id="cancelScanBtn" class="cancel-scan" style="display: none;">❌ Avbryt skanning</button>
+      </div>
+
+      <div class="form">
+        <p class="form-hint">Scan strekkode eller skriv manuelt</p>
+
+        <label for="artnr">Artikkelnummer</label>
+        <input type="text" id="artnr" placeholder="Skriv eller scan" />
+
+        <label for="antall">Antall</label>
+        <input type="number" id="antall" inputmode="numeric" />
+
+        <label for="kommentar">Kommentar (valgfritt)</label>
+        <input type="text" id="kommentar" placeholder="F.eks. 'Tom hylle', 'Haster'" />
+
+        <button id="addBtn">➕ Legg til</button>
+      </div>
+
+      <section class="list">
+        <h2>🧾 Registrert i denne runden</h2>
+        <ul id="itemsList">
+          <!-- varer legges til her -->
+        </ul>
+      </section>
+
+      <button id="finishBtn" class="danger">Avslutt runde</button>
+      <button id="resetBtn" class="secondary">🔄 Slett runde / Start på nytt</button>
+    </section>
+
+    <!-- JS -->
+    <script defer src="js/refill.js"></script>
+  </body>
+</html>

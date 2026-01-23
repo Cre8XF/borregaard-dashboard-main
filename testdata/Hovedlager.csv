@@ -1,0 +1,21 @@
+Varenummer,Varenavn,Beholdning,Bestillingspunkt,Ordreantall,Leverandør,Ledtid
+10001,Skruer M8x40 DIN933,450,500,0,Würth,7
+10002,Mutter M8 DIN934,380,400,100,Würth,7
+10003,Bricka M8 DIN125,520,300,0,Biltema,3
+10004,Sveisekabel 35mm2,85,100,50,Elfa,14
+10005,Kontaktor 3-pol 25A,12,20,30,Schneider,21
+10006,Sikring 16A gL/gG,145,150,0,ABB,7
+10007,Kabelsko 25mm2,68,80,50,HellermannTyton,10
+10008,Slange 19mm PVC,234,200,0,Parker,14
+10009,Kobling 3/4" messing,43,50,20,Georg Fischer,7
+10010,Ventil 1" kulehane,18,25,30,Danfoss,21
+10011,Filter 10 micron,56,60,0,Pall,28
+10012,O-ring NBR 40x3,890,500,0,Trelleborg,14
+10013,Pakning PTFE 2",28,30,10,Garlock,21
+10014,Lager 6205 2RS,67,80,50,SKF,14
+10015,Rem B-42 Li=1070,15,20,10,Gates,28
+10016,Kile 8x7x40,234,200,0,Norelem,7
+10017,Bolt M12x60 8.8,456,400,0,Würth,7
+10018,Gummifot M10,89,100,50,Elesa,14
+10019,Fjær kompresjon D=12,145,150,0,Lesjöfors,21
+10020,Pinne 6x40 DIN1,234,200,0,Norelem,10
