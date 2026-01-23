@@ -15,7 +15,8 @@ class DashboardApp {
             shutdown: [],
             inventory: [],
             flowIssues: [],
-            assortment: []
+            assortment: [],
+            butlerData: []
         };
 
         this.settings = {
@@ -162,6 +163,9 @@ class DashboardApp {
                     <option value="flowIssues" ${suggested === 'flowIssues' ? 'selected' : ''}>
                         ⚠️ SAP/Jeeves problemer
                     </option>
+                    <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
+                        🏭 Butler Analyse (2800 artikler)
+                    </option>
                 </select>
             `;
             
@@ -189,7 +193,12 @@ class DashboardApp {
      */
     suggestModule(fileName) {
         const fn = fileName.toLowerCase();
-        
+
+        // Check for Butler files first (most specific)
+        if (fn.includes('butler') || fn.includes('artikkel') || fn.includes('artikelnr')) {
+            return 'butlerData';
+        }
+
         if (fn.includes('order') || fn.includes('ordre') || fn.includes('vedlikehold')) {
             return 'shutdown';
         }
@@ -202,7 +211,7 @@ class DashboardApp {
         if (fn.includes('issue') || fn.includes('problem') || fn.includes('sap') || fn.includes('jeeves')) {
             return 'flowIssues';
         }
-        
+
         // Default to shutdown
         return 'shutdown';
     }
@@ -351,6 +360,11 @@ class DashboardApp {
         if (window.Assortment) {
             window.Assortment.update(this.data.assortment);
         }
+
+        // Update Butler analyzer
+        if (window.ButlerAnalyzer) {
+            window.ButlerAnalyzer.update(this.data.butlerData);
+        }
     }
 
     /**
@@ -472,7 +486,8 @@ class DashboardApp {
                 if (this.data.shutdown.length > 0 ||
                     this.data.inventory.length > 0 ||
                     this.data.flowIssues.length > 0 ||
-                    this.data.assortment.length > 0) {
+                    this.data.assortment.length > 0 ||
+                    this.data.butlerData.length > 0) {
                     this.showToast('Data lastet fra forrige økt', 'success');
                 }
             }
@@ -491,7 +506,8 @@ class DashboardApp {
                 shutdown: [],
                 inventory: [],
                 flowIssues: [],
-                assortment: []
+                assortment: [],
+                butlerData: []
             };
 
             localStorage.removeItem('dashboardData');

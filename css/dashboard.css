@@ -962,6 +962,38 @@ input[type='file']:hover {
   background: var(--info);
 }
 
+/* Butler Tabs */
+.butler-tabs {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #ecf0f1;
+  flex-wrap: wrap;
+}
+
+.butler-tabs .tab {
+  padding: 10px 15px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: #7f8c8d;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.butler-tabs .tab.active {
+  color: #2c3e50;
+  border-bottom-color: #3498db;
+  font-weight: 600;
+}
+
+.butler-tabs .tab:hover {
+  color: #2c3e50;
+  background: #f8f9fa;
+}
+
 /* Footer */
 footer {
   text-align: center;
