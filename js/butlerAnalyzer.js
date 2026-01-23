@@ -17,6 +17,7 @@ class ButlerAnalyzer {
         // Item identification
         itemNo: ['Artikelnr', 'Artikelnummer', 'ItemNo', 'Item Number'],
         itemName: ['Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
+        description: ['Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
 
         // Stock levels
         stock: ['Lagersaldo', 'Stock', 'Beholdning', 'OnHand'],
@@ -38,6 +39,7 @@ class ButlerAnalyzer {
 
         // Location
         location: ['Lagerhylla', 'Hylla', 'Location', 'Bin', 'ShelfLocation'],
+        shelf1: ['Hylla 1', 'Shelf1', 'Shelf 1'],
 
         // Additional useful fields
         category: ['Kategori', 'Category', 'ProductGroup'],
@@ -223,42 +225,42 @@ class ButlerAnalyzer {
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
                 viewIcon = '⚠️';
-                columns = ['_itemNo', '_itemName', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
                 break;
 
             case 'negative':
                 filteredData = data.filter(item => item._isNegative);
                 viewTitle = 'Negativ saldo';
                 viewIcon = '🔴';
-                columns = ['_itemNo', '_itemName', '_stock', '_availableStock', '_reserved', '_location', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_availableStock', '_reserved', '_supplier'];
                 break;
 
             case 'belowMin':
                 filteredData = data.filter(item => item._hasBelowMin);
                 viewTitle = 'Under minimum (BP)';
                 viewIcon = '📉';
-                columns = ['_itemNo', '_itemName', '_stock', '_min', '_max', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_min', '_max', '_r12Sales', '_supplier'];
                 break;
 
             case 'noMovement':
                 filteredData = data.filter(item => item._hasNoMovement && item._isActive);
                 viewTitle = 'Ingen bevegelse R12';
                 viewIcon = '💤';
-                columns = ['_itemNo', '_itemName', '_stock', '_availableStock', '_r12Sales', '_location', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_availableStock', '_r12Sales', '_supplier'];
                 break;
 
             case 'highReserve':
                 filteredData = data.filter(item => item._hasHighReserve);
                 viewTitle = 'Høy reservasjon (>70%)';
                 viewIcon = '🔒';
-                columns = ['_itemNo', '_itemName', '_stock', '_reserved', '_reservePercent', '_availableStock', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_reserved', '_reservePercent', '_availableStock', '_supplier'];
                 break;
 
             default:
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
                 viewIcon = '⚠️';
-                columns = ['_itemNo', '_itemName', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
         }
 
         let html = '';
@@ -386,6 +388,8 @@ class ButlerAnalyzer {
         const columnLabels = {
             '_itemNo': 'Artikelnr',
             '_itemName': 'Beskrivelse',
+            '_description': 'Beskrivelse',
+            '_shelf1': 'Hylla',
             '_stock': 'Saldo',
             '_availableStock': 'Disponibel',
             '_reserved': 'Reservert',
@@ -393,7 +397,7 @@ class ButlerAnalyzer {
             '_max': 'Max',
             '_r12Sales': 'R12',
             '_supplier': 'Leverandør',
-            '_location': 'Hylla',
+            '_location': 'Lokasjon',
             '_reservePercent': 'Reserv %'
         };
 
@@ -559,7 +563,8 @@ class ButlerAnalyzer {
 
         const keyFields = [
             { label: 'Artikelnr', value: item._itemNo },
-            { label: 'Beskrivelse', value: item._itemName },
+            { label: 'Beskrivelse', value: item._description || item._itemName },
+            { label: 'Hylla', value: item._shelf1 },
             { label: 'Status', value: item._status + (item._isActive ? ' (Aktiv)' : ' (Inaktiv)') },
             { label: 'Lagersaldo', value: item._stockNum },
             { label: 'Disponibel', value: item._availableStockNum },
@@ -568,7 +573,7 @@ class ButlerAnalyzer {
             { label: 'Max', value: item._maxNum },
             { label: 'R12 Salg', value: item._r12SalesNum },
             { label: 'Leverandør', value: item._supplier },
-            { label: 'Hylla', value: item._location },
+            { label: 'Lokasjon', value: item._location },
             { label: 'Reservasjon %', value: item._reservePercent.toFixed(1) + '%' }
         ];
 
@@ -627,6 +632,7 @@ class ButlerAnalyzer {
         const headers = [
             'Artikelnr',
             'Beskrivelse',
+            'Hylla',
             'Status',
             'Lagersaldo',
             'Disponibel',
@@ -635,7 +641,7 @@ class ButlerAnalyzer {
             'Max',
             'R12 Salg',
             'Leverandør',
-            'Hylla',
+            'Lokasjon',
             'Reservasjon %'
         ];
 
@@ -645,7 +651,8 @@ class ButlerAnalyzer {
         data.forEach(item => {
             const row = [
                 item._itemNo || '',
-                `"${(item._itemName || '').replace(/"/g, '""')}"`,
+                `"${((item._description || item._itemName) || '').replace(/"/g, '""')}"`,
+                item._shelf1 || '',
                 item._status || '',
                 item._stockNum || 0,
                 item._availableStockNum || 0,
