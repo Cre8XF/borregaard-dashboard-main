@@ -16,7 +16,8 @@ class DashboardApp {
             inventory: [],
             flowIssues: [],
             assortment: [],
-            butlerData: []
+            butlerData: [],
+            orderHistory: []
         };
 
         this.settings = {
@@ -166,6 +167,9 @@ class DashboardApp {
                     <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
                         🏭 Butler Analyse (2800 artikler)
                     </option>
+                    <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
+                        📦 Ordre Historikk (Tools)
+                    </option>
                 </select>
             `;
             
@@ -195,13 +199,20 @@ class DashboardApp {
         const fn = fileName.toLowerCase();
 
         // Check for Butler files first (most specific)
-        if (fn.includes('butler') || fn.includes('artikkel') || fn.includes('artikelnr')) {
+        if (fn.includes('butler') || fn.includes('artikkel')) {
             return 'butlerData';
         }
 
-        if (fn.includes('order') || fn.includes('ordre') || fn.includes('vedlikehold')) {
+        // Check for order history from Tools
+        if (fn.includes('tools') || fn.includes('historikk') || fn.includes('history')) {
+            return 'orderHistory';
+        }
+
+        // Shutdown/maintenance (vedlikehold)
+        if (fn.includes('vedlikehold') || fn.includes('stopp') || fn.includes('shutdown')) {
             return 'shutdown';
         }
+
         if (fn.includes('inventory') || fn.includes('lager') || fn.includes('stock') || fn.includes('beholdning')) {
             return 'inventory';
         }
@@ -365,6 +376,11 @@ class DashboardApp {
         if (window.ButlerAnalyzer) {
             window.ButlerAnalyzer.update(this.data.butlerData);
         }
+
+        // Update Order analyzer
+        if (window.OrderAnalyzer) {
+            window.OrderAnalyzer.update(this.data.orderHistory);
+        }
     }
 
     /**
@@ -487,7 +503,8 @@ class DashboardApp {
                     this.data.inventory.length > 0 ||
                     this.data.flowIssues.length > 0 ||
                     this.data.assortment.length > 0 ||
-                    this.data.butlerData.length > 0) {
+                    this.data.butlerData.length > 0 ||
+                    this.data.orderHistory.length > 0) {
                     this.showToast('Data lastet fra forrige økt', 'success');
                 }
             }
@@ -507,7 +524,8 @@ class DashboardApp {
                 inventory: [],
                 flowIssues: [],
                 assortment: [],
-                butlerData: []
+                butlerData: [],
+                orderHistory: []
             };
 
             localStorage.removeItem('dashboardData');

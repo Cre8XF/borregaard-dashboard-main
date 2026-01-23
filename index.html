@@ -64,52 +64,30 @@
           <div id="uploadStatus" class="status-message"></div>
         </section>
 
-        <!-- Data Mapping Status Section -->
-        <section class="upload-section">
-          <h2>Datamapping-status</h2>
-          <p style="margin-bottom: 15px; color: #666;">
-            Viser status for CSV-data og mapping-konfigurasjon. Mapping-filer kobler CSV-kolonner til interne felt.
-          </p>
-
-          <!-- Artikler -->
-          <div class="module" style="margin-bottom: 15px;">
-            <div class="module-header">
-              <h3>1️⃣ Artikler (grunndata)</h3>
-              <span class="status-badge" id="articlesStatusBadge">Ikke lastet</span>
-            </div>
-            <div class="module-content">
-              <p id="articlesStatusText" class="placeholder">Laster status...</p>
-              <div id="articlesDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
-            </div>
+        <!-- ORDER HISTORY MODULE: Order Analyzer (Full Width) -->
+        <section class="module order-module-full-width" id="orderModule">
+          <div class="module-header">
+            <h2>📦 Ordre Historikk - Tools til Borregaard</h2>
+            <span class="status-badge" id="orderStatus">Ingen data</span>
           </div>
+          <div class="module-content">
+            <p class="placeholder">
+              Last opp ordre historikk fra Tools for å analysere kjøpsmønstre.
+              <br><br>
+              <strong>Tips:</strong> Filen bør inneholde: Artikelnr, Dato, Antall, Kunde
+            </p>
 
-          <!-- Interne ordre -->
-          <div class="module" style="margin-bottom: 15px;">
-            <div class="module-header">
-              <h3>2️⃣ Interne ordre / etterfylling</h3>
-              <span class="status-badge" id="ordersInternalStatusBadge">Ikke lastet</span>
+            <!-- Tab navigation (will be populated when data loads) -->
+            <div class="order-tabs" style="display: none;">
+              <button class="tab active" data-view="top-sellers">🏆 Mest solgt</button>
+              <button class="tab" data-view="frequent">⚡ Oftest kjøpt</button>
+              <button class="tab" data-view="seasonal">📅 Sesongmønstre</button>
+              <button class="tab" data-view="customers">👥 Per kunde</button>
+              <button class="tab" data-view="timeline">📈 Tidslinje</button>
             </div>
-            <div class="module-content">
-              <p id="ordersInternalStatusText" class="placeholder">Laster status...</p>
-              <div id="ordersInternalDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
-            </div>
+
+            <div id="orderResults"></div>
           </div>
-
-          <!-- Eksterne innkjøp -->
-          <div class="module" style="margin-bottom: 15px;">
-            <div class="module-header">
-              <h3>3️⃣ Eksterne innkjøp</h3>
-              <span class="status-badge" id="ordersExternalStatusBadge">Ikke lastet</span>
-            </div>
-            <div class="module-content">
-              <p id="ordersExternalStatusText" class="placeholder">Laster status...</p>
-              <div id="ordersExternalDetails" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
-            </div>
-          </div>
-
-          <button id="refreshDataBtn" class="btn-primary" style="margin-top: 10px;">
-            🔄 Oppdater datamapping-status
-          </button>
         </section>
 
         <!-- PRIMARY MODULE: Butler Analyzer (Full Width) -->
@@ -215,6 +193,7 @@
     <script src="js/flowIssues.js"></script>
     <script src="js/assortment.js"></script>
     <script src="js/butlerAnalyzer.js"></script>
+    <script src="js/orderAnalyzer.js"></script>
     <script src="js/app.js"></script>
   </body>
 </html>

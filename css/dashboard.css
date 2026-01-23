@@ -263,6 +263,27 @@ input[type='file']:hover {
   padding: 25px 30px;
 }
 
+/* Full-width Order History module */
+.order-module-full-width {
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 8px var(--shadow);
+}
+
+.order-module-full-width .module-header {
+  background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+  padding: 25px 30px;
+}
+
+.order-module-full-width .module-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.order-module-full-width .module-content {
+  padding: 25px 30px;
+}
+
 /* Module Cards */
 .module {
   background: var(--white);
@@ -1238,6 +1259,53 @@ input[type='file']:hover {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
+/* Order Tabs - Similar to Butler but with green accent */
+.order-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 3px solid #ecf0f1;
+  flex-wrap: wrap;
+  background: #f8f9fa;
+  padding: 10px 10px 0 10px;
+  border-radius: 8px 8px 0 0;
+}
+
+.order-tabs .tab {
+  padding: 12px 18px;
+  background: var(--white);
+  border: 2px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7f8c8d;
+  transition: all 0.25s ease;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.order-tabs .tab.active {
+  color: #2c3e50;
+  background: var(--white);
+  border-bottom-color: #27ae60;
+  border-top-color: #27ae60;
+  border-left-color: #27ae60;
+  border-right-color: #27ae60;
+  font-weight: 700;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(39, 174, 96, 0.2);
+}
+
+.order-tabs .tab:hover:not(.active) {
+  color: #2c3e50;
+  background: var(--white);
+  border-color: #bdc3c7;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
 /* Footer */
 footer {
   text-align: center;
@@ -1262,6 +1330,11 @@ footer {
 
   /* Butler module stays full-width on tablet */
   .butler-module-full-width {
+    width: 100%;
+  }
+
+  /* Order module stays full-width on tablet */
+  .order-module-full-width {
     width: 100%;
   }
 
