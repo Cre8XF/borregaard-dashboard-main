@@ -98,6 +98,94 @@ class ButlerAnalyzer {
     }
 
     /**
+     * Enrich Butler data with SA-numbers from Jeeves mapping file
+     * Normalizes article numbers to handle leading zeros from Jeeves
+     */
+    static enrichWithSANumbers(butlerData, saMappingData) {
+        console.log(`📋 Matching ${butlerData.length} Butler items with ${saMappingData.length} SA-mappings...`);
+
+        /**
+         * Normalize article number: remove leading zeros, trim whitespace
+         * "0000162" -> "162"
+         * "  170  " -> "170"
+         */
+        function normalizeArticleNumber(artNr) {
+            if (!artNr) return '';
+
+            // Convert to string, trim whitespace
+            let normalized = artNr.toString().trim();
+
+            // Remove leading zeros (but keep "0" if that's the only digit)
+            normalized = normalized.replace(/^0+(?=\d)/, '');
+
+            return normalized;
+        }
+
+        // Build lookup map: Tools Art.nr -> SA-nummer
+        const saMap = new Map();
+        let mappedCount = 0;
+
+        saMappingData.forEach((row, index) => {
+            // Extract Tools article number (Jeeves column: "Artikelnr")
+            const toolsNr = row['Artikelnr'] || row['Artikelnummer'] || row['Tools Artikelnr'];
+
+            // Extract SA-number (Jeeves column: "Kunds artikelnummer")
+            const saNr = row['Kunds artikelnummer'] || row['SA-nummer'] || row['Kundens artikelnummer'];
+
+            if (toolsNr && saNr) {
+                // CRITICAL: Normalize to handle leading zeros from Jeeves
+                const normalizedToolsNr = normalizeArticleNumber(toolsNr);
+                const cleanSaNr = saNr.toString().trim();
+
+                if (normalizedToolsNr && cleanSaNr !== '' && cleanSaNr !== '0') {
+                    saMap.set(normalizedToolsNr, cleanSaNr);
+                    mappedCount++;
+
+                    // Debug: Log first 5 mappings
+                    if (index < 5) {
+                        console.log(`  Mapping: ${toolsNr} -> ${normalizedToolsNr} = ${cleanSaNr}`);
+                    }
+                }
+            }
+        });
+
+        console.log(`✅ Built SA-mapping with ${mappedCount} entries`);
+
+        // Match Butler data with SA-numbers
+        let matchCount = 0;
+        const enrichedData = butlerData.map((item, index) => {
+            // CRITICAL: Normalize Butler article number too
+            const normalizedToolsNr = normalizeArticleNumber(item._itemNo);
+            const saNr = saMap.get(normalizedToolsNr);
+
+            if (saNr) {
+                item._saNummer = saNr;
+                item._hasSA = true;
+                matchCount++;
+
+                // Debug: Log first 5 matches
+                if (matchCount <= 5) {
+                    console.log(`  ✓ Match: ${item._itemNo} -> ${normalizedToolsNr} = ${saNr}`);
+                }
+            } else {
+                item._saNummer = '';
+                item._hasSA = false;
+            }
+
+            return item;
+        });
+
+        const matchPercent = Math.round(matchCount / butlerData.length * 100);
+        console.log(`✅ Matched ${matchCount} of ${butlerData.length} items with SA-numbers (${matchPercent}%)`);
+
+        if (matchCount < butlerData.length) {
+            console.log(`⚠️ ${butlerData.length - matchCount} items without SA-number`);
+        }
+
+        return enrichedData;
+    }
+
+    /**
      * Enrich data with parsed values and calculated flags
      * FIXED: Robust description handling with multiple fallbacks
      */
@@ -276,42 +364,42 @@ class ButlerAnalyzer {
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
                 viewIcon = '⚠️';
-                columns = ['_itemNo', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
                 break;
 
             case 'negative':
                 filteredData = data.filter(item => item._isNegative);
                 viewTitle = 'Negativ saldo';
                 viewIcon = '🔴';
-                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_availableStock', '_reserved', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_stock', '_availableStock', '_reserved', '_supplier'];
                 break;
 
             case 'belowMin':
                 filteredData = data.filter(item => item._hasBelowMin);
                 viewTitle = 'Under minimum (BP)';
                 viewIcon = '📉';
-                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_min', '_max', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_stock', '_min', '_max', '_r12Sales', '_supplier'];
                 break;
 
             case 'noMovement':
                 filteredData = data.filter(item => item._hasNoMovement && item._isActive);
                 viewTitle = 'Ingen bevegelse R12';
                 viewIcon = '💤';
-                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_availableStock', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_stock', '_availableStock', '_r12Sales', '_supplier'];
                 break;
 
             case 'highReserve':
                 filteredData = data.filter(item => item._hasHighReserve);
                 viewTitle = 'Høy reservasjon (>70%)';
                 viewIcon = '🔒';
-                columns = ['_itemNo', '_description', '_shelf1', '_stock', '_reserved', '_reservePercent', '_availableStock', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_stock', '_reserved', '_reservePercent', '_availableStock', '_supplier'];
                 break;
 
             default:
                 filteredData = data.filter(item => item._isActive && item._isZeroStock);
                 viewTitle = '0 i saldo (Aktiv)';
                 viewIcon = '⚠️';
-                columns = ['_itemNo', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
+                columns = ['_itemNo', '_saNummer', '_description', '_shelf1', '_availableStock', '_reserved', '_min', '_r12Sales', '_supplier'];
         }
 
         let html = '';
@@ -377,6 +465,25 @@ class ButlerAnalyzer {
         html += '<div class="stat-label">Totalt lastet</div>';
         html += '</div>';
 
+        // SA-nummer statistikk
+        const withSA = filteredData.filter(i => i._hasSA).length;
+        const withoutSA = filteredData.length - withSA;
+        const saPercent = filteredData.length > 0 ? Math.round((withSA / filteredData.length) * 100) : 0;
+
+        html += `<div class="butler-stat-item ${withoutSA > 0 ? 'warning' : 'ok'}">`;
+        html += '<div class="stat-icon">🔗</div>';
+        html += `<span class="stat-value">${withSA}</span>`;
+        html += `<div class="stat-label">Med SA-nummer (${saPercent}%)</div>`;
+        html += '</div>';
+
+        if (withoutSA > 0) {
+            html += `<div class="butler-stat-item warning">`;
+            html += '<div class="stat-icon">⚠️</div>';
+            html += `<span class="stat-value">${withoutSA}</span>`;
+            html += '<div class="stat-label">Uten SA-nummer</div>';
+            html += '</div>';
+        }
+
         // View-specific stats
         if (viewName === 'zeroStock') {
             const criticalCount = filteredData.filter(i => i._minNum > 0).length;
@@ -438,6 +545,7 @@ class ButlerAnalyzer {
         // Column headers
         const columnLabels = {
             '_itemNo': 'Artikelnr',
+            '_saNummer': 'SA-nummer',
             '_itemName': 'Beskrivelse',
             '_description': 'Beskrivelse',
             '_shelf1': 'Hylla',
@@ -628,6 +736,7 @@ class ButlerAnalyzer {
 
         const keyFields = [
             { label: 'Artikelnr', value: item._itemNo },
+            { label: 'SA-nummer', value: item._saNummer || 'Ikke tilgjengelig' },
             { label: 'Beskrivelse', value: item._description },
             { label: 'Hylla', value: item._shelf1 },
             { label: 'Status', value: item._status + (item._isActive ? ' (Aktiv)' : ' (Inaktiv)') },
@@ -696,6 +805,7 @@ class ButlerAnalyzer {
         // Prepare headers
         const headers = [
             'Artikelnr',
+            'SA-nummer',
             'Beskrivelse',
             'Hylla',
             'Status',
@@ -716,6 +826,7 @@ class ButlerAnalyzer {
         data.forEach(item => {
             const row = [
                 item._itemNo || '',
+                item._saNummer || '',
                 `"${(item._description || '').replace(/"/g, '""')}"`,
                 item._shelf1 || '',
                 item._status || '',
