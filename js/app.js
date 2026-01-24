@@ -320,7 +320,7 @@ class DashboardApp {
         }
 
         // Store data in user-selected module
-        this.data[targetModule] = [...this.data[targetModule], ...mappedData];
+        this.data[targetModule] = mappedData;
 
         // Generate quality report
         const quality = DataLoader.generateQualityReport(mappedData);
