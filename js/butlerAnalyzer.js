@@ -98,91 +98,187 @@ class ButlerAnalyzer {
     }
 
     /**
-     * Enrich Butler data with SA-numbers from Jeeves mapping file
-     * Normalizes article numbers to handle leading zeros from Jeeves
+     * COMPLETE DEBUG VERSION - Shows exactly what's happening
+     * Replace enrichWithSANumbers() in butlerAnalyzer.js with this version
      */
     static enrichWithSANumbers(butlerData, saMappingData) {
-        console.log(`📋 Matching ${butlerData.length} Butler items with ${saMappingData.length} SA-mappings...`);
+        console.log('\n🔍 === SA-NUMBER MATCHING DEBUG START ===\n');
 
-        /**
-         * Normalize article number: remove leading zeros, trim whitespace
-         * "0000162" -> "162"
-         * "  170  " -> "170"
-         */
+        if (!saMappingData || saMappingData.length === 0) {
+            console.log('⚠️ No SA-mapping data provided');
+            return butlerData.map(item => ({
+                ...item,
+                _saNummer: '',
+                _hasSA: false
+            }));
+        }
+
+        console.log(`📋 Butler has ${butlerData.length} items`);
+        console.log(`📋 SA-mapping has ${saMappingData.length} entries`);
+
+        // STEP 1: Show first 3 Butler items
+        console.log('\n🔍 STEP 1: First 3 Butler items:');
+        butlerData.slice(0, 3).forEach((item, idx) => {
+            console.log(`  [${idx}] _itemNo = "${item._itemNo}" (type: ${typeof item._itemNo})`);
+        });
+
+        // STEP 2: Auto-detect SA-mapping columns
+        console.log('\n🔍 STEP 2: Auto-detecting SA-mapping columns...');
+        const firstRow = saMappingData[0];
+        const allColumns = Object.keys(firstRow);
+
+        console.log(`  Available columns: ${allColumns.join(', ')}`);
+
+        const artNrCol = allColumns.find(key =>
+            key === 'Artikelnr' ||
+            key === 'Artikelnummer' ||
+            key.toLowerCase().replace(/\s/g, '').includes('artikelnr')
+        );
+
+        const saCol = allColumns.find(key => {
+            const normalized = key.toLowerCase().replace(/\s/g, '');
+            return normalized.includes('kundsartikelnummer') ||
+                   normalized.includes('kundsartikelnr') ||
+                   normalized.includes('sa-nummer') ||
+                   normalized.includes('sanummer') ||
+                   key.includes('Kunds artikelnummer') ||
+                   key.includes('Kunds artikelnr') ||
+                   (key.toUpperCase().startsWith('SA') && normalized.includes('nummer'));
+        });
+
+        console.log(`  ✓ Artikelnr kolonne: "${artNrCol}"`);
+        console.log(`  ✓ SA-nummer kolonne: "${saCol}"`);
+
+        if (!artNrCol || !saCol) {
+            console.error('  ❌ Kunne ikke finne nødvendige kolonner!');
+            return butlerData.map(item => ({ ...item, _saNummer: '', _hasSA: false }));
+        }
+
+        // STEP 3: Show first 3 SA-mapping entries
+        console.log('\n🔍 STEP 3: First 3 SA-mapping entries:');
+        saMappingData.slice(0, 3).forEach((row, idx) => {
+            const toolsNr = row[artNrCol];
+            const saNr = row[saCol];
+            console.log(`  [${idx}] "${artNrCol}" = "${toolsNr}" -> "${saCol}" = "${saNr}"`);
+        });
+
+        // STEP 4: Build lookup map
+        console.log('\n🔍 STEP 4: Building SA-mapping lookup...');
+
         function normalizeArticleNumber(artNr) {
             if (!artNr) return '';
-
-            // Convert to string, trim whitespace
             let normalized = artNr.toString().trim();
-
-            // Remove leading zeros (but keep "0" if that's the only digit)
-            normalized = normalized.replace(/^0+(?=\d)/, '');
-
+            normalized = normalized.replace(/^0+(?=\d)/, ''); // Remove leading zeros
             return normalized;
         }
 
-        // Build lookup map: Tools Art.nr -> SA-nummer
         const saMap = new Map();
-        let mappedCount = 0;
 
-        saMappingData.forEach((row, index) => {
-            // Extract Tools article number (Jeeves column: "Artikelnr")
-            const toolsNr = row['Artikelnr'] || row['Artikelnummer'] || row['Tools Artikelnr'];
-
-            // Extract SA-number (Jeeves column: "Kunds artikelnummer")
-            const saNr = row['Kunds artikelnummer'] || row['SA-nummer'] || row['Kundens artikelnummer'];
+        saMappingData.forEach((row) => {
+            const toolsNr = row[artNrCol];
+            const saNr = row[saCol];
 
             if (toolsNr && saNr) {
-                // CRITICAL: Normalize to handle leading zeros from Jeeves
-                const normalizedToolsNr = normalizeArticleNumber(toolsNr);
-                const cleanSaNr = saNr.toString().trim();
-
-                if (normalizedToolsNr && cleanSaNr !== '' && cleanSaNr !== '0') {
-                    saMap.set(normalizedToolsNr, cleanSaNr);
-                    mappedCount++;
-
-                    // Debug: Log first 5 mappings
-                    if (index < 5) {
-                        console.log(`  Mapping: ${toolsNr} -> ${normalizedToolsNr} = ${cleanSaNr}`);
-                    }
-                }
+                const normalized = normalizeArticleNumber(toolsNr);
+                saMap.set(normalized, saNr.toString().trim());
             }
         });
 
-        console.log(`✅ Built SA-mapping with ${mappedCount} entries`);
+        console.log(`  ✓ Built map with ${saMap.size} entries`);
 
-        // Match Butler data with SA-numbers
-        let matchCount = 0;
-        const enrichedData = butlerData.map((item, index) => {
-            // CRITICAL: Normalize Butler article number too
-            const normalizedToolsNr = normalizeArticleNumber(item._itemNo);
-            const saNr = saMap.get(normalizedToolsNr);
+        // STEP 5: Show first 10 from each
+        console.log('\n🔍 STEP 5: Comparing article numbers...');
 
-            if (saNr) {
-                item._saNummer = saNr;
-                item._hasSA = true;
-                matchCount++;
-
-                // Debug: Log first 5 matches
-                if (matchCount <= 5) {
-                    console.log(`  ✓ Match: ${item._itemNo} -> ${normalizedToolsNr} = ${saNr}`);
-                }
-            } else {
-                item._saNummer = '';
-                item._hasSA = false;
+        const butlerArticles = [];
+        butlerData.slice(0, 10).forEach(item => {
+            if (item._itemNo) {
+                const normalized = normalizeArticleNumber(item._itemNo);
+                butlerArticles.push(normalized);
             }
-
-            return item;
         });
 
-        const matchPercent = Math.round(matchCount / butlerData.length * 100);
-        console.log(`✅ Matched ${matchCount} of ${butlerData.length} items with SA-numbers (${matchPercent}%)`);
+        const saArticles = Array.from(saMap.keys()).slice(0, 10);
 
-        if (matchCount < butlerData.length) {
-            console.log(`⚠️ ${butlerData.length - matchCount} items without SA-number`);
+        console.log(`  Butler first 10: ${butlerArticles.join(', ')}`);
+        console.log(`  SA-map first 10: ${saArticles.join(', ')}`);
+
+        // STEP 6: Check if any overlap
+        console.log('\n🔍 STEP 6: Checking for overlap...');
+
+        const overlapping = butlerArticles.filter(art => saMap.has(art));
+        console.log(`  Found ${overlapping.length} matches in first 10`);
+
+        if (overlapping.length > 0) {
+            console.log(`  ✓ Matching articles: ${overlapping.join(', ')}`);
+            overlapping.forEach(art => {
+                console.log(`    "${art}" -> SA: "${saMap.get(art)}"`);
+            });
         }
 
-        return enrichedData;
+        // STEP 7: Try to find FIRST match in entire dataset
+        console.log('\n🔍 STEP 7: Searching entire Butler dataset for ANY match...');
+
+        let firstMatchIndex = -1;
+        let firstMatchButler = null;
+        let firstMatchSA = null;
+
+        for (let i = 0; i < Math.min(butlerData.length, 100); i++) {
+            const butlerNr = butlerData[i]._itemNo;
+            const normalized = normalizeArticleNumber(butlerNr);
+
+            if (saMap.has(normalized)) {
+                firstMatchIndex = i;
+                firstMatchButler = butlerNr;
+                firstMatchSA = saMap.get(normalized);
+                break;
+            }
+        }
+
+        if (firstMatchIndex >= 0) {
+            console.log(`  ✓ FIRST MATCH at index ${firstMatchIndex}:`);
+            console.log(`    Butler: "${firstMatchButler}" -> SA: "${firstMatchSA}"`);
+        } else {
+            console.log(`  ❌ NO MATCHES found in first 100 Butler items!`);
+            console.log(`\n  Possible reasons:`);
+            console.log(`    1. Butler and SA-mapping have different article numbers`);
+            console.log(`    2. Article numbers need different normalization`);
+            console.log(`    3. Wrong column is being read from Butler`);
+        }
+
+        // STEP 8: Actual matching
+        console.log('\n🔍 STEP 8: Performing actual matching...');
+
+        let matchCount = 0;
+        const enriched = butlerData.map(item => {
+            const normalized = normalizeArticleNumber(item._itemNo);
+            const saNummer = saMap.get(normalized);
+
+            if (saNummer) {
+                matchCount++;
+                if (matchCount <= 3) {
+                    console.log(`  Match ${matchCount}: "${item._itemNo}" -> "${saNummer}"`);
+                }
+            }
+
+            return {
+                ...item,
+                _saNummer: saNummer || '',
+                _hasSA: !!saNummer
+            };
+        });
+
+        const matchPct = Math.round(matchCount / butlerData.length * 100);
+        console.log(`\n✅ RESULT: ${matchCount} of ${butlerData.length} matched (${matchPct}%)`);
+
+        if (matchCount === 0) {
+            console.log('\n❌ ZERO MATCHES! Debugging info:');
+            console.log(`  Butler _itemNo examples: ${butlerArticles.slice(0, 5).join(', ')}`);
+            console.log(`  SA-map keys examples: ${saArticles.slice(0, 5).join(', ')}`);
+        }
+
+        console.log('\n🔍 === SA-NUMBER MATCHING DEBUG END ===\n');
+
+        return enriched;
     }
 
     /**
