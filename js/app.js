@@ -17,7 +17,8 @@ class DashboardApp {
             flowIssues: [],
             assortment: [],
             butlerData: [],
-            orderHistory: []
+            orderHistory: [],
+            saMappingData: []  // SA-nummer mapping from Jeeves
         };
 
         this.settings = {
@@ -167,6 +168,9 @@ class DashboardApp {
                     <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
                         🏭 Butler Analyse (2800 artikler)
                     </option>
+                    <option value="saMappingData" ${suggested === 'saMappingData' ? 'selected' : ''}>
+                        🔗 SA-nummer mapping (Jeeves)
+                    </option>
                     <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
                         📦 Ordre Historikk (Tools)
                     </option>
@@ -198,8 +202,16 @@ class DashboardApp {
     suggestModule(fileName) {
         const fn = fileName.toLowerCase();
 
-        // Check for Butler files first (most specific)
-        if (fn.includes('butler') || fn.includes('artikkel')) {
+        // Check for SA-mapping file (Jeeves artikkelknytte) - FIRST PRIORITY
+        if (fn.includes('artikkel') && (fn.includes('knytte') || fn.includes('knyt')) ||
+            fn.includes('sa-nummer') ||
+            fn.includes('kunds') ||
+            fn.includes('kundens artikkel')) {
+            return 'saMappingData';
+        }
+
+        // Check for Butler files
+        if (fn.includes('butler')) {
             return 'butlerData';
         }
 
@@ -216,7 +228,7 @@ class DashboardApp {
         if (fn.includes('inventory') || fn.includes('lager') || fn.includes('stock') || fn.includes('beholdning')) {
             return 'inventory';
         }
-        if (fn.includes('assortment') || fn.includes('sortiment') || fn.includes('katalog')) {
+        if (fn.includes('assortiment') || fn.includes('sortiment') || fn.includes('katalog')) {
             return 'assortment';
         }
         if (fn.includes('issue') || fn.includes('problem') || fn.includes('sap') || fn.includes('jeeves')) {
@@ -372,9 +384,20 @@ class DashboardApp {
             window.Assortment.update(this.data.assortment);
         }
 
-        // Update Butler analyzer
+        // Update Butler analyzer WITH SA-mapping
         if (window.ButlerAnalyzer) {
-            window.ButlerAnalyzer.update(this.data.butlerData);
+            // Enrich Butler data with SA numbers before updating
+            if (this.data.saMappingData && this.data.saMappingData.length > 0) {
+                console.log(`🔗 Enriching Butler data with ${this.data.saMappingData.length} SA-mappings...`);
+                const enrichedData = window.ButlerAnalyzer.enrichWithSANumbers(
+                    this.data.butlerData,
+                    this.data.saMappingData
+                );
+                window.ButlerAnalyzer.update(enrichedData);
+            } else {
+                console.log('ℹ️ No SA-mapping data loaded, showing Butler data without SA-numbers');
+                window.ButlerAnalyzer.update(this.data.butlerData);
+            }
         }
 
         // Update Order analyzer
@@ -504,7 +527,8 @@ class DashboardApp {
                     this.data.flowIssues.length > 0 ||
                     this.data.assortment.length > 0 ||
                     this.data.butlerData.length > 0 ||
-                    this.data.orderHistory.length > 0) {
+                    this.data.orderHistory.length > 0 ||
+                    this.data.saMappingData.length > 0) {
                     this.showToast('Data lastet fra forrige økt', 'success');
                 }
             }
@@ -525,7 +549,8 @@ class DashboardApp {
                 flowIssues: [],
                 assortment: [],
                 butlerData: [],
-                orderHistory: []
+                orderHistory: [],
+                saMappingData: []
             };
 
             localStorage.removeItem('dashboardData');
