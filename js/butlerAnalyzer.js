@@ -119,7 +119,8 @@ class ButlerAnalyzer {
         // STEP 1: Show first 3 Butler items
         console.log('\n🔍 STEP 1: First 3 Butler items:');
         butlerData.slice(0, 3).forEach((item, idx) => {
-            console.log(`  [${idx}] _itemNo = "${item._itemNo}" (type: ${typeof item._itemNo})`);
+            const itemNo = item._itemNo || item.Artikelnr || item['Artikelnr'];
+            console.log(`  [${idx}] _itemNo = "${item._itemNo}", Artikelnr = "${item.Artikelnr}", fallback = "${itemNo}" (type: ${typeof itemNo})`);
         });
 
         // STEP 2: Auto-detect SA-mapping columns
@@ -191,8 +192,9 @@ class ButlerAnalyzer {
 
         const butlerArticles = [];
         butlerData.slice(0, 10).forEach(item => {
-            if (item._itemNo) {
-                const normalized = normalizeArticleNumber(item._itemNo);
+            const itemNo = item._itemNo || item.Artikelnr || item['Artikelnr'];
+            if (itemNo) {
+                const normalized = normalizeArticleNumber(itemNo);
                 butlerArticles.push(normalized);
             }
         });
@@ -223,7 +225,7 @@ class ButlerAnalyzer {
         let firstMatchSA = null;
 
         for (let i = 0; i < Math.min(butlerData.length, 100); i++) {
-            const butlerNr = butlerData[i]._itemNo;
+            const butlerNr = butlerData[i]._itemNo || butlerData[i].Artikelnr || butlerData[i]['Artikelnr'];
             const normalized = normalizeArticleNumber(butlerNr);
 
             if (saMap.has(normalized)) {
@@ -250,13 +252,14 @@ class ButlerAnalyzer {
 
         let matchCount = 0;
         const enriched = butlerData.map(item => {
-            const normalized = normalizeArticleNumber(item._itemNo);
+            const itemNo = item._itemNo || item.Artikelnr || item['Artikelnr'];
+            const normalized = normalizeArticleNumber(itemNo);
             const saNummer = saMap.get(normalized);
 
             if (saNummer) {
                 matchCount++;
                 if (matchCount <= 3) {
-                    console.log(`  Match ${matchCount}: "${item._itemNo}" -> "${saNummer}"`);
+                    console.log(`  Match ${matchCount}: "${itemNo}" -> "${saNummer}"`);
                 }
             }
 
