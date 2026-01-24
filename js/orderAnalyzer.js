@@ -10,17 +10,17 @@
  */
 class OrderAnalyzer {
     /**
-     * Column mapping for order history data
+     * Column mapping for order history data (Swedish column names from Tools)
      */
     static ORDER_COLUMNS = {
+        orderNo: ['OrderNr', 'Ordrenr', 'OrderNo', 'Order Number', 'Ordernummer'],
         itemNo: ['Artikelnr', 'Artikelnummer', 'ItemNo', 'Item Number'],
-        description: ['Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
-        date: ['Dato', 'Date', 'OrderDate', 'Orderdato'],
-        quantity: ['Antall', 'Quantity', 'Qty', 'Mengde'],
-        customer: ['Kunde', 'Customer', 'Kundenr', 'CustomerNo'],
-        orderNo: ['Ordrenr', 'OrderNo', 'Order Number', 'Ordernummer'],
+        description: ['Artikelbeskrivning', 'Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
+        quantity: ['OrdRadAnt', 'Antall', 'Quantity', 'Qty', 'Mengde'],
+        date: ['OrdDtm', 'Dato', 'Date', 'OrderDate', 'Orderdato'],
+        customer: ['Företagsnamn', 'Kunde', 'Customer', 'Kundenr', 'CustomerNo'],
         price: ['Pris', 'Price', 'UnitPrice'],
-        total: ['Totalt', 'Total', 'Amount']
+        total: ['Ord.radbelopp val', 'Radvärde i basvaluta', 'Totalt', 'Total', 'Amount']
     };
 
     /**
@@ -66,19 +66,34 @@ class OrderAnalyzer {
      * Enrich order data with parsed values
      */
     static enrichData(data) {
-        return data.map(row => {
+        console.log('OrderAnalyzer: Enriching data...', data.length, 'rows');
+
+        return data.map((row, index) => {
             const enriched = { ...row };
 
             // Map order columns to standard fields
             Object.keys(this.ORDER_COLUMNS).forEach(field => {
                 const variants = this.ORDER_COLUMNS[field];
                 for (let variant of variants) {
-                    if (row[variant] !== undefined && row[variant] !== '') {
+                    if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
                         enriched[`_${field}`] = row[variant];
                         break;
                     }
                 }
             });
+
+            // Debug first row
+            if (index === 0) {
+                console.log('First row enriched fields:', {
+                    _orderNo: enriched._orderNo,
+                    _itemNo: enriched._itemNo,
+                    _description: enriched._description,
+                    _quantity: enriched._quantity,
+                    _date: enriched._date,
+                    _customer: enriched._customer,
+                    _total: enriched._total
+                });
+            }
 
             // Parse numeric values
             enriched._quantityNum = this.parseNumber(enriched._quantity);
@@ -147,6 +162,51 @@ class OrderAnalyzer {
     }
 
     /**
+     * Helper: Group array by key function
+     */
+    static _groupBy(array, keyFn) {
+        const groups = new Map();
+        array.forEach(item => {
+            const key = keyFn(item);
+            if (!groups.has(key)) {
+                groups.set(key, []);
+            }
+            groups.get(key).push(item);
+        });
+        return groups;
+    }
+
+    /**
+     * Helper: Calculate average
+     */
+    static _avg(numbers) {
+        if (!numbers || numbers.length === 0) return 0;
+        return numbers.reduce((a, b) => a + b, 0) / numbers.length;
+    }
+
+    /**
+     * Helper: Days between dates
+     */
+    static _daysBetween(dates) {
+        if (!dates || dates.length < 2) return 0;
+        const sorted = dates.sort((a, b) => a - b);
+        const intervals = [];
+        for (let i = 1; i < sorted.length; i++) {
+            const days = (sorted[i] - sorted[i - 1]) / (1000 * 60 * 60 * 24);
+            intervals.push(days);
+        }
+        return this._avg(intervals);
+    }
+
+    /**
+     * Helper: Format number (Norwegian style)
+     */
+    static _fmt(num, decimals = 0) {
+        if (num === null || num === undefined || isNaN(num)) return '-';
+        return num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ' ').replace('.', ',');
+    }
+
+    /**
      * Initialize tab event listeners
      */
     static initializeTabs() {
@@ -205,102 +265,326 @@ class OrderAnalyzer {
     }
 
     /**
-     * Render top sellers view (placeholder)
+     * Render top sellers view
      */
     static renderTopSellers() {
-        return `
-            <h3 style="margin-top: 20px;">🏆 Mest solgt</h3>
-            <p class="text-muted" style="margin: 20px 0;">
-                Denne visningen vil vise de mest solgte artiklene basert på totalt antall solgt.
-                <br><br>
-                <strong>Kommer snart:</strong>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>Topp 50 mest solgte artikler</li>
-                    <li>Total mengde og verdi</li>
-                    <li>Trend over tid</li>
-                    <li>Eksport til CSV</li>
-                </ul>
-            </p>
-        `;
+        const grouped = this._groupBy(this._enrichedData, item => item._itemNo);
+
+        const aggregated = Array.from(grouped.entries()).map(([itemNo, rows]) => {
+            const totalQty = rows.reduce((sum, r) => sum + r._quantityNum, 0);
+            const totalValue = rows.reduce((sum, r) => sum + r._totalNum, 0);
+            const description = rows[0]._description || '';
+
+            return {
+                itemNo,
+                description,
+                totalQty,
+                totalValue
+            };
+        });
+
+        // Sort by quantity descending
+        aggregated.sort((a, b) => b.totalQty - a.totalQty);
+
+        // Take top 50
+        const top50 = aggregated.slice(0, 50);
+
+        let html = '<h3 style="margin-top: 20px;">🏆 Mest solgt</h3>';
+
+        // Summary stats
+        const totalItems = aggregated.length;
+        const totalQtyAll = aggregated.reduce((sum, a) => sum + a.totalQty, 0);
+        const totalValueAll = aggregated.reduce((sum, a) => sum + a.totalValue, 0);
+
+        html += '<div class="stats-row" style="margin: 20px 0; display: flex; gap: 20px;">';
+        html += `<div class="stat-box"><strong>${totalItems}</strong><br>Unike artikler</div>`;
+        html += `<div class="stat-box"><strong>${this._fmt(totalQtyAll)}</strong><br>Total mengde</div>`;
+        html += `<div class="stat-box"><strong>${this._fmt(totalValueAll, 0)} kr</strong><br>Total verdi</div>`;
+        html += '</div>';
+
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr>';
+        html += '<th>Rang</th>';
+        html += '<th>Artikkel</th>';
+        html += '<th>Beskrivelse</th>';
+        html += '<th style="text-align: right;">Totalt antall</th>';
+        html += '<th style="text-align: right;">Total verdi</th>';
+        html += '</tr></thead><tbody>';
+
+        top50.forEach((item, index) => {
+            html += '<tr>';
+            html += `<td>${index + 1}</td>`;
+            html += `<td>${item.itemNo || '-'}</td>`;
+            html += `<td>${item.description || '-'}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.totalQty)}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.totalValue, 0)} kr</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        return html;
     }
 
     /**
-     * Render frequent purchases view (placeholder)
+     * Render frequent purchases view
      */
     static renderFrequent() {
-        return `
-            <h3 style="margin-top: 20px;">⚡ Oftest kjøpt</h3>
-            <p class="text-muted" style="margin: 20px 0;">
-                Denne visningen vil vise artikler som kjøpes oftest (høyest ordrefrekvens).
-                <br><br>
-                <strong>Kommer snart:</strong>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>Artikler sortert etter antall ordre</li>
-                    <li>Gjennomsnittlig antall per ordre</li>
-                    <li>Gjennomsnittlig tid mellom kjøp</li>
-                </ul>
-            </p>
-        `;
+        const grouped = this._groupBy(this._enrichedData, item => item._itemNo);
+
+        const aggregated = Array.from(grouped.entries()).map(([itemNo, rows]) => {
+            const description = rows[0]._description || '';
+
+            // Count unique orders
+            const uniqueOrders = new Set(rows.map(r => r._orderNo)).size;
+
+            // Average quantity per order
+            const totalQty = rows.reduce((sum, r) => sum + r._quantityNum, 0);
+            const avgQtyPerOrder = uniqueOrders > 0 ? totalQty / uniqueOrders : 0;
+
+            // Average days between purchases
+            const dates = rows
+                .filter(r => r._dateObj)
+                .map(r => r._dateObj)
+                .sort((a, b) => a - b);
+            const avgDays = this._daysBetween(dates);
+
+            return {
+                itemNo,
+                description,
+                orderCount: uniqueOrders,
+                avgQtyPerOrder,
+                avgDays
+            };
+        });
+
+        // Sort by order count descending
+        aggregated.sort((a, b) => b.orderCount - a.orderCount);
+
+        // Take top 50
+        const top50 = aggregated.slice(0, 50);
+
+        let html = '<h3 style="margin-top: 20px;">⚡ Oftest kjøpt</h3>';
+
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr>';
+        html += '<th>Rang</th>';
+        html += '<th>Artikkel</th>';
+        html += '<th>Beskrivelse</th>';
+        html += '<th style="text-align: right;">Antall ordre</th>';
+        html += '<th style="text-align: right;">Snitt antall/ordre</th>';
+        html += '<th style="text-align: right;">Snitt dager mellom kjøp</th>';
+        html += '</tr></thead><tbody>';
+
+        top50.forEach((item, index) => {
+            html += '<tr>';
+            html += `<td>${index + 1}</td>`;
+            html += `<td>${item.itemNo || '-'}</td>`;
+            html += `<td>${item.description || '-'}</td>`;
+            html += `<td style="text-align: right;">${item.orderCount}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.avgQtyPerOrder, 1)}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.avgDays, 0)}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        return html;
     }
 
     /**
-     * Render seasonal patterns view (placeholder)
+     * Render seasonal patterns view
      */
     static renderSeasonal() {
-        return `
-            <h3 style="margin-top: 20px;">📅 Sesongmønstre</h3>
-            <p class="text-muted" style="margin: 20px 0;">
-                Denne visningen vil vise sesongmessige kjøpsmønstre per måned og uke.
-                <br><br>
-                <strong>Kommer snart:</strong>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>Salg per måned (alle år)</li>
-                    <li>Salg per uke (alle år)</li>
-                    <li>Identifisering av sesongvarer</li>
-                    <li>Prognoser basert på historikk</li>
-                </ul>
-            </p>
-        `;
+        // Group by month
+        const byMonth = new Array(12).fill(0);
+        this._enrichedData.forEach(row => {
+            if (row._month) {
+                byMonth[row._month - 1] += row._quantityNum;
+            }
+        });
+
+        // Group by week
+        const byWeek = new Array(53).fill(0);
+        this._enrichedData.forEach(row => {
+            if (row._week) {
+                byWeek[row._week - 1] += row._quantityNum;
+            }
+        });
+
+        const monthNames = ['Januar', 'Februar', 'Mars', 'April', 'Mai', 'Juni',
+                           'Juli', 'August', 'September', 'Oktober', 'November', 'Desember'];
+
+        let html = '<h3 style="margin-top: 20px;">📅 Sesongmønstre</h3>';
+
+        // Monthly aggregation
+        html += '<h4 style="margin-top: 30px;">Salg per måned (alle år aggregert)</h4>';
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr><th>Måned</th><th style="text-align: right;">Total mengde</th></tr></thead><tbody>';
+
+        byMonth.forEach((qty, index) => {
+            html += '<tr>';
+            html += `<td>${monthNames[index]}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(qty)}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        // Weekly aggregation - show top 20 weeks
+        const weekData = byWeek.map((qty, index) => ({ week: index + 1, qty }))
+                                .filter(w => w.qty > 0)
+                                .sort((a, b) => b.qty - a.qty)
+                                .slice(0, 20);
+
+        html += '<h4 style="margin-top: 30px;">Topp 20 uker (alle år aggregert)</h4>';
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr><th>Uke</th><th style="text-align: right;">Total mengde</th></tr></thead><tbody>';
+
+        weekData.forEach(w => {
+            html += '<tr>';
+            html += `<td>Uke ${w.week}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(w.qty)}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        return html;
     }
 
     /**
-     * Render customers view (placeholder)
+     * Render customers view
      */
     static renderCustomers() {
-        return `
-            <h3 style="margin-top: 20px;">👥 Per kunde</h3>
-            <p class="text-muted" style="margin: 20px 0;">
-                Denne visningen vil vise kjøpsmønstre per kunde.
-                <br><br>
-                <strong>Kommer snart:</strong>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>Topp kunder etter volum</li>
-                    <li>Kundesspesifikke produkter</li>
-                    <li>Kjøpsfrekvens per kunde</li>
-                    <li>Kundeverdi over tid</li>
-                </ul>
-            </p>
-        `;
+        const grouped = this._groupBy(this._enrichedData, item => item._customer || 'Ukjent');
+
+        const aggregated = Array.from(grouped.entries()).map(([customer, rows]) => {
+            // Count unique orders
+            const uniqueOrders = new Set(rows.map(r => r._orderNo)).size;
+
+            const totalQty = rows.reduce((sum, r) => sum + r._quantityNum, 0);
+            const totalValue = rows.reduce((sum, r) => sum + r._totalNum, 0);
+
+            return {
+                customer,
+                orderCount: uniqueOrders,
+                totalQty,
+                totalValue
+            };
+        });
+
+        // Sort by value descending
+        aggregated.sort((a, b) => b.totalValue - a.totalValue);
+
+        let html = '<h3 style="margin-top: 20px;">👥 Per kunde</h3>';
+
+        // Summary
+        const totalCustomers = aggregated.length;
+        const totalOrders = aggregated.reduce((sum, a) => sum + a.orderCount, 0);
+        const totalValue = aggregated.reduce((sum, a) => sum + a.totalValue, 0);
+
+        html += '<div class="stats-row" style="margin: 20px 0; display: flex; gap: 20px;">';
+        html += `<div class="stat-box"><strong>${totalCustomers}</strong><br>Kunder</div>`;
+        html += `<div class="stat-box"><strong>${totalOrders}</strong><br>Ordre totalt</div>`;
+        html += `<div class="stat-box"><strong>${this._fmt(totalValue, 0)} kr</strong><br>Total verdi</div>`;
+        html += '</div>';
+
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr>';
+        html += '<th>Rang</th>';
+        html += '<th>Kunde</th>';
+        html += '<th style="text-align: right;">Antall ordre</th>';
+        html += '<th style="text-align: right;">Totalt antall</th>';
+        html += '<th style="text-align: right;">Total verdi</th>';
+        html += '</tr></thead><tbody>';
+
+        aggregated.forEach((item, index) => {
+            html += '<tr>';
+            html += `<td>${index + 1}</td>`;
+            html += `<td>${item.customer || '-'}</td>`;
+            html += `<td style="text-align: right;">${item.orderCount}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.totalQty)}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(item.totalValue, 0)} kr</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        return html;
     }
 
     /**
-     * Render timeline view (placeholder)
+     * Render timeline view
      */
     static renderTimeline() {
-        return `
-            <h3 style="margin-top: 20px;">📈 Tidslinje</h3>
-            <p class="text-muted" style="margin: 20px 0;">
-                Denne visningen vil vise salg over tid med trendlinjer.
-                <br><br>
-                <strong>Kommer snart:</strong>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>Salg per dag/uke/måned</li>
-                    <li>Trendlinjer og prognoser</li>
-                    <li>Sammenligning år-over-år</li>
-                    <li>Visualisering med grafer</li>
-                </ul>
-            </p>
-        `;
+        // Group by year-month
+        const byMonth = new Map();
+
+        this._enrichedData.forEach(row => {
+            if (row._dateObj) {
+                const year = row._dateObj.getFullYear();
+                const month = row._dateObj.getMonth() + 1;
+                const key = `${year}-${String(month).padStart(2, '0')}`;
+
+                if (!byMonth.has(key)) {
+                    byMonth.set(key, { totalQty: 0, totalValue: 0 });
+                }
+
+                const stats = byMonth.get(key);
+                stats.totalQty += row._quantityNum;
+                stats.totalValue += row._totalNum;
+            }
+        });
+
+        // Convert to array and sort
+        const timeline = Array.from(byMonth.entries())
+            .map(([month, stats]) => ({ month, ...stats }))
+            .sort((a, b) => a.month.localeCompare(b.month));
+
+        let html = '<h3 style="margin-top: 20px;">📈 Tidslinje</h3>';
+
+        if (timeline.length === 0) {
+            html += '<p class="text-muted">Ingen datodata tilgjengelig</p>';
+            return html;
+        }
+
+        // Summary
+        const totalQty = timeline.reduce((sum, t) => sum + t.totalQty, 0);
+        const totalValue = timeline.reduce((sum, t) => sum + t.totalValue, 0);
+        const avgQtyPerMonth = totalQty / timeline.length;
+        const avgValuePerMonth = totalValue / timeline.length;
+
+        html += '<div class="stats-row" style="margin: 20px 0; display: flex; gap: 20px;">';
+        html += `<div class="stat-box"><strong>${timeline.length}</strong><br>Måneder</div>`;
+        html += `<div class="stat-box"><strong>${this._fmt(avgQtyPerMonth, 0)}</strong><br>Snitt antall/måned</div>`;
+        html += `<div class="stat-box"><strong>${this._fmt(avgValuePerMonth, 0)} kr</strong><br>Snitt verdi/måned</div>`;
+        html += '</div>';
+
+        html += '<div class="butler-table-wrapper">';
+        html += '<table class="data-table">';
+        html += '<thead><tr>';
+        html += '<th>Måned</th>';
+        html += '<th style="text-align: right;">Totalt antall</th>';
+        html += '<th style="text-align: right;">Total verdi</th>';
+        html += '</tr></thead><tbody>';
+
+        timeline.forEach(t => {
+            html += '<tr>';
+            html += `<td>${t.month}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(t.totalQty)}</td>`;
+            html += `<td style="text-align: right;">${this._fmt(t.totalValue, 0)} kr</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+
+        return html;
     }
 }
 
