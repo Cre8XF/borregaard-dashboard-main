@@ -16,7 +16,6 @@ class ButlerAnalyzer {
     static BUTLER_COLUMNS = {
         // Item identification
         itemNo: ['Artikelnr', 'Artikelnummer', 'ItemNo', 'Item Number'],
-        itemName: ['Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
         description: ['Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
 
         // Stock levels
@@ -68,8 +67,15 @@ class ButlerAnalyzer {
             return;
         }
 
+        // DEBUG: Log first row to see actual column names
+        console.log('Butler data - First row columns:', Object.keys(data[0]));
+        console.log('Butler data - First row sample:', data[0]);
+
         // Enrich data with parsed values and flags
         const enrichedData = this.enrichData(data);
+
+        // DEBUG: Log first enriched item
+        console.log('Enriched data - First item:', enrichedData[0]);
 
         // Update status badge with detailed info
         const criticalIssues = enrichedData.filter(item =>
@@ -93,21 +99,66 @@ class ButlerAnalyzer {
 
     /**
      * Enrich data with parsed values and calculated flags
+     * FIXED: Robust description handling with multiple fallbacks
      */
     static enrichData(data) {
-        return data.map(row => {
+        return data.map((row, index) => {
             const enriched = { ...row };
 
             // Map Butler columns to standard fields
             Object.keys(this.BUTLER_COLUMNS).forEach(field => {
                 const variants = this.BUTLER_COLUMNS[field];
                 for (let variant of variants) {
-                    if (row[variant] !== undefined && row[variant] !== '') {
-                        enriched[`_${field}`] = row[variant];
+                    if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                        // Trim string values
+                        const value = typeof row[variant] === 'string' ? row[variant].trim() : row[variant];
+                        enriched[`_${field}`] = value;
                         break;
                     }
                 }
             });
+
+            // CRITICAL FIX: Ensure _description always has a value
+            // Try multiple fallback strategies
+            if (!enriched._description || enriched._description === '') {
+                // Strategy 1: Direct column name access
+                enriched._description = row['Artikelbeskrivelse'] || 
+                                       row['Beskrivelse'] || 
+                                       row['Item Name'] || 
+                                       row['Description'] || '';
+                
+                // Strategy 2: Check all columns for description-like content
+                if (!enriched._description || enriched._description === '') {
+                    const possibleDescColumns = Object.keys(row).filter(key => 
+                        key.toLowerCase().includes('beskrivelse') || 
+                        key.toLowerCase().includes('beskrivning') ||
+                        key.toLowerCase().includes('description') ||
+                        key.toLowerCase().includes('name')
+                    );
+                    
+                    for (let col of possibleDescColumns) {
+                        if (row[col] && row[col] !== '') {
+                            enriched._description = typeof row[col] === 'string' ? row[col].trim() : row[col];
+                            break;
+                        }
+                    }
+                }
+                
+                // Strategy 3: Ultimate fallback
+                if (!enriched._description || enriched._description === '') {
+                    enriched._description = enriched._itemNo ? `Artikkel ${enriched._itemNo}` : 'Ingen beskrivelse';
+                }
+            }
+            
+            // Final trim if string
+            if (enriched._description && typeof enriched._description === 'string') {
+                enriched._description = enriched._description.trim();
+            }
+
+            // DEBUG: Log if description is still missing
+            if (index < 3) {
+                console.log(`Row ${index} - _description:`, enriched._description);
+            }
 
             // Parse numeric values
             enriched._stockNum = this.parseNumber(enriched._stock);
@@ -413,18 +464,32 @@ class ButlerAnalyzer {
             html += '<tr>';
 
             columns.forEach(col => {
-                let value = item[col] || '';
+                let value = item[col];
+                
+                // Handle undefined/null/empty values
+                if (value === undefined || value === null || value === '') {
+                    value = '-';
+                }
 
                 // Format numeric columns
-                if (col.includes('stock') || col.includes('reserved') || col.includes('min') || col.includes('max') || col.includes('r12')) {
-                    const num = this.parseNumber(value);
-                    value = num.toFixed(0);
+                if (col.includes('Stock') || col.includes('stock') || col.includes('reserved') || col.includes('min') || col.includes('max') || col.includes('r12') || col.includes('Sales')) {
+                    if (value !== '-') {
+                        const num = this.parseNumber(value);
+                        value = num.toFixed(0);
+                    }
                     html += `<td class="qty-cell">${value}</td>`;
                 } else if (col === '_reservePercent') {
-                    value = item._reservePercent.toFixed(1) + '%';
+                    if (item._reservePercent !== undefined) {
+                        value = item._reservePercent.toFixed(1) + '%';
+                    } else {
+                        value = '-';
+                    }
                     html += `<td class="qty-cell">${value}</td>`;
                 } else {
-                    html += `<td>${value}</td>`;
+                    // Text columns - escape HTML and truncate if too long
+                    const displayValue = String(value).substring(0, 100);
+                    const title = String(value).length > 100 ? value : '';
+                    html += `<td title="${title}">${displayValue}</td>`;
                 }
             });
 
@@ -563,7 +628,7 @@ class ButlerAnalyzer {
 
         const keyFields = [
             { label: 'Artikelnr', value: item._itemNo },
-            { label: 'Beskrivelse', value: item._description || item._itemName },
+            { label: 'Beskrivelse', value: item._description },
             { label: 'Hylla', value: item._shelf1 },
             { label: 'Status', value: item._status + (item._isActive ? ' (Aktiv)' : ' (Inaktiv)') },
             { label: 'Lagersaldo', value: item._stockNum },
@@ -574,7 +639,7 @@ class ButlerAnalyzer {
             { label: 'R12 Salg', value: item._r12SalesNum },
             { label: 'Leverandør', value: item._supplier },
             { label: 'Lokasjon', value: item._location },
-            { label: 'Reservasjon %', value: item._reservePercent.toFixed(1) + '%' }
+            { label: 'Reservasjon %', value: item._reservePercent ? item._reservePercent.toFixed(1) + '%' : '-' }
         ];
 
         keyFields.forEach(field => {
@@ -651,7 +716,7 @@ class ButlerAnalyzer {
         data.forEach(item => {
             const row = [
                 item._itemNo || '',
-                `"${((item._description || item._itemName) || '').replace(/"/g, '""')}"`,
+                `"${(item._description || '').replace(/"/g, '""')}"`,
                 item._shelf1 || '',
                 item._status || '',
                 item._stockNum || 0,
@@ -662,7 +727,7 @@ class ButlerAnalyzer {
                 item._r12SalesNum || 0,
                 `"${(item._supplier || '').replace(/"/g, '""')}"`,
                 item._location || '',
-                item._reservePercent.toFixed(1)
+                item._reservePercent ? item._reservePercent.toFixed(1) : '0.0'
             ];
 
             csv += row.join(';') + '\n';
