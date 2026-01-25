@@ -185,6 +185,100 @@ class OrderAnalyzer {
     }
 
     /**
+     * Helper: Calculate median
+     */
+    static _median(numbers) {
+        if (!numbers || numbers.length === 0) return null;
+        const sorted = [...numbers].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        if (sorted.length % 2 === 0) {
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        }
+        return sorted[mid];
+    }
+
+    /**
+     * Helper: Get unique purchase dates per order for an item
+     * Returns one date per unique OrderNr (sorted ascending)
+     */
+    static _getUniquePurchaseDates(rows) {
+        const orderDates = new Map();
+        rows.forEach(r => {
+            if (r._orderNo && r._dateObj) {
+                if (!orderDates.has(r._orderNo)) {
+                    orderDates.set(r._orderNo, r._dateObj);
+                }
+            }
+        });
+        return Array.from(orderDates.values()).sort((a, b) => a - b);
+    }
+
+    /**
+     * Helper: Calculate purchase intervals (days between consecutive purchases)
+     */
+    static _getPurchaseIntervals(dates) {
+        if (!dates || dates.length < 2) return [];
+        const intervals = [];
+        for (let i = 1; i < dates.length; i++) {
+            const days = Math.round((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24));
+            intervals.push(days);
+        }
+        return intervals;
+    }
+
+    /**
+     * Helper: Determine purchase status (traffic light)
+     */
+    static _getPurchaseStatus(daysSinceLast, medianDays) {
+        if (medianDays === null || daysSinceLast === null) return 'GREEN';
+        if (daysSinceLast >= medianDays * 1.2) return 'RED';
+        if (daysSinceLast >= medianDays * 0.9) return 'YELLOW';
+        return 'GREEN';
+    }
+
+    /**
+     * Helper: Get status emoji
+     */
+    static _getStatusEmoji(status) {
+        switch (status) {
+            case 'RED': return '\u{1F534}';
+            case 'YELLOW': return '\u{1F7E1}';
+            case 'GREEN': return '\u{1F7E2}';
+            default: return '\u{1F7E2}';
+        }
+    }
+
+    /**
+     * Helper: Get suggestion text based on status
+     */
+    static _getSuggestionText(status, medianQty, orderCount) {
+        if (orderCount < 2) return 'For lite historikk';
+        switch (status) {
+            case 'RED': return `Bestill ca. ${Math.round(medianQty)} stk`;
+            case 'YELLOW': return 'Forventet kjøp innen kort tid';
+            case 'GREEN': return 'Ingen handling nå';
+            default: return 'Ingen handling nå';
+        }
+    }
+
+    /**
+     * Helper: Get median quantity per order
+     */
+    static _getMedianQtyPerOrder(rows) {
+        const orderQty = new Map();
+        rows.forEach(r => {
+            if (r._orderNo) {
+                if (!orderQty.has(r._orderNo)) {
+                    orderQty.set(r._orderNo, 0);
+                }
+                orderQty.set(r._orderNo, orderQty.get(r._orderNo) + r._quantityNum);
+            }
+        });
+        const quantities = Array.from(orderQty.values());
+        return this._median(quantities) || 0;
+    }
+
+    /**
      * Helper: Days between dates
      */
     static _daysBetween(dates) {
@@ -328,10 +422,12 @@ class OrderAnalyzer {
     }
 
     /**
-     * Render frequent purchases view
+     * Render frequent purchases view (v2)
+     * Prioritized work list with median-based statistics, status classification, and order suggestions
      */
     static renderFrequent() {
         const grouped = this._groupBy(this._enrichedData, item => item._itemNo);
+        const today = new Date();
 
         const aggregated = Array.from(grouped.entries()).map(([itemNo, rows]) => {
             const description = rows[0]._description || '';
@@ -339,33 +435,72 @@ class OrderAnalyzer {
             // Count unique orders
             const uniqueOrders = new Set(rows.map(r => r._orderNo)).size;
 
-            // Average quantity per order
-            const totalQty = rows.reduce((sum, r) => sum + r._quantityNum, 0);
-            const avgQtyPerOrder = uniqueOrders > 0 ? totalQty / uniqueOrders : 0;
+            // Get unique purchase dates (one per OrderNr)
+            const purchaseDates = this._getUniquePurchaseDates(rows);
 
-            // Average days between purchases
-            const dates = rows
-                .filter(r => r._dateObj)
-                .map(r => r._dateObj)
-                .sort((a, b) => a - b);
-            const avgDays = this._daysBetween(dates);
+            // Calculate purchase intervals
+            const intervals = this._getPurchaseIntervals(purchaseDates);
+
+            // Calculate median days between purchases
+            const medianDaysBetween = this._median(intervals);
+
+            // Calculate days since last purchase
+            let daysSinceLastPurchase = null;
+            if (purchaseDates.length > 0) {
+                const lastPurchaseDate = purchaseDates[purchaseDates.length - 1];
+                daysSinceLastPurchase = Math.round((today - lastPurchaseDate) / (1000 * 60 * 60 * 24));
+            }
+
+            // Calculate median quantity per order
+            const medianQtyPerOrder = this._getMedianQtyPerOrder(rows);
+
+            // Determine purchase status
+            const purchaseStatus = this._getPurchaseStatus(daysSinceLastPurchase, medianDaysBetween);
+
+            // Generate suggestion text
+            const suggestionText = this._getSuggestionText(purchaseStatus, medianQtyPerOrder, uniqueOrders);
 
             return {
                 itemNo,
                 description,
                 orderCount: uniqueOrders,
-                avgQtyPerOrder,
-                avgDays
+                medianDaysBetween,
+                daysSinceLastPurchase,
+                medianQtyPerOrder,
+                purchaseStatus,
+                suggestionText
             };
         });
 
-        // Sort by order count descending
-        aggregated.sort((a, b) => b.orderCount - a.orderCount);
+        // Sort by priority: RED first, then YELLOW, then GREEN
+        // Within same status: sort by daysSinceLastPurchase DESC
+        const statusPriority = { 'RED': 0, 'YELLOW': 1, 'GREEN': 2 };
+        aggregated.sort((a, b) => {
+            const priorityDiff = statusPriority[a.purchaseStatus] - statusPriority[b.purchaseStatus];
+            if (priorityDiff !== 0) return priorityDiff;
+            // Within same status, higher daysSinceLastPurchase comes first
+            const aDays = a.daysSinceLastPurchase !== null ? a.daysSinceLastPurchase : -1;
+            const bDays = b.daysSinceLastPurchase !== null ? b.daysSinceLastPurchase : -1;
+            return bDays - aDays;
+        });
 
         // Take top 50
         const top50 = aggregated.slice(0, 50);
 
-        let html = '<h3 style="margin-top: 20px;">⚡ Oftest kjøpt</h3>';
+        // Count statuses for summary
+        const redCount = aggregated.filter(a => a.purchaseStatus === 'RED').length;
+        const yellowCount = aggregated.filter(a => a.purchaseStatus === 'YELLOW').length;
+        const greenCount = aggregated.filter(a => a.purchaseStatus === 'GREEN').length;
+
+        let html = '<h3 style="margin-top: 20px;">\u26A1 Oftest kjøpt (v2)</h3>';
+
+        // Summary stats
+        html += '<div class="stats-row" style="margin: 20px 0; display: flex; gap: 20px; flex-wrap: wrap;">';
+        html += `<div class="stat-box" style="border-left: 4px solid #dc3545;"><strong>${redCount}</strong><br>\u{1F534} Bør bestilles</div>`;
+        html += `<div class="stat-box" style="border-left: 4px solid #ffc107;"><strong>${yellowCount}</strong><br>\u{1F7E1} Følg med</div>`;
+        html += `<div class="stat-box" style="border-left: 4px solid #28a745;"><strong>${greenCount}</strong><br>\u{1F7E2} OK</div>`;
+        html += `<div class="stat-box"><strong>${aggregated.length}</strong><br>Unike artikler</div>`;
+        html += '</div>';
 
         html += '<div class="butler-table-wrapper">';
         html += '<table class="data-table">';
@@ -373,19 +508,25 @@ class OrderAnalyzer {
         html += '<th>Rang</th>';
         html += '<th>Artikkel</th>';
         html += '<th>Beskrivelse</th>';
-        html += '<th style="text-align: right;">Antall ordre</th>';
-        html += '<th style="text-align: right;">Snitt antall/ordre</th>';
-        html += '<th style="text-align: right;">Snitt dager mellom kjøp</th>';
+        html += '<th style="text-align: right;">Median dager</th>';
+        html += '<th style="text-align: right;">Dager siden sist</th>';
+        html += '<th style="text-align: center;">Status</th>';
+        html += '<th>Forslag</th>';
         html += '</tr></thead><tbody>';
 
         top50.forEach((item, index) => {
-            html += '<tr>';
+            const statusEmoji = this._getStatusEmoji(item.purchaseStatus);
+            const rowStyle = item.purchaseStatus === 'RED' ? 'background-color: rgba(220, 53, 69, 0.1);' :
+                             item.purchaseStatus === 'YELLOW' ? 'background-color: rgba(255, 193, 7, 0.1);' : '';
+
+            html += `<tr style="${rowStyle}">`;
             html += `<td>${index + 1}</td>`;
             html += `<td>${item.itemNo || '-'}</td>`;
             html += `<td>${item.description || '-'}</td>`;
-            html += `<td style="text-align: right;">${item.orderCount}</td>`;
-            html += `<td style="text-align: right;">${this._fmt(item.avgQtyPerOrder, 1)}</td>`;
-            html += `<td style="text-align: right;">${this._fmt(item.avgDays, 0)}</td>`;
+            html += `<td style="text-align: right;">${item.medianDaysBetween !== null ? this._fmt(item.medianDaysBetween, 0) : '\u2014'}</td>`;
+            html += `<td style="text-align: right;">${item.daysSinceLastPurchase !== null ? this._fmt(item.daysSinceLastPurchase, 0) : '\u2014'}</td>`;
+            html += `<td style="text-align: center;">${statusEmoji}</td>`;
+            html += `<td>${item.suggestionText}</td>`;
             html += '</tr>';
         });
 
