@@ -100,15 +100,14 @@ class OrderAnalyzer {
             enriched._priceNum = this.parseNumber(enriched._price);
             enriched._totalNum = this.parseNumber(enriched._total);
 
-            // Parse date
-            if (enriched._date) {
-                const parsedDate = this.parseDate(enriched._date);
-                if (parsedDate) {
-                    enriched._dateObj = parsedDate;
-                    enriched._year = parsedDate.getFullYear();
-                    enriched._month = parsedDate.getMonth() + 1;
-                    enriched._week = this.getWeekNumber(parsedDate);
-                }
+            // Parse date - v2 CRITICAL: Use ONLY OrdDtm (YYMMDD format)
+            // NO fallback to other date fields (FaktDat, LevDat, BerLevDat, LovatLevDat)
+            const parsedDate = this.parseOrdDtm(row.OrdDtm);
+            if (parsedDate) {
+                enriched._dateObj = parsedDate;
+                enriched._year = parsedDate.getFullYear();
+                enriched._month = parsedDate.getMonth() + 1;
+                enriched._week = this.getWeekNumber(parsedDate);
             }
 
             return enriched;
@@ -128,26 +127,25 @@ class OrderAnalyzer {
     }
 
     /**
-     * Parse date from various formats
+     * Parse OrdDtm date (YYMMDD format) - v2 CRITICAL
+     * This is the ONLY valid date source for purchase pattern analysis
+     * NO fallback to other date fields (FaktDat, LevDat, etc.)
      */
-    static parseDate(dateStr) {
-        if (!dateStr) return null;
+    static parseOrdDtm(val) {
+        if (!val) return null;
+        const s = String(val).trim();
+        if (!/^\d{6}$/.test(s)) return null;
 
-        // Try ISO format first
-        let date = new Date(dateStr);
-        if (!isNaN(date.getTime())) return date;
+        const y = 2000 + parseInt(s.slice(0, 2), 10);
+        const m = parseInt(s.slice(2, 4), 10) - 1;
+        const d = parseInt(s.slice(4, 6), 10);
 
-        // Try Norwegian format (DD.MM.YYYY or DD/MM/YYYY)
-        const parts = dateStr.split(/[./-]/);
-        if (parts.length === 3) {
-            const day = parseInt(parts[0]);
-            const month = parseInt(parts[1]) - 1;
-            const year = parseInt(parts[2]);
-            date = new Date(year, month, day);
-            if (!isNaN(date.getTime())) return date;
-        }
+        const date = new Date(y, m, d);
+        const today = new Date();
 
-        return null;
+        // Block future dates - they are invalid for purchase analysis
+        if (isNaN(date.getTime()) || date > today) return null;
+        return date;
     }
 
     /**
