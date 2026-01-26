@@ -284,6 +284,157 @@ input[type='file']:hover {
   padding: 25px 30px;
 }
 
+/* Full-width Insight Engine module (NEW) */
+.insight-module-full-width {
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 8px var(--shadow);
+}
+
+.insight-module-full-width .module-header {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  padding: 25px 30px;
+}
+
+.insight-module-full-width .module-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.insight-module-full-width .module-content {
+  padding: 25px 30px;
+}
+
+/* Full-width Location Analyzer module (NEW) */
+.location-module-full-width {
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 8px var(--shadow);
+}
+
+.location-module-full-width .module-header {
+  background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+  padding: 25px 30px;
+}
+
+.location-module-full-width .module-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.location-module-full-width .module-content {
+  padding: 25px 30px;
+}
+
+/* Risk badges for InsightEngine */
+.risk-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.risk-badge.risk-critical {
+  background: #e74c3c;
+}
+
+.risk-badge.risk-high {
+  background: #f39c12;
+}
+
+.risk-badge.risk-medium {
+  background: #3498db;
+}
+
+.risk-badge.risk-low {
+  background: #27ae60;
+}
+
+/* Warehouse grid for LocationAnalyzer */
+.warehouse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.warehouse-card {
+  background: var(--light-gray);
+  border-radius: 8px;
+  padding: 15px;
+  text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.warehouse-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.warehouse-card.card-highlight {
+  border: 2px solid var(--primary);
+  background: #f0f8ff;
+}
+
+.warehouse-card h4 {
+  margin-bottom: 10px;
+  color: var(--dark);
+  font-size: 14px;
+}
+
+.warehouse-stats {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.warehouse-stats .stat {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--white);
+}
+
+.warehouse-stats .stat-primary {
+  background: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+
+.warehouse-stats .stat-ok {
+  background: #d4edda;
+  color: #155724;
+}
+
+/* Sortable table styles */
+.sortable th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable th:hover {
+  background: #f0f0f0;
+}
+
+.sort-indicator {
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+th.sortable:hover .sort-indicator {
+  opacity: 0.8;
+}
+
+/* Text truncation helper */
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Module Cards */
 .module {
   background: var(--white);
