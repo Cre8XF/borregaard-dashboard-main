@@ -25,21 +25,55 @@ class OrderAnalyzer {
         MIN_FOCUS_QTY: 1
     };
 
+    // ===================================
+    // V3 CONFIGURATION - Purchase Frequency (Qlik-based)
+    // ===================================
+    /**
+     * Thresholds for purchase status classification.
+     * Based on delivery date analysis from Qlik exports.
+     *
+     * WHY THESE VALUES:
+     * - OK threshold (1.2): 20% buffer above median covers normal variation
+     * - FOLLOW_UP threshold (1.6): 60% above median signals attention needed
+     * - Above 1.6 = Bør bestilles (overdue, likely needs reorder)
+     */
+    static V3_FREQUENCY_CONFIG = {
+        // Status thresholds (multipliers of median days)
+        OK_THRESHOLD: 1.2,           // daysSinceLast <= median * 1.2 = OK
+        FOLLOW_UP_THRESHOLD: 1.6,    // daysSinceLast <= median * 1.6 = Følg med
+        // Above FOLLOW_UP_THRESHOLD = Bør bestilles
+
+        // Minimum valid intervals required for reliable analysis
+        // WHY 3: With < 3 intervals, median is unreliable (could be single outlier)
+        MIN_INTERVALS_REQUIRED: 3,
+
+        // Maximum interval to consider valid (days)
+        // WHY 365: Intervals > 1 year are likely project orders, not regular consumption
+        MAX_VALID_INTERVAL_DAYS: 365
+    };
+
     // Store selected week for v3 analysis
     static _selectedSeasonalWeek = null;
 
     /**
-     * Column mapping for order history data (Swedish column names from Tools)
+     * Column mapping for order history data
+     * Supports both:
+     * - Legacy Tools/Swedish format (OrdDtm = order date)
+     * - V3 Qlik export format (Date = delivery date, authoritative for consumption analysis)
      */
     static ORDER_COLUMNS = {
-        orderNo: ['OrderNr', 'Ordrenr', 'OrderNo', 'Order Number', 'Ordernummer'],
-        itemNo: ['Artikelnr', 'Artikelnummer', 'ItemNo', 'Item Number'],
-        description: ['Artikelbeskrivning', 'Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description'],
-        quantity: ['OrdRadAnt', 'Antall', 'Quantity', 'Qty', 'Mengde'],
-        date: ['OrdDtm', 'Dato', 'Date', 'OrderDate', 'Orderdato'],
+        orderNo: ['OrderNr', 'Ordrenr', 'OrderNo', 'Order Number', 'Ordernummer', 'Order number'],
+        itemNo: ['Artikelnr', 'Artikelnummer', 'ItemNo', 'Item Number', 'Item ID'],
+        description: ['Artikelbeskrivning', 'Artikelbeskrivelse', 'Beskrivelse', 'Item Name', 'Description', 'Item'],
+        quantity: ['OrdRadAnt', 'Antall', 'Quantity', 'Qty', 'Mengde', 'Delivered quantity'],
+        // V3: 'Date' from Qlik = delivery date (authoritative)
+        // Legacy: 'OrdDtm' = order date (fallback for old data)
+        date: ['Date', 'Dato', 'OrdDtm', 'OrderDate', 'Ordredato', 'Delivery date'],
         customer: ['Företagsnamn', 'Kunde', 'Customer', 'Kundenr', 'CustomerNo'],
         price: ['Pris', 'Price', 'UnitPrice'],
-        total: ['Ord.radbelopp val', 'Radvärde i basvaluta', 'Totalt', 'Total', 'Amount']
+        total: ['Ord.radbelopp val', 'Radvärde i basvaluta', 'Totalt', 'Total', 'Amount', 'Delivered value'],
+        // V3: Delivery location for future location-level filtering
+        deliveryLocationId: ['Delivery location ID', 'DeliveryLocationId', 'LocationId', 'Leveringssted']
     };
 
     /**
@@ -83,19 +117,26 @@ class OrderAnalyzer {
 
     /**
      * Enrich order data with parsed values
+     *
+     * V3 DESIGN DECISION - WHY DELIVERY DATE IS AUTHORITATIVE:
+     * - Order date reflects when customer placed order, not when goods were consumed
+     * - Delivery date reflects actual receipt/consumption timing
+     * - For purchase frequency analysis, we need consumption patterns, not ordering patterns
+     * - Qlik exports provide actual delivery dates; legacy OrdDtm is fallback only
      */
     static enrichData(data) {
         console.log('OrderAnalyzer: Enriching data...', data.length, 'rows');
+        let warningCount = 0;
 
-        return data.map((row, index) => {
-            const enriched = { ...row };
+        const enriched = data.map((row, index) => {
+            const enrichedRow = { ...row };
 
             // Map order columns to standard fields
             Object.keys(this.ORDER_COLUMNS).forEach(field => {
                 const variants = this.ORDER_COLUMNS[field];
                 for (let variant of variants) {
                     if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
-                        enriched[`_${field}`] = row[variant];
+                        enrichedRow[`_${field}`] = row[variant];
                         break;
                     }
                 }
@@ -103,34 +144,56 @@ class OrderAnalyzer {
 
             // Debug first row
             if (index === 0) {
-                console.log('First row enriched fields:', {
-                    _orderNo: enriched._orderNo,
-                    _itemNo: enriched._itemNo,
-                    _description: enriched._description,
-                    _quantity: enriched._quantity,
-                    _date: enriched._date,
-                    _customer: enriched._customer,
-                    _total: enriched._total
+                console.log('OrderAnalyzer v3: First row enriched fields:', {
+                    _orderNo: enrichedRow._orderNo,
+                    _itemNo: enrichedRow._itemNo,
+                    _description: enrichedRow._description,
+                    _quantity: enrichedRow._quantity,
+                    _date: enrichedRow._date,
+                    _customer: enrichedRow._customer,
+                    _total: enrichedRow._total,
+                    _deliveryLocationId: enrichedRow._deliveryLocationId
                 });
             }
 
             // Parse numeric values
-            enriched._quantityNum = this.parseNumber(enriched._quantity);
-            enriched._priceNum = this.parseNumber(enriched._price);
-            enriched._totalNum = this.parseNumber(enriched._total);
+            enrichedRow._quantityNum = this.parseNumber(enrichedRow._quantity);
+            enrichedRow._priceNum = this.parseNumber(enrichedRow._price);
+            enrichedRow._totalNum = this.parseNumber(enrichedRow._total);
 
-            // Parse date - v2 CRITICAL: Use ONLY OrdDtm (YYMMDD format)
-            // NO fallback to other date fields (FaktDat, LevDat, BerLevDat, LovatLevDat)
-            const parsedDate = this.parseOrdDtm(row.OrdDtm);
+            // V3: Parse date with priority order:
+            // 1. Standard date formats (YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY) from Qlik
+            // 2. Legacy YYMMDD format (OrdDtm) as fallback
+            //
+            // WHY THIS ORDER: Qlik exports use standard ISO/European date formats
+            // for delivery dates. Legacy OrdDtm is only for backwards compatibility.
+            const parsedDate = this.parseDateV3(enrichedRow._date);
             if (parsedDate) {
-                enriched._dateObj = parsedDate;
-                enriched._year = parsedDate.getFullYear();
-                enriched._month = parsedDate.getMonth() + 1;
-                enriched._week = this.getWeekNumber(parsedDate);
+                enrichedRow._dateObj = parsedDate;
+                enrichedRow._year = parsedDate.getFullYear();
+                enrichedRow._month = parsedDate.getMonth() + 1;
+                enrichedRow._week = this.getWeekNumber(parsedDate);
+            } else if (enrichedRow._date) {
+                // Log warning for unparseable dates (but don't crash)
+                warningCount++;
+                if (warningCount <= 5) {
+                    console.warn(`OrderAnalyzer v3: Could not parse date: "${enrichedRow._date}" (row ${index + 1})`);
+                }
             }
 
-            return enriched;
+            // V3: Preserve delivery location ID for future filtering
+            // (stored but not yet used in UI)
+            enrichedRow._locationId = enrichedRow._deliveryLocationId || null;
+
+            return enrichedRow;
         });
+
+        if (warningCount > 5) {
+            console.warn(`OrderAnalyzer v3: ... and ${warningCount - 5} more date parsing warnings`);
+        }
+        console.log(`OrderAnalyzer v3: Enriched ${enriched.length} rows, ${warningCount} date warnings`);
+
+        return enriched;
     }
 
     /**
@@ -146,9 +209,8 @@ class OrderAnalyzer {
     }
 
     /**
-     * Parse OrdDtm date (YYMMDD format) - v2 CRITICAL
-     * This is the ONLY valid date source for purchase pattern analysis
-     * NO fallback to other date fields (FaktDat, LevDat, etc.)
+     * Parse OrdDtm date (YYMMDD format) - Legacy format
+     * Kept for backwards compatibility with old Tools exports
      */
     static parseOrdDtm(val) {
         if (!val) return null;
@@ -165,6 +227,61 @@ class OrderAnalyzer {
         // Block future dates - they are invalid for purchase analysis
         if (isNaN(date.getTime()) || date > today) return null;
         return date;
+    }
+
+    /**
+     * V3: Parse date from multiple formats
+     *
+     * WHY DELIVERY DATE IS AUTHORITATIVE:
+     * - Delivery date = when goods were actually received/consumed
+     * - Order date = when customer placed order (irrelevant for consumption patterns)
+     * - For purchase frequency analysis, we measure time between consumption events
+     *
+     * Supported formats:
+     * - YYYY-MM-DD (ISO, Qlik default)
+     * - DD.MM.YYYY (Norwegian/European)
+     * - DD/MM/YYYY (Alternative European)
+     * - YYMMDD (Legacy OrdDtm format)
+     */
+    static parseDateV3(val) {
+        if (!val) return null;
+        const s = String(val).trim();
+        const today = new Date();
+        let date = null;
+
+        // Try ISO format: YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            const [y, m, d] = s.split('-').map(Number);
+            date = new Date(y, m - 1, d);
+        }
+        // Try Norwegian format: DD.MM.YYYY
+        else if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) {
+            const [d, m, y] = s.split('.').map(Number);
+            date = new Date(y, m - 1, d);
+        }
+        // Try alternative European format: DD/MM/YYYY
+        else if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+            const [d, m, y] = s.split('/').map(Number);
+            date = new Date(y, m - 1, d);
+        }
+        // Try legacy YYMMDD format
+        else if (/^\d{6}$/.test(s)) {
+            return this.parseOrdDtm(s);
+        }
+        // Try JavaScript Date constructor as last resort (handles timestamps, etc.)
+        else {
+            const parsed = new Date(s);
+            if (!isNaN(parsed.getTime())) {
+                date = parsed;
+            }
+        }
+
+        // Validate: must be valid date and not in the future
+        if (date && !isNaN(date.getTime()) && date <= today) {
+            return date;
+        }
+
+        return null;
     }
 
     /**
@@ -215,8 +332,11 @@ class OrderAnalyzer {
     }
 
     /**
-     * Helper: Get unique purchase dates per order for an item
+     * Helper: Get unique delivery dates per order for an item
      * Returns one date per unique OrderNr (sorted ascending)
+     *
+     * V3: Now returns DELIVERY dates (when goods arrived), not order dates
+     * This is critical for accurate consumption pattern analysis
      */
     static _getUniquePurchaseDates(rows) {
         const orderDates = new Map();
@@ -231,50 +351,102 @@ class OrderAnalyzer {
     }
 
     /**
-     * Helper: Calculate purchase intervals (days between consecutive purchases)
+     * Helper: Calculate purchase intervals (days between consecutive deliveries)
+     *
+     * V3: Filters out intervals > MAX_VALID_INTERVAL_DAYS (365 days)
+     *
+     * WHY FILTER OUTLIERS:
+     * - Intervals > 1 year typically indicate project orders, not regular consumption
+     * - Including them would skew the median and make status unreliable
+     * - Regular replenishment items rarely have gaps > 1 year
      */
     static _getPurchaseIntervals(dates) {
         if (!dates || dates.length < 2) return [];
+
+        const { MAX_VALID_INTERVAL_DAYS } = this.V3_FREQUENCY_CONFIG;
         const intervals = [];
+
         for (let i = 1; i < dates.length; i++) {
             const days = Math.round((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24));
-            intervals.push(days);
+            // V3: Only include intervals within valid range
+            if (days > 0 && days <= MAX_VALID_INTERVAL_DAYS) {
+                intervals.push(days);
+            }
         }
+
         return intervals;
     }
 
     /**
-     * Helper: Determine purchase status (traffic light)
+     * V3: Determine purchase status (traffic light)
+     *
+     * Status classification:
+     * - OK (GREEN): daysSinceLast <= median × 1.2
+     * - Følg med (YELLOW): daysSinceLast between median × 1.2 and median × 1.6
+     * - Bør bestilles (RED): daysSinceLast > median × 1.6
+     * - For lite historikk (GRAY): insufficient data (handled separately)
+     *
+     * WHY THESE THRESHOLDS:
+     * - 1.2 (20% over median): Normal variation buffer
+     * - 1.6 (60% over median): Clearly overdue, action needed
      */
     static _getPurchaseStatus(daysSinceLast, medianDays) {
         if (medianDays === null || daysSinceLast === null) return 'GREEN';
-        if (daysSinceLast >= medianDays * 1.2) return 'RED';
-        if (daysSinceLast >= medianDays * 0.9) return 'YELLOW';
-        return 'GREEN';
+
+        const { OK_THRESHOLD, FOLLOW_UP_THRESHOLD } = this.V3_FREQUENCY_CONFIG;
+
+        if (daysSinceLast > medianDays * FOLLOW_UP_THRESHOLD) {
+            return 'RED';  // Bør bestilles
+        }
+        if (daysSinceLast > medianDays * OK_THRESHOLD) {
+            return 'YELLOW';  // Følg med
+        }
+        return 'GREEN';  // OK
     }
 
     /**
      * Helper: Get status emoji
+     * V3: Added GRAY for insufficient data
      */
     static _getStatusEmoji(status) {
         switch (status) {
-            case 'RED': return '\u{1F534}';
-            case 'YELLOW': return '\u{1F7E1}';
-            case 'GREEN': return '\u{1F7E2}';
+            case 'RED': return '\u{1F534}';      // Red circle
+            case 'YELLOW': return '\u{1F7E1}';   // Yellow circle
+            case 'GREEN': return '\u{1F7E2}';    // Green circle
+            case 'GRAY': return '\u{26AA}';      // White/gray circle
             default: return '\u{1F7E2}';
         }
     }
 
     /**
-     * Helper: Get suggestion text based on status
+     * V3: Get suggestion text based on status
+     *
+     * For RED (Bør bestilles):
+     * - Suggests: median consumption × median interval (read-only, no ERP writes)
+     *
+     * @param {string} status - Traffic light status
+     * @param {number} suggestedQty - Pre-calculated suggested quantity (for RED)
+     * @param {number} validIntervalCount - Number of valid intervals for the item
      */
-    static _getSuggestionText(status, medianQty, orderCount) {
-        if (orderCount < 2) return 'For lite historikk';
+    static _getSuggestionText(status, suggestedQty, validIntervalCount) {
+        const { MIN_INTERVALS_REQUIRED } = this.V3_FREQUENCY_CONFIG;
+
+        // Check for insufficient history
+        if (validIntervalCount < MIN_INTERVALS_REQUIRED) {
+            return 'For lite historikk';
+        }
+
         switch (status) {
-            case 'RED': return `Bestill ca. ${Math.round(medianQty)} stk`;
-            case 'YELLOW': return 'Forventet kjøp innen kort tid';
-            case 'GREEN': return 'Ingen handling nå';
-            default: return 'Ingen handling nå';
+            case 'RED':
+                return suggestedQty > 0 ? `Bestill ca. ${Math.round(suggestedQty)} stk` : 'Bør bestilles';
+            case 'YELLOW':
+                return 'Forventet kjøp snart';
+            case 'GREEN':
+                return 'Ingen handling nå';
+            case 'GRAY':
+                return 'For lite historikk';
+            default:
+                return 'Ingen handling nå';
         }
     }
 
@@ -442,10 +614,23 @@ class OrderAnalyzer {
     }
 
     /**
-     * Render frequent purchases view (v2)
+     * Render frequent purchases view (v3)
      * Prioritized work list with median-based statistics, status classification, and order suggestions
+     *
+     * V3 CHANGES:
+     * - Uses delivery date (not order date) for all calculations
+     * - Filters outlier intervals (>365 days)
+     * - Requires MIN_INTERVALS_REQUIRED (3) for reliable analysis
+     * - Updated thresholds: OK (≤1.2×), Følg med (≤1.6×), Bør bestilles (>1.6×)
+     * - Bestillingsforslag = median consumption × (median interval / 30) for monthly estimate
+     *
+     * WHY MEDIAN INSTEAD OF AVERAGE:
+     * - Median is robust to outliers (one large project order won't skew results)
+     * - Better represents "typical" purchase pattern
+     * - More reliable for planning and reorder suggestions
      */
     static renderFrequent() {
+        const { MIN_INTERVALS_REQUIRED } = this.V3_FREQUENCY_CONFIG;
         const grouped = this._groupBy(this._enrichedData, item => item._itemNo);
         const today = new Date();
 
@@ -455,70 +640,97 @@ class OrderAnalyzer {
             // Count unique orders
             const uniqueOrders = new Set(rows.map(r => r._orderNo)).size;
 
-            // Get unique purchase dates (one per OrderNr)
-            const purchaseDates = this._getUniquePurchaseDates(rows);
+            // Get unique delivery dates (one per OrderNr)
+            // V3: These are now DELIVERY dates, not order dates
+            const deliveryDates = this._getUniquePurchaseDates(rows);
 
-            // Calculate purchase intervals
-            const intervals = this._getPurchaseIntervals(purchaseDates);
+            // Calculate delivery intervals (with outlier filtering)
+            // V3: Intervals >365 days are excluded as project/outliers
+            const intervals = this._getPurchaseIntervals(deliveryDates);
+            const validIntervalCount = intervals.length;
 
-            // Calculate median days between purchases
+            // Calculate median days between deliveries
             const medianDaysBetween = this._median(intervals);
 
-            // Calculate days since last purchase
-            let daysSinceLastPurchase = null;
-            if (purchaseDates.length > 0) {
-                const lastPurchaseDate = purchaseDates[purchaseDates.length - 1];
-                daysSinceLastPurchase = Math.round((today - lastPurchaseDate) / (1000 * 60 * 60 * 24));
+            // Calculate days since last delivery
+            // V3: Must always be positive, never overflow
+            let daysSinceLastDelivery = null;
+            if (deliveryDates.length > 0) {
+                const lastDeliveryDate = deliveryDates[deliveryDates.length - 1];
+                const diffMs = today - lastDeliveryDate;
+                // Ensure positive value (should always be, since future dates are blocked)
+                daysSinceLastDelivery = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
             }
 
             // Calculate median quantity per order
             const medianQtyPerOrder = this._getMedianQtyPerOrder(rows);
 
             // Determine purchase status
-            const purchaseStatus = this._getPurchaseStatus(daysSinceLastPurchase, medianDaysBetween);
+            // V3: GRAY if insufficient history, otherwise normal classification
+            let purchaseStatus;
+            if (validIntervalCount < MIN_INTERVALS_REQUIRED) {
+                purchaseStatus = 'GRAY';  // For lite historikk
+            } else {
+                purchaseStatus = this._getPurchaseStatus(daysSinceLastDelivery, medianDaysBetween);
+            }
+
+            // V3: Calculate suggested order quantity for RED items
+            // Formula: median consumption × median interval
+            // This represents the typical amount ordered over typical interval
+            let suggestedOrderQty = 0;
+            if (purchaseStatus === 'RED' && medianQtyPerOrder > 0) {
+                suggestedOrderQty = medianQtyPerOrder;  // Simple: reorder typical quantity
+            }
 
             // Generate suggestion text
-            const suggestionText = this._getSuggestionText(purchaseStatus, medianQtyPerOrder, uniqueOrders);
+            const suggestionText = this._getSuggestionText(purchaseStatus, suggestedOrderQty, validIntervalCount);
 
             return {
                 itemNo,
                 description,
                 orderCount: uniqueOrders,
                 medianDaysBetween,
-                daysSinceLastPurchase,
+                daysSinceLastDelivery,
                 medianQtyPerOrder,
                 purchaseStatus,
-                suggestionText
+                suggestionText,
+                validIntervalCount
             };
         });
 
-        // Sort by priority: RED first, then YELLOW, then GREEN
-        // Within same status: sort by daysSinceLastPurchase DESC
-        const statusPriority = { 'RED': 0, 'YELLOW': 1, 'GREEN': 2 };
+        // Sort by priority: RED first, then YELLOW, then GREEN, then GRAY (insufficient data)
+        // Within same status: sort by daysSinceLastDelivery DESC
+        const statusPriority = { 'RED': 0, 'YELLOW': 1, 'GREEN': 2, 'GRAY': 3 };
         aggregated.sort((a, b) => {
             const priorityDiff = statusPriority[a.purchaseStatus] - statusPriority[b.purchaseStatus];
             if (priorityDiff !== 0) return priorityDiff;
-            // Within same status, higher daysSinceLastPurchase comes first
-            const aDays = a.daysSinceLastPurchase !== null ? a.daysSinceLastPurchase : -1;
-            const bDays = b.daysSinceLastPurchase !== null ? b.daysSinceLastPurchase : -1;
+            // Within same status, higher daysSinceLastDelivery comes first
+            const aDays = a.daysSinceLastDelivery !== null ? a.daysSinceLastDelivery : -1;
+            const bDays = b.daysSinceLastDelivery !== null ? b.daysSinceLastDelivery : -1;
             return bDays - aDays;
         });
-
-        // Take top 50
-        const top50 = aggregated.slice(0, 50);
 
         // Count statuses for summary
         const redCount = aggregated.filter(a => a.purchaseStatus === 'RED').length;
         const yellowCount = aggregated.filter(a => a.purchaseStatus === 'YELLOW').length;
         const greenCount = aggregated.filter(a => a.purchaseStatus === 'GREEN').length;
+        const grayCount = aggregated.filter(a => a.purchaseStatus === 'GRAY').length;
 
-        let html = '<h3 style="margin-top: 20px;">\u26A1 Oftest kjøpt (v2)</h3>';
+        let html = '<h3 style="margin-top: 20px;">\u26A1 Oftest kjøpt (v3)</h3>';
+
+        // Info box explaining v3 changes
+        html += '<div style="background: #e8f4fd; padding: 12px 16px; border-radius: 6px; margin: 15px 0; font-size: 13px; border-left: 3px solid #0d6efd;">';
+        html += '<strong>V3:</strong> Basert på leveringsdato fra Qlik. ';
+        html += 'Median brukes for robusthet mot prosjektordre. ';
+        html += `Artikler med < ${MIN_INTERVALS_REQUIRED} gyldige intervaller markeres som "For lite historikk".`;
+        html += '</div>';
 
         // Summary stats
         html += '<div class="stats-row" style="margin: 20px 0; display: flex; gap: 20px; flex-wrap: wrap;">';
         html += `<div class="stat-box" style="border-left: 4px solid #dc3545;"><strong>${redCount}</strong><br>\u{1F534} Bør bestilles</div>`;
         html += `<div class="stat-box" style="border-left: 4px solid #ffc107;"><strong>${yellowCount}</strong><br>\u{1F7E1} Følg med</div>`;
         html += `<div class="stat-box" style="border-left: 4px solid #28a745;"><strong>${greenCount}</strong><br>\u{1F7E2} OK</div>`;
+        html += `<div class="stat-box" style="border-left: 4px solid #6c757d;"><strong>${grayCount}</strong><br>\u{26AA} For lite historikk</div>`;
         html += `<div class="stat-box"><strong>${aggregated.length}</strong><br>Unike artikler</div>`;
         html += '</div>';
 
@@ -534,17 +746,24 @@ class OrderAnalyzer {
         html += '<th>Forslag</th>';
         html += '</tr></thead><tbody>';
 
-        top50.forEach((item, index) => {
+        // Display all items (no limit), but show actionable ones first
+        aggregated.forEach((item, index) => {
             const statusEmoji = this._getStatusEmoji(item.purchaseStatus);
-            const rowStyle = item.purchaseStatus === 'RED' ? 'background-color: rgba(220, 53, 69, 0.1);' :
-                             item.purchaseStatus === 'YELLOW' ? 'background-color: rgba(255, 193, 7, 0.1);' : '';
+            let rowStyle = '';
+            if (item.purchaseStatus === 'RED') {
+                rowStyle = 'background-color: rgba(220, 53, 69, 0.1);';
+            } else if (item.purchaseStatus === 'YELLOW') {
+                rowStyle = 'background-color: rgba(255, 193, 7, 0.1);';
+            } else if (item.purchaseStatus === 'GRAY') {
+                rowStyle = 'background-color: rgba(108, 117, 125, 0.05);';
+            }
 
             html += `<tr style="${rowStyle}">`;
             html += `<td>${index + 1}</td>`;
             html += `<td>${item.itemNo || '-'}</td>`;
             html += `<td>${item.description || '-'}</td>`;
             html += `<td style="text-align: right;">${item.medianDaysBetween !== null ? this._fmt(item.medianDaysBetween, 0) : '\u2014'}</td>`;
-            html += `<td style="text-align: right;">${item.daysSinceLastPurchase !== null ? this._fmt(item.daysSinceLastPurchase, 0) : '\u2014'}</td>`;
+            html += `<td style="text-align: right;">${item.daysSinceLastDelivery !== null ? this._fmt(item.daysSinceLastDelivery, 0) : '\u2014'}</td>`;
             html += `<td style="text-align: center;">${statusEmoji}</td>`;
             html += `<td>${item.suggestionText}</td>`;
             html += '</tr>';
