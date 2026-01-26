@@ -18,7 +18,8 @@ class DashboardApp {
             assortment: [],
             butlerData: [],
             orderHistory: [],
-            saMappingData: []  // SA-nummer mapping from Jeeves
+            saMappingData: [],  // SA-nummer mapping from Jeeves
+            locationData: []    // Sales per delivery location (NEW)
         };
 
         this.settings = {
@@ -153,6 +154,18 @@ class DashboardApp {
                     <small>${(file.size / 1024).toFixed(1)} KB</small>
                 </div>
                 <select class="module-selector" data-index="${index}">
+                    <option value="locationData" ${suggested === 'locationData' ? 'selected' : ''}>
+                        📍 Salg per lokasjon (Delivery Location)
+                    </option>
+                    <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
+                        🏭 Butler Analyse (2800 artikler)
+                    </option>
+                    <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
+                        📦 Ordre Historikk (Tools)
+                    </option>
+                    <option value="saMappingData" ${suggested === 'saMappingData' ? 'selected' : ''}>
+                        🔗 SA-nummer mapping (Jeeves)
+                    </option>
                     <option value="shutdown" ${suggested === 'shutdown' ? 'selected' : ''}>
                         📊 Vedlikeholdsstopp (Uke 16/42)
                     </option>
@@ -164,15 +177,6 @@ class DashboardApp {
                     </option>
                     <option value="flowIssues" ${suggested === 'flowIssues' ? 'selected' : ''}>
                         ⚠️ SAP/Jeeves problemer
-                    </option>
-                    <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
-                        🏭 Butler Analyse (2800 artikler)
-                    </option>
-                    <option value="saMappingData" ${suggested === 'saMappingData' ? 'selected' : ''}>
-                        🔗 SA-nummer mapping (Jeeves)
-                    </option>
-                    <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
-                        📦 Ordre Historikk (Tools)
                     </option>
                 </select>
             `;
@@ -202,7 +206,16 @@ class DashboardApp {
     suggestModule(fileName) {
         const fn = fileName.toLowerCase();
 
-        // Check for SA-mapping file (Jeeves artikkelknytte) - FIRST PRIORITY
+        // Check for delivery location file (Tools → Borregaard with locations) - HIGHEST PRIORITY
+        // Matches: c2409b41-9fae-4adb-b5c1-4d2b84c8dc5a.xlsx or files with delivery location
+        if (fn.includes('c2409b41') ||
+            fn.includes('delivery location') ||
+            fn.includes('leveringslokasjon') ||
+            fn.includes('delivery_location')) {
+            return 'locationData';
+        }
+
+        // Check for SA-mapping file (Jeeves artikkelknytte)
         if (fn.includes('artikkel') && (fn.includes('knytte') || fn.includes('knyt')) ||
             fn.includes('sa-nummer') ||
             fn.includes('kunds') ||
@@ -215,7 +228,7 @@ class DashboardApp {
             return 'butlerData';
         }
 
-        // Check for order history from Tools
+        // Check for order history from Tools (general)
         if (fn.includes('tools') || fn.includes('historikk') || fn.includes('history')) {
             return 'orderHistory';
         }
@@ -404,6 +417,32 @@ class DashboardApp {
         if (window.OrderAnalyzer) {
             window.OrderAnalyzer.update(this.data.orderHistory);
         }
+
+        // Update Location analyzer (NEW)
+        if (window.LocationAnalyzer) {
+            window.LocationAnalyzer.update(this.data.locationData);
+        }
+
+        // Generate cross-module insights if both Butler and Location data exists (NEW)
+        if (this.data.butlerData.length > 0 && this.data.locationData.length > 0) {
+            this.updateInsights();
+        } else if (window.InsightEngine) {
+            // Show placeholder if data is missing
+            window.InsightEngine.update(this.data.butlerData, this.data.locationData);
+        }
+    }
+
+    /**
+     * Generate and update cross-module insights (NEW)
+     */
+    updateInsights() {
+        if (!window.InsightEngine) return;
+
+        const butlerData = this.data.butlerData;
+        const locationData = this.data.locationData;
+
+        // Update insight engine with combined data
+        window.InsightEngine.update(butlerData, locationData);
     }
 
     /**
@@ -528,7 +567,8 @@ class DashboardApp {
                     this.data.assortment.length > 0 ||
                     this.data.butlerData.length > 0 ||
                     this.data.orderHistory.length > 0 ||
-                    this.data.saMappingData.length > 0) {
+                    this.data.saMappingData.length > 0 ||
+                    this.data.locationData?.length > 0) {
                     this.showToast('Data lastet fra forrige økt', 'success');
                 }
             }
@@ -550,7 +590,8 @@ class DashboardApp {
                 assortment: [],
                 butlerData: [],
                 orderHistory: [],
-                saMappingData: []
+                saMappingData: [],
+                locationData: []
             };
 
             localStorage.removeItem('dashboardData');

@@ -64,6 +64,38 @@
           <div id="uploadStatus" class="status-message"></div>
         </section>
 
+        <!-- INSIGHT ENGINE MODULE: Cross-module Intelligence (Full Width) -->
+        <section class="module insight-module-full-width" id="insightModule">
+          <div class="module-header">
+            <h2>🎯 Intelligent Innsikt - Prioritert Etterfylling</h2>
+            <span class="status-badge" id="insightStatus">Venter på data</span>
+          </div>
+          <div class="module-content">
+            <p class="placeholder">
+              Last Butler-data og salgshistorikk for å generere prioriterte anbefalinger.
+              <br><br>
+              <strong>Kombinerer:</strong> Butler lagerstatus + salgshistorikk per leveringslokasjon
+            </p>
+            <div id="insightResults"></div>
+          </div>
+        </section>
+
+        <!-- LOCATION ANALYZER MODULE: Per-location Analysis (Full Width) -->
+        <section class="module location-module-full-width" id="locationModule">
+          <div class="module-header">
+            <h2>📍 Salg per leveringslokasjon</h2>
+            <span class="status-badge" id="locationStatus">Ingen data</span>
+          </div>
+          <div class="module-content">
+            <p class="placeholder">
+              Last opp salgshistorikk med leveringslokasjoner for analyse.
+              <br><br>
+              <strong>Forventet:</strong> Fil med "Delivery location ID" kolonne
+            </p>
+            <div id="locationResults"></div>
+          </div>
+        </section>
+
         <!-- ORDER HISTORY MODULE: Order Analyzer (Full Width) -->
         <section class="module order-module-full-width" id="orderModule">
           <div class="module-header">
@@ -182,7 +214,11 @@
     <!-- External Libraries -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
-    <!-- Data Mapping Modules (load first) -->
+    <!-- Utilities (load first) -->
+    <script src="js/utils/dateParser.js"></script>
+    <script src="js/utils/sortableTable.js"></script>
+
+    <!-- Data Mapping Modules -->
     <script src="js/dataMapper.js"></script>
     <script src="js/dataAggregator.js"></script>
     <script src="js/dataMappingUI.js"></script>
@@ -195,6 +231,10 @@
     <script src="js/assortment.js"></script>
     <script src="js/butlerAnalyzer.js"></script>
     <script src="js/orderAnalyzer.js"></script>
+    <script src="js/locationAnalyzer.js"></script>
+    <script src="js/insightEngine.js"></script>
+
+    <!-- Main Application Controller -->
     <script src="js/app.js"></script>
   </body>
 </html>
