@@ -64,6 +64,34 @@
           <div id="uploadStatus" class="status-message"></div>
         </section>
 
+        <!-- REPLENISHMENT OPTIMIZER MODULE: BP Analysis (Full Width - Top Priority) -->
+        <section class="module replenishment-module-full-width" id="replenishmentModule">
+          <div class="module-header">
+            <h2>🎯 BP-Optimalisering - Tools Sentrallager</h2>
+            <span class="status-badge" id="replenishmentStatus">Ingen data</span>
+          </div>
+          <div class="module-content">
+            <p class="placeholder">
+              Last opp <strong>Lagerbeholdning.xlsx</strong> (Butler),
+              <strong>Ordrer.xlsx</strong> (Salg) og
+              <strong>bestillinger.xlsx</strong> (Innkjøp) for intelligent BP-analyse.
+              <br><br>
+              <strong>Forventet resultat:</strong> ~1,900 artikler med komplett data fra alle 3 kilder.
+            </p>
+
+            <!-- Tabs (shown when data loads) -->
+            <div class="replenishment-tabs" style="display: none;">
+              <button class="tab active" data-view="critical">🔴 BP for lavt</button>
+              <button class="tab" data-view="tooMany">🟡 For mange ordre</button>
+              <button class="tab" data-view="optimal">🟢 Optimal BP</button>
+              <button class="tab" data-view="tooHigh">⚪ BP for høyt</button>
+              <button class="tab" data-view="all">📊 Alle artikler</button>
+            </div>
+
+            <div id="replenishmentResults"></div>
+          </div>
+        </section>
+
         <!-- INSIGHT ENGINE MODULE: Cross-module Intelligence (Full Width) -->
         <section class="module insight-module-full-width" id="insightModule">
           <div class="module-header">
@@ -233,6 +261,7 @@
     <script src="js/orderAnalyzer.js"></script>
     <script src="js/locationAnalyzer.js"></script>
     <script src="js/insightEngine.js"></script>
+    <script src="js/replenishmentOptimizer.js"></script>
 
     <!-- Main Application Controller -->
     <script src="js/app.js"></script>

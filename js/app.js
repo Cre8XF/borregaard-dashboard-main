@@ -19,7 +19,12 @@ class DashboardApp {
             butlerData: [],
             orderHistory: [],
             saMappingData: [],  // SA-nummer mapping from Jeeves
-            locationData: []    // Sales per delivery location (NEW)
+            locationData: [],   // Sales per delivery location
+
+            // ReplenishmentOptimizer (3 separate datasets)
+            replenishmentButler: [],    // Butler/inventory data for BP analysis
+            replenishmentSales: [],     // Sales to satellites (demand)
+            replenishmentPurchases: []  // Purchases from suppliers (supply)
         };
 
         this.settings = {
@@ -154,30 +159,43 @@ class DashboardApp {
                     <small>${(file.size / 1024).toFixed(1)} KB</small>
                 </div>
                 <select class="module-selector" data-index="${index}">
-                    <option value="locationData" ${suggested === 'locationData' ? 'selected' : ''}>
-                        📍 Salg per lokasjon (Delivery Location)
-                    </option>
-                    <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
-                        🏭 Butler Analyse (2800 artikler)
-                    </option>
-                    <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
-                        📦 Ordre Historikk (Tools)
-                    </option>
-                    <option value="saMappingData" ${suggested === 'saMappingData' ? 'selected' : ''}>
-                        🔗 SA-nummer mapping (Jeeves)
-                    </option>
-                    <option value="shutdown" ${suggested === 'shutdown' ? 'selected' : ''}>
-                        📊 Vedlikeholdsstopp (Uke 16/42)
-                    </option>
-                    <option value="inventory" ${suggested === 'inventory' ? 'selected' : ''}>
-                        📦 Lagerrisiko (7 lagre)
-                    </option>
-                    <option value="assortment" ${suggested === 'assortment' ? 'selected' : ''}>
-                        📋 Kundesortiment
-                    </option>
-                    <option value="flowIssues" ${suggested === 'flowIssues' ? 'selected' : ''}>
-                        ⚠️ SAP/Jeeves problemer
-                    </option>
+                    <optgroup label="🎯 BP-Optimalisering">
+                        <option value="replenishmentButler" ${suggested === 'replenishmentButler' ? 'selected' : ''}>
+                            📦 Lagerbeholdning (Butler)
+                        </option>
+                        <option value="replenishmentSales" ${suggested === 'replenishmentSales' ? 'selected' : ''}>
+                            📈 Ordrer (Salg til satellitter)
+                        </option>
+                        <option value="replenishmentPurchases" ${suggested === 'replenishmentPurchases' ? 'selected' : ''}>
+                            🛒 Bestillinger (Innkjop fra leverandorer)
+                        </option>
+                    </optgroup>
+                    <optgroup label="Andre moduler">
+                        <option value="locationData" ${suggested === 'locationData' ? 'selected' : ''}>
+                            📍 Salg per lokasjon (Delivery Location)
+                        </option>
+                        <option value="butlerData" ${suggested === 'butlerData' ? 'selected' : ''}>
+                            🏭 Butler Analyse (2800 artikler)
+                        </option>
+                        <option value="orderHistory" ${suggested === 'orderHistory' ? 'selected' : ''}>
+                            📦 Ordre Historikk (Tools)
+                        </option>
+                        <option value="saMappingData" ${suggested === 'saMappingData' ? 'selected' : ''}>
+                            🔗 SA-nummer mapping (Jeeves)
+                        </option>
+                        <option value="shutdown" ${suggested === 'shutdown' ? 'selected' : ''}>
+                            📊 Vedlikeholdsstopp (Uke 16/42)
+                        </option>
+                        <option value="inventory" ${suggested === 'inventory' ? 'selected' : ''}>
+                            📦 Lagerrisiko (7 lagre)
+                        </option>
+                        <option value="assortment" ${suggested === 'assortment' ? 'selected' : ''}>
+                            📋 Kundesortiment
+                        </option>
+                        <option value="flowIssues" ${suggested === 'flowIssues' ? 'selected' : ''}>
+                            ⚠️ SAP/Jeeves problemer
+                        </option>
+                    </optgroup>
                 </select>
             `;
             
@@ -206,6 +224,29 @@ class DashboardApp {
     suggestModule(fileName) {
         const fn = fileName.toLowerCase();
 
+        // ========================================
+        // ReplenishmentOptimizer - 3 file types
+        // ========================================
+
+        // Lagerbeholdning.xlsx (Butler) for BP analysis
+        if (fn.includes('lagerbeholdning') || (fn.includes('butler') && fn.includes('beholdning'))) {
+            return 'replenishmentButler';
+        }
+
+        // Ordrer.xlsx (Sales to satellites) - NOT bestilling
+        if (fn.includes('ordrer') && !fn.includes('bestilling')) {
+            return 'replenishmentSales';
+        }
+
+        // bestillinger.xlsx (Purchases from suppliers)
+        if (fn.includes('bestilling')) {
+            return 'replenishmentPurchases';
+        }
+
+        // ========================================
+        // Other modules (existing logic)
+        // ========================================
+
         // Check for delivery location file (Tools → Borregaard with locations) - HIGHEST PRIORITY
         // Matches: c2409b41-9fae-4adb-b5c1-4d2b84c8dc5a.xlsx or files with delivery location
         if (fn.includes('c2409b41') ||
@@ -223,7 +264,7 @@ class DashboardApp {
             return 'saMappingData';
         }
 
-        // Check for Butler files
+        // Check for Butler files (general)
         if (fn.includes('butler')) {
             return 'butlerData';
         }
@@ -423,6 +464,15 @@ class DashboardApp {
             window.LocationAnalyzer.update(this.data.locationData);
         }
 
+        // Update ReplenishmentOptimizer (combines 3 data sources)
+        if (window.ReplenishmentOptimizer) {
+            window.ReplenishmentOptimizer.update(
+                this.data.replenishmentButler,
+                this.data.replenishmentSales,
+                this.data.replenishmentPurchases
+            );
+        }
+
         // Generate cross-module insights if both Butler and Location data exists (NEW)
         if (this.data.butlerData.length > 0 && this.data.locationData.length > 0) {
             this.updateInsights();
@@ -568,7 +618,10 @@ class DashboardApp {
                     this.data.butlerData.length > 0 ||
                     this.data.orderHistory.length > 0 ||
                     this.data.saMappingData.length > 0 ||
-                    this.data.locationData?.length > 0) {
+                    this.data.locationData?.length > 0 ||
+                    this.data.replenishmentButler?.length > 0 ||
+                    this.data.replenishmentSales?.length > 0 ||
+                    this.data.replenishmentPurchases?.length > 0) {
                     this.showToast('Data lastet fra forrige økt', 'success');
                 }
             }
@@ -591,7 +644,10 @@ class DashboardApp {
                 butlerData: [],
                 orderHistory: [],
                 saMappingData: [],
-                locationData: []
+                locationData: [],
+                replenishmentButler: [],
+                replenishmentSales: [],
+                replenishmentPurchases: []
             };
 
             localStorage.removeItem('dashboardData');

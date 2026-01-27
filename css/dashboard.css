@@ -326,6 +326,83 @@ input[type='file']:hover {
   padding: 25px 30px;
 }
 
+/* Full-width Replenishment Optimizer module (BP Analysis) */
+.replenishment-module-full-width {
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 8px var(--shadow);
+}
+
+.replenishment-module-full-width .module-header {
+  background: linear-gradient(135deg, #16a085 0%, #117a65 100%);
+  padding: 25px 30px;
+}
+
+.replenishment-module-full-width .module-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.replenishment-module-full-width .module-content {
+  padding: 25px 30px;
+}
+
+/* Replenishment Tabs */
+.replenishment-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 3px solid #ecf0f1;
+  flex-wrap: wrap;
+  background: #f8f9fa;
+  padding: 10px 10px 0 10px;
+  border-radius: 8px 8px 0 0;
+}
+
+.replenishment-tabs .tab {
+  padding: 12px 18px;
+  background: var(--white);
+  border: 2px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7f8c8d;
+  transition: all 0.25s ease;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.replenishment-tabs .tab.active {
+  color: #2c3e50;
+  background: var(--white);
+  border-bottom-color: #16a085;
+  border-top-color: #16a085;
+  border-left-color: #16a085;
+  border-right-color: #16a085;
+  font-weight: 700;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(22, 160, 133, 0.2);
+}
+
+.replenishment-tabs .tab:hover:not(.active) {
+  color: #2c3e50;
+  background: var(--white);
+  border-color: #bdc3c7;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Replenishment Dashboard specific styles */
+.replenishment-dashboard .view-header {
+  border-left: 4px solid #16a085;
+}
+
+.replenishment-dashboard .summary-cards {
+  margin-bottom: 25px;
+}
+
 /* Risk badges for InsightEngine */
 .risk-badge {
   display: inline-block;
