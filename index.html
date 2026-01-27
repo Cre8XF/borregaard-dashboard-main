@@ -5,263 +5,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Plass Responsible Dashboard for Borregaard - Operasjonell kontroll og styring"
+      content="Borregaard Lageranalyse - Forenklet og fokusert lageroptimalisering"
     />
-    <title>Plass Responsible Dashboard - Borregaard</title>
+    <title>Borregaard Lageranalyse</title>
     <link rel="stylesheet" href="css/dashboard.css" />
   </head>
   <body>
     <div class="container">
-      <header>
-        <h1>Plass Responsible Dashboard</h1>
-        <p class="subtitle">Borregaard - Operasjonell kontroll</p>
-
-        <div class="card">
-          <div class="card-header">
-            <h3>📦 Ukentlig lagerkontroll</h3>
-            <span class="status">Operativ</span>
-          </div>
-
-          <p>
-            Start mobilbasert gjennomgang av utskutte lagre. Scan artikler som
-            må etterfylles og eksporter direkte til Excel.
-          </p>
-
-          <div class="card-actions">
-            <a href="borregaard-refill/refill.html" class="btn btn-primary">
-              Start lagerkontroll
-            </a>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h3>👥 Kontaktoversikt</h3>
-            <span class="status">Operativ</span>
-          </div>
-
-          <p>
-            Se kontaktpersoner for alle lagre. Finn e-post og telefon
-            til ansvarlige per lager.
-          </p>
-
-          <div class="card-actions">
-            <a href="contacts.html" class="btn btn-primary">
-              Se kontakter
-            </a>
-          </div>
-        </div>
+      <!-- HEADER -->
+      <header class="main-header">
+        <h1>Borregaard Lageranalyse</h1>
+        <p class="subtitle">Kommandosenter for lageroptimalisering</p>
       </header>
 
-      <main>
-        <!-- File Upload Section -->
-        <section class="upload-section">
-          <h2>Last opp data</h2>
-          <div class="upload-controls">
-            <input type="file" id="fileInput" accept=".csv,.xlsx" multiple />
-            <button id="uploadBtn" class="btn-primary">Last inn filer</button>
+      <!-- FILE UPLOAD SECTION -->
+      <section class="upload-section">
+        <h2>Last opp data</h2>
+        <div class="upload-grid">
+          <div class="upload-item">
+            <label for="butlerFile">Butler / Lagerbeholdning (påkrevd)</label>
+            <input type="file" id="butlerFile" accept=".xlsx,.csv" />
           </div>
-          <div id="uploadStatus" class="status-message"></div>
-        </section>
-
-        <!-- REPLENISHMENT OPTIMIZER MODULE: BP Analysis (Full Width - Top Priority) -->
-        <section class="module replenishment-module-full-width" id="replenishmentModule">
-          <div class="module-header">
-            <h2>🎯 BP-Optimalisering - Tools Sentrallager</h2>
-            <span class="status-badge" id="replenishmentStatus">Ingen data</span>
+          <div class="upload-item">
+            <label for="salesFile">Fakturaer / Salgshistorikk (påkrevd)</label>
+            <input type="file" id="salesFile" accept=".xlsx,.csv" />
           </div>
-          <div class="module-content">
-            <p class="placeholder">
-              Last opp <strong>Lagerbeholdning.xlsx</strong> (Butler),
-              <strong>Ordrer.xlsx</strong> (Salg) og
-              <strong>bestillinger.xlsx</strong> (Innkjøp) for intelligent BP-analyse.
-              <br><br>
-              <strong>Forventet resultat:</strong> ~1,900 artikler med komplett data fra alle 3 kilder.
-            </p>
-
-            <!-- Tabs (shown when data loads) -->
-            <div class="replenishment-tabs" style="display: none;">
-              <button class="tab active" data-view="critical">🔴 BP for lavt</button>
-              <button class="tab" data-view="tooMany">🟡 For mange ordre</button>
-              <button class="tab" data-view="optimal">🟢 Optimal BP</button>
-              <button class="tab" data-view="tooHigh">⚪ BP for høyt</button>
-              <button class="tab" data-view="all">📊 Alle artikler</button>
-            </div>
-
-            <div id="replenishmentResults"></div>
+          <div class="upload-item">
+            <label for="departmentsFile">Andre avdelinger (valgfri)</label>
+            <input type="file" id="departmentsFile" accept=".xlsx,.csv" />
           </div>
-        </section>
+        </div>
+        <div class="upload-actions">
+          <button id="uploadBtn" class="btn-primary">Analyser data</button>
+          <button id="clearBtn" class="btn-secondary">Nullstill</button>
+        </div>
+        <div id="uploadStatus" class="status-message"></div>
+      </section>
 
-        <!-- INSIGHT ENGINE MODULE: Cross-module Intelligence (Full Width) -->
-        <section class="module insight-module-full-width" id="insightModule">
-          <div class="module-header">
-            <h2>🎯 Intelligent Innsikt - Prioritert Etterfylling</h2>
-            <span class="status-badge" id="insightStatus">Venter på data</span>
-          </div>
-          <div class="module-content">
-            <p class="placeholder">
-              Last Butler-data og salgshistorikk for å generere prioriterte anbefalinger.
-              <br><br>
-              <strong>Kombinerer:</strong> Butler lagerstatus + salgshistorikk per leveringslokasjon
-            </p>
-            <div id="insightResults"></div>
-          </div>
-        </section>
+      <!-- SUMMARY CARDS -->
+      <section class="summary-cards">
+        <div class="summary-card">
+          <div class="card-value" id="totalItems">-</div>
+          <div class="card-label">Totalt artikler</div>
+        </div>
+        <div class="summary-card card-ok">
+          <div class="card-value" id="topSellersCount">-</div>
+          <div class="card-label">Toppsellere</div>
+        </div>
+        <div class="summary-card card-warning">
+          <div class="card-value" id="actionItemsCount">-</div>
+          <div class="card-label">Krever handling</div>
+        </div>
+        <div class="summary-card card-critical">
+          <div class="card-value" id="slowMoversCount">-</div>
+          <div class="card-label">Ukurans</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-value" id="inactiveCount">-</div>
+          <div class="card-label">Inaktive m/saldo</div>
+        </div>
+      </section>
 
-        <!-- LOCATION ANALYZER MODULE: Per-location Analysis (Full Width) -->
-        <section class="module location-module-full-width" id="locationModule">
-          <div class="module-header">
-            <h2>📍 Salg per leveringslokasjon</h2>
-            <span class="status-badge" id="locationStatus">Ingen data</span>
-          </div>
-          <div class="module-content">
-            <p class="placeholder">
-              Last opp salgshistorikk med leveringslokasjoner for analyse.
-              <br><br>
-              <strong>Forventet:</strong> Fil med "Delivery location ID" kolonne
-            </p>
-            <div id="locationResults"></div>
-          </div>
-        </section>
+      <!-- TAB NAVIGATION -->
+      <nav class="tab-navigation">
+        <button class="tab active" data-module="topSellers">Toppsellere</button>
+        <button class="tab" data-module="orderSuggestions">Bestillingsforslag</button>
+        <button class="tab" data-module="slowMovers">Ukurans</button>
+        <button class="tab" data-module="inactiveItems">Inaktive varer</button>
+      </nav>
 
-        <!-- ORDER HISTORY MODULE: Order Analyzer (Full Width) -->
-        <section class="module order-module-full-width" id="orderModule">
-          <div class="module-header">
-            <h2>📦 Ordre Historikk - Tools til Borregaard</h2>
-            <span class="status-badge" id="orderStatus">Ingen data</span>
-          </div>
-          <div class="module-content">
-            <p class="placeholder">
-              Last opp ordre historikk fra Tools for å analysere kjøpsmønstre.
-              <br><br>
-              <strong>Tips:</strong> Filen bør inneholde: Artikelnr, Dato, Antall, Kunde
-            </p>
-
-            <!-- Tab navigation (will be populated when data loads) -->
-            <div class="order-tabs" style="display: none;">
-              <button class="tab active" data-view="top-sellers">🏆 Mest solgt</button>
-              <button class="tab" data-view="frequent">⚡ Oftest kjøpt (v3)</button>
-              <button class="tab" data-view="seasonal-v3">📊 Sesonganalyse</button>
-              <button class="tab" data-view="seasonal">📅 Sesongmønstre</button>
-              <button class="tab" data-view="customers">👥 Per kunde</button>
-              <button class="tab" data-view="timeline">📈 Tidslinje</button>
-            </div>
-
-            <div id="orderResults"></div>
-          </div>
-        </section>
-
-        <!-- PRIMARY MODULE: Butler Analyzer (Full Width) -->
-        <section class="module butler-module-full-width" id="butlerModule">
-          <div class="module-header">
-            <h2>🏭 Butler Analyse - Kommandosenter</h2>
-            <span class="status-badge" id="butlerStatus">Ingen data</span>
-          </div>
-          <div class="module-content">
-            <p class="placeholder">
-              Last opp daglig Butler Excel-eksport for å analysere lagerdata.
-            </p>
-            <div id="butlerResults"></div>
-          </div>
-        </section>
-
-        <!-- Dashboard Modules (2x2 Grid) -->
-        <div class="dashboard-grid">
-          <!-- Module A: Maintenance Shutdown Planner -->
-          <section class="module" id="shutdownModule">
-            <div class="module-header">
-              <h2>Vedlikeholdsstopp (Uke 16 & 42)</h2>
-              <span class="status-badge" id="shutdownStatus">Ingen data</span>
-            </div>
-            <div class="module-content">
-              <p class="placeholder">
-                Last opp historiske ordredata for å analysere kritiske produkter
-                før stopp.
-              </p>
-              <div id="shutdownResults"></div>
-            </div>
-          </section>
-
-          <!-- Module B: Inventory Risk Overview -->
-          <section class="module" id="inventoryModule">
-            <div class="module-header">
-              <h2>Lagerrisiko (7 satellittlagre)</h2>
-              <span class="status-badge" id="inventoryStatus">Ingen data</span>
-            </div>
-            <div class="module-content">
-              <p class="placeholder">
-                Last opp lagerdata for å se risikooversikt.
-              </p>
-              <div id="inventoryResults"></div>
-            </div>
-          </section>
-
-          <!-- Module C: SAP ↔ Jeeves Flow Issues -->
-          <section class="module" id="flowModule">
-            <div class="module-header">
-              <h2>SAP ↔ Jeeves Flytproblemer</h2>
-              <span class="status-badge" id="flowStatus">0 åpne</span>
-            </div>
-            <div class="module-content">
-              <p class="placeholder">
-                Logg og følg opp systemintegrasjonsproblemer.
-              </p>
-              <button id="addIssueBtn" class="btn-secondary">
-                + Legg til problem
-              </button>
-              <div id="flowResults"></div>
-            </div>
-          </section>
-
-          <!-- Module D: Customer Assortment -->
-          <section class="module" id="assortmentModule">
-            <div class="module-header">
-              <h2>Kundesortiment & Katalog</h2>
-              <span class="status-badge" id="assortmentStatus">Ingen data</span>
-            </div>
-            <div class="module-content">
-              <p class="placeholder">
-                Administrer kundesspesifikt sortiment og erstatningsprodukter.
-              </p>
-              <button id="addItemBtn" class="btn-secondary">
-                + Legg til produkt
-              </button>
-              <div id="assortmentResults"></div>
-            </div>
-          </section>
+      <!-- MODULE CONTENT AREA -->
+      <main id="moduleContent" class="module-content">
+        <div class="placeholder-content">
+          <p>Last opp Butler-data og salgshistorikk for å starte analysen.</p>
+          <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>
       </main>
 
+      <!-- FOOTER -->
       <footer>
-        <p>
-          Dashboard v2.0 - Lokal databehandling - Ingen data sendes til skyen
-        </p>
+        <p>Borregaard Dashboard v3.0 - Forenklet og fokusert</p>
+        <p class="text-muted">Lokal databehandling - Ingen data sendes til skyen</p>
       </footer>
     </div>
 
     <!-- External Libraries -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
-    <!-- Utilities (load first) -->
-    <script src="js/utils/dateParser.js"></script>
-    <script src="js/utils/sortableTable.js"></script>
-
-    <!-- Data Mapping Modules -->
-    <script src="js/dataMapper.js"></script>
-    <script src="js/dataAggregator.js"></script>
-    <script src="js/dataMappingUI.js"></script>
-
-    <!-- Application Modules -->
+    <!-- Core Data Loader -->
     <script src="js/dataLoader.js"></script>
-    <script src="js/shutdownAnalyzer.js"></script>
-    <script src="js/inventoryRisk.js"></script>
-    <script src="js/flowIssues.js"></script>
-    <script src="js/assortment.js"></script>
-    <script src="js/butlerAnalyzer.js"></script>
-    <script src="js/orderAnalyzer.js"></script>
-    <script src="js/locationAnalyzer.js"></script>
-    <script src="js/insightEngine.js"></script>
-    <script src="js/replenishmentOptimizer.js"></script>
+
+    <!-- Simplified Modules -->
+    <script src="js/topSellers.js"></script>
+    <script src="js/orderSuggestions.js"></script>
+    <script src="js/slowMovers.js"></script>
+    <script src="js/inactiveItems.js"></script>
 
     <!-- Main Application Controller -->
     <script src="js/app.js"></script>
