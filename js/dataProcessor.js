@@ -69,9 +69,15 @@ class DataProcessor {
         ],
 
         // Leverandør
-        // Jeeves Bestillinger: Leverantör
+        // Jeeves Lagerbeholdning: Företagsnamn | Jeeves Bestillinger: Leverantör
         supplier: [
-            'Leverantör', 'Leverandør', 'Supplier', 'Supplier Name', 'Vendor'
+            'Företagsnamn', 'Leverantör', 'Leverandør', 'Supplier', 'Supplier Name', 'Vendor'
+        ],
+
+        // Plasseringslokasjon (fra SA-Nummer.xlsx kolonne G: Artikelbeskrivning)
+        // OBS: I SA-filen er dette lokasjon, IKKE beskrivelse
+        placementLocation: [
+            'Artikelbeskrivning'
         ],
 
         // Lokasjon/Lagersted
@@ -386,6 +392,12 @@ class DataProcessor {
             // Status (hvis finnes)
             item.status = this.getColumnValue(row, 'status');
 
+            // Leverandør fra Jeeves (Företagsnamn)
+            const supplierValue = this.getColumnValue(row, 'supplier');
+            if (supplierValue) {
+                item.supplier = supplierValue;
+            }
+
             // Siste bevegelse fra Jeeves (Senaste rörelse)
             const lastMovementStr = this.getColumnValue(row, 'lastMovement');
             if (lastMovementStr) {
@@ -411,15 +423,26 @@ class DataProcessor {
     }
 
     /**
-     * Prosesser SA-nummer mapping
+     * Prosesser SA-nummer mapping og plasseringslokasjon
+     *
+     * SA-Nummer.xlsx kolonner:
+     * - Artikelnr → toolsArticleNumber (primærnøkkel)
+     * - Kunds artikelnummer → saNumber
+     * - Artikelbeskrivning (kolonne G) → placementLocation (IKKE beskrivelse!)
      */
     static processSANumberData(data, store) {
         data.forEach(row => {
             const articleNo = this.getColumnValue(row, 'articleNumber');
             const saNumber = this.getColumnValue(row, 'saNumber');
+            const placementLocation = this.getColumnValue(row, 'placementLocation');
 
             if (articleNo && saNumber) {
                 store.setSAMapping(articleNo, saNumber);
+            }
+
+            // Lagre plasseringslokasjon på artikkelen
+            if (articleNo && placementLocation) {
+                store.setPlacementLocation(articleNo, placementLocation);
             }
         });
     }

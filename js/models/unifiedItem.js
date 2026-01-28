@@ -26,6 +26,7 @@ class UnifiedItem {
         this.status = '';     // Artikkelstatus
         this.supplier = '';
         this.shelf = '';      // Hylleplassering
+        this.placementLocation = ''; // Plasseringslokasjon fra SA-fil
 
         // Bestillinger INN (fra Bestillinger.xlsx)
         this.incomingOrders = [];
@@ -228,6 +229,7 @@ class UnifiedItem {
             status: this.status,
             supplier: this.supplier,
             shelf: this.shelf,
+            placementLocation: this.placementLocation,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
             orderCount: this.orderCount,
@@ -250,6 +252,7 @@ class UnifiedDataStore {
     constructor() {
         this.items = new Map(); // toolsArticleNumber -> UnifiedItem
         this.saMapping = new Map(); // toolsArticleNumber -> saNumber
+        this.placementMapping = new Map(); // toolsArticleNumber -> placementLocation
         this.dataQuality = {
             totalArticles: 0,
             withSANumber: 0,
@@ -287,13 +290,31 @@ class UnifiedDataStore {
     }
 
     /**
-     * Apliser SA-nummer til alle artikler
+     * Sett plasseringslokasjon mapping (fra SA-fil)
+     */
+    setPlacementLocation(toolsArticleNumber, placementLocation) {
+        if (toolsArticleNumber && placementLocation) {
+            this.placementMapping.set(toolsArticleNumber.toString().trim(), placementLocation.toString().trim());
+        }
+    }
+
+    /**
+     * Apliser SA-nummer og plasseringslokasjon til alle artikler
      */
     applySANumbers() {
+        // Apliser SA-nummer
         this.saMapping.forEach((saNumber, toolsArticleNumber) => {
             const item = this.items.get(toolsArticleNumber);
             if (item) {
                 item.setSANumber(saNumber);
+            }
+        });
+
+        // Apliser plasseringslokasjon
+        this.placementMapping.forEach((placementLocation, toolsArticleNumber) => {
+            const item = this.items.get(toolsArticleNumber);
+            if (item) {
+                item.placementLocation = placementLocation;
             }
         });
     }
@@ -375,6 +396,7 @@ class UnifiedDataStore {
     clear() {
         this.items.clear();
         this.saMapping.clear();
+        this.placementMapping.clear();
         this.dataQuality = {
             totalArticles: 0,
             withSANumber: 0,
