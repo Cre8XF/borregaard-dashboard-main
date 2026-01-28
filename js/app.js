@@ -136,6 +136,46 @@ class DashboardApp {
     }
 
     /**
+     * Get value from object with flexible column name matching
+     * Handles variations in casing, spaces, and column names
+     */
+    getColumnValue(row, ...columnNames) {
+        // First try exact matches
+        for (const name of columnNames) {
+            if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+                return row[name];
+            }
+        }
+
+        // Then try case-insensitive matches
+        const keys = Object.keys(row);
+        for (const name of columnNames) {
+            const lowerName = name.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerName) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key];
+                    }
+                }
+            }
+        }
+
+        // Try partial matches (column contains the search term)
+        for (const name of columnNames) {
+            const lowerName = name.toLowerCase();
+            for (const key of keys) {
+                if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key];
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Process data - match Butler with Sales
      */
     processData() {
@@ -146,49 +186,64 @@ class DashboardApp {
         // Build article number lookup
         const butlerItems = this.data.butler;
 
+        // Debug: Log first item column names
+        if (butlerItems.length > 0) {
+            console.log('Butler columns:', Object.keys(butlerItems[0]));
+        }
+
         butlerItems.forEach(butlerItem => {
             // Get item number (try different column names)
-            const itemNo = butlerItem['Artikelnr'] ||
-                          butlerItem['Item ID'] ||
-                          butlerItem['ItemNo'] ||
-                          butlerItem['Varenr'] ||
-                          '';
+            const itemNo = this.getColumnValue(butlerItem,
+                'Artikelnr', 'Item ID', 'ItemNo', 'Varenr', 'Item', 'ArticleNo', 'Artikkelnr'
+            );
 
             if (!itemNo) return;
 
+            // Get description from Butler - this is the primary source
+            const description = this.getColumnValue(butlerItem,
+                'Artikelbeskrivelse', 'Artikelbeskr', 'Description', 'Beskrivelse',
+                'Item Description', 'ItemDesc', 'Varebeskrivelse', 'Navn', 'Name'
+            );
+
             // Find sales for this item
             const itemSales = this.data.sales.filter(sale => {
-                const saleItemNo = sale['Item ID'] ||
-                                  sale['Artikelnr'] ||
-                                  sale['ItemNo'] ||
-                                  '';
-                return saleItemNo === itemNo;
+                const saleItemNo = this.getColumnValue(sale,
+                    'Item ID', 'Artikelnr', 'ItemNo', 'Item', 'Varenr'
+                );
+                return saleItemNo === itemNo || String(saleItemNo) === String(itemNo);
             });
 
             // Filter to last 12 months
             const recentSales = itemSales.filter(sale => {
-                const dateStr = sale['Delivery date'] ||
-                               sale['Dato'] ||
-                               sale['Date'] ||
-                               '';
-                if (!dateStr) return true; // Include if no date
+                const dateStr = this.getColumnValue(sale,
+                    'Delivery date', 'Dato', 'Date', 'Invoice date', 'Fakturadato'
+                );
+                if (!dateStr) return true;
                 const saleDate = DataLoader.parseDate(dateStr);
                 return saleDate && saleDate >= oneYearAgo;
             });
 
             // Calculate metrics
             const sales12m = recentSales.reduce((sum, s) => {
-                const qty = parseFloat(s['Invoiced quantity'] || s['Antall'] || s['Quantity'] || 0);
+                const qty = parseFloat(this.getColumnValue(s,
+                    'Invoiced quantity', 'Antall', 'Quantity', 'Qty', 'Fakturert antall'
+                ) || 0);
                 return sum + (isNaN(qty) ? 0 : qty);
             }, 0);
 
             const orderNumbers = new Set(recentSales.map(s =>
-                s['Order number'] || s['Ordrenr'] || s['OrderNo'] || Math.random().toString()
+                this.getColumnValue(s, 'Order number', 'Ordrenr', 'OrderNo', 'Order') || Math.random().toString()
             ));
             const orderCount = orderNumbers.size;
 
-            const stock = parseFloat(butlerItem['Lagersaldo'] || butlerItem['Stock'] || 0) || 0;
-            const bp = parseFloat(butlerItem['BP'] || butlerItem['Bestillingspunkt'] || 0) || 0;
+            const stock = parseFloat(this.getColumnValue(butlerItem,
+                'Lagersaldo', 'Stock', 'Beholdning', 'Lager', 'OnHand'
+            ) || 0) || 0;
+
+            const bp = parseFloat(this.getColumnValue(butlerItem,
+                'BP', 'Bestillingspunkt', 'Reorder Point', 'Min'
+            ) || 0) || 0;
+
             const monthlyConsumption = sales12m / 12;
             const daysToEmpty = monthlyConsumption > 0 ?
                 Math.round(stock / (sales12m / 365)) : 999999;
@@ -197,7 +252,7 @@ class DashboardApp {
             let lastSaleDate = null;
             if (recentSales.length > 0) {
                 const dates = recentSales
-                    .map(s => s['Delivery date'] || s['Dato'] || '')
+                    .map(s => this.getColumnValue(s, 'Delivery date', 'Dato', 'Date') || '')
                     .filter(d => d)
                     .sort()
                     .reverse();
@@ -206,34 +261,38 @@ class DashboardApp {
 
             processed.push({
                 itemNo: itemNo,
-                description: butlerItem['Artikelbeskrivelse'] ||
-                            butlerItem['Description'] ||
-                            butlerItem['Beskrivelse'] ||
-                            '',
+                description: description,
                 stock: stock,
-                available: parseFloat(butlerItem['DispLagSaldo'] || butlerItem['Available'] || stock) || 0,
-                reserved: parseFloat(butlerItem['ReservAnt'] || butlerItem['Reserved'] || 0) || 0,
+                available: parseFloat(this.getColumnValue(butlerItem,
+                    'DispLagSaldo', 'Available', 'Disponibel', 'Disp'
+                ) || stock) || 0,
+                reserved: parseFloat(this.getColumnValue(butlerItem,
+                    'ReservAnt', 'Reserved', 'Reservert'
+                ) || 0) || 0,
                 bp: bp,
-                max: parseFloat(butlerItem['Maxlager'] || butlerItem['Max'] || 0) || 0,
-                status: butlerItem['Artikelstatus'] ||
-                       butlerItem['Status'] ||
-                       butlerItem['ItemStatus'] ||
-                       '',
-                supplier: butlerItem['Supplier Name'] ||
-                         butlerItem['Leverandør'] ||
-                         butlerItem['Supplier'] ||
-                         '',
-                r12: parseFloat(butlerItem['R12 Del Qty'] || butlerItem['R12'] || 0) || 0,
-                shelf: butlerItem['Hylla 1'] ||
-                      butlerItem['Shelf'] ||
-                      butlerItem['Hylleplassering'] ||
-                      '',
+                max: parseFloat(this.getColumnValue(butlerItem,
+                    'Maxlager', 'Max', 'Maximum'
+                ) || 0) || 0,
+                status: this.getColumnValue(butlerItem,
+                    'Artikelstatus', 'Status', 'ItemStatus', 'Varestatus'
+                ),
+                supplier: this.getColumnValue(butlerItem,
+                    'Supplier Name', 'Leverandør', 'Supplier', 'Vendor', 'Leverandørnavn'
+                ),
+                r12: parseFloat(this.getColumnValue(butlerItem,
+                    'R12 Del Qty', 'R12', 'Rolling12'
+                ) || 0) || 0,
+                shelf: this.getColumnValue(butlerItem,
+                    'Hylla 1', 'Shelf', 'Hylleplassering', 'Location', 'Lokasjon'
+                ),
                 sales12m: Math.round(sales12m),
                 orderCount: orderCount,
                 monthlyConsumption: monthlyConsumption,
                 daysToEmpty: daysToEmpty,
                 lastSaleDate: lastSaleDate,
-                price: parseFloat(butlerItem['Price'] || butlerItem['Pris'] || 50) || 50
+                price: parseFloat(this.getColumnValue(butlerItem,
+                    'Price', 'Pris', 'Unit Price', 'Enhetspris'
+                ) || 50) || 50
             });
         });
 
