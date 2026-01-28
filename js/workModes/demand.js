@@ -1,0 +1,776 @@
+// ===================================
+// MODUS 2: ETTERSPØRSEL & SALG
+// Viser: Hva selges – og hva bør følges opp?
+// ===================================
+
+/**
+ * DemandMode - Analyse av etterspørsel og salgsmønstre
+ *
+ * Viser:
+ * - Top artikler (6/12 mnd)
+ * - Gjentakende bestillinger (frekvens)
+ * - Kundeavhengighet per artikkel
+ * - Salgstrend og sesongvariasjon
+ */
+class DemandMode {
+    static currentView = 'topSellers';
+    static currentPeriod = '12m';
+    static searchTerm = '';
+    static sortColumn = 'sales';
+    static sortDirection = 'desc';
+    static dataStore = null;
+    static currentLimit = 50;
+
+    /**
+     * Render etterspørselsvisningen
+     * @param {UnifiedDataStore} store - Data store med alle artikler
+     * @returns {string} HTML content
+     */
+    static render(store) {
+        this.dataStore = store;
+
+        const stats = this.calculateStats(store);
+
+        return `
+            <div class="module-header">
+                <h2>Etterspørsel & Salg</h2>
+                <p class="module-description">Hva selges – og hva bør følges opp?</p>
+            </div>
+
+            ${this.renderSummaryCards(stats)}
+
+            <div class="view-tabs">
+                <button class="view-tab ${this.currentView === 'topSellers' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('topSellers')">
+                    Toppsellere
+                </button>
+                <button class="view-tab ${this.currentView === 'frequency' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('frequency')">
+                    Bestillingsfrekvens
+                </button>
+                <button class="view-tab ${this.currentView === 'customers' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('customers')">
+                    Kundeavhengighet
+                </button>
+                <button class="view-tab ${this.currentView === 'trends' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('trends')">
+                    Trender
+                </button>
+            </div>
+
+            <div class="module-controls">
+                <div class="filter-group">
+                    <label>Periode:</label>
+                    <select id="periodFilter" class="filter-select" onchange="DemandMode.handlePeriodChange(this.value)">
+                        <option value="6m" ${this.currentPeriod === '6m' ? 'selected' : ''}>Siste 6 mnd</option>
+                        <option value="12m" ${this.currentPeriod === '12m' ? 'selected' : ''}>Siste 12 mnd</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Vis:</label>
+                    <select id="limitFilter" class="filter-select" onchange="DemandMode.handleLimitChange(this.value)">
+                        <option value="20" ${this.currentLimit === 20 ? 'selected' : ''}>Top 20</option>
+                        <option value="50" ${this.currentLimit === 50 ? 'selected' : ''}>Top 50</option>
+                        <option value="100" ${this.currentLimit === 100 ? 'selected' : ''}>Top 100</option>
+                        <option value="all" ${this.currentLimit === 'all' ? 'selected' : ''}>Alle</option>
+                    </select>
+                </div>
+                <div class="search-group">
+                    <input type="text" id="demandSearch" placeholder="Søk artikkel..."
+                           class="search-input" value="${this.searchTerm}"
+                           onkeyup="DemandMode.handleSearch(this.value)">
+                </div>
+                <button onclick="DemandMode.exportCSV()" class="btn-export">Eksporter CSV</button>
+            </div>
+
+            <div id="demandContent">
+                ${this.renderCurrentView()}
+            </div>
+        `;
+    }
+
+    /**
+     * Render sammendragskort
+     */
+    static renderSummaryCards(stats) {
+        return `
+            <div class="demand-summary">
+                <div class="stat-card">
+                    <div class="stat-value">${this.formatNumber(stats.totalSales)}</div>
+                    <div class="stat-label">Totalt solgt (${this.currentPeriod})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${this.formatNumber(stats.activeArticles)}</div>
+                    <div class="stat-label">Aktive artikler</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${this.formatNumber(stats.totalOrders)}</div>
+                    <div class="stat-label">Antall ordrer</div>
+                </div>
+                <div class="stat-card highlight">
+                    <div class="stat-value">${stats.top10Share}%</div>
+                    <div class="stat-label">Top 10 andel av salg</div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Beregn statistikk
+     */
+    static calculateStats(store) {
+        const items = store.getAllItems();
+        const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
+
+        let totalSales = 0;
+        let totalOrders = 0;
+        let activeArticles = 0;
+
+        const salesByArticle = [];
+
+        items.forEach(item => {
+            const sales = item[salesField] || 0;
+            if (sales > 0) {
+                totalSales += sales;
+                totalOrders += item.orderCount || 0;
+                activeArticles++;
+                salesByArticle.push(sales);
+            }
+        });
+
+        // Beregn top 10 andel
+        salesByArticle.sort((a, b) => b - a);
+        const top10Sales = salesByArticle.slice(0, 10).reduce((sum, s) => sum + s, 0);
+        const top10Share = totalSales > 0 ? Math.round((top10Sales / totalSales) * 100) : 0;
+
+        return {
+            totalSales,
+            totalOrders,
+            activeArticles,
+            top10Share
+        };
+    }
+
+    /**
+     * Render nåværende visning
+     */
+    static renderCurrentView() {
+        switch (this.currentView) {
+            case 'topSellers':
+                return this.renderTopSellers();
+            case 'frequency':
+                return this.renderFrequencyAnalysis();
+            case 'customers':
+                return this.renderCustomerDependency();
+            case 'trends':
+                return this.renderTrends();
+            default:
+                return this.renderTopSellers();
+        }
+    }
+
+    /**
+     * Render toppsellere
+     */
+    static renderTopSellers() {
+        const items = this.getFilteredItems();
+        const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
+
+        // Sorter etter salg
+        let sorted = [...items].sort((a, b) => (b[salesField] || 0) - (a[salesField] || 0));
+
+        // Filtrer til kun artikler med salg
+        sorted = sorted.filter(item => (item[salesField] || 0) > 0);
+
+        // Begrens antall
+        const limit = this.currentLimit === 'all' ? sorted.length : parseInt(this.currentLimit);
+        const displayData = sorted.slice(0, limit);
+
+        if (displayData.length === 0) {
+            return `<div class="alert alert-info">Ingen salgsdata funnet for valgt periode.</div>`;
+        }
+
+        // Beregn totalsum for andel
+        const totalSales = sorted.reduce((sum, item) => sum + (item[salesField] || 0), 0);
+
+        return `
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th class="sortable" onclick="DemandMode.handleSort('articleNumber')">
+                                Artikelnr ${this.getSortIndicator('articleNumber')}
+                            </th>
+                            <th>SA-nr</th>
+                            <th class="sortable" onclick="DemandMode.handleSort('description')">
+                                Beskrivelse ${this.getSortIndicator('description')}
+                            </th>
+                            <th class="sortable" onclick="DemandMode.handleSort('sales')">
+                                Solgt (${this.currentPeriod}) ${this.getSortIndicator('sales')}
+                            </th>
+                            <th>Andel</th>
+                            <th class="sortable" onclick="DemandMode.handleSort('orders')">
+                                Ordrer ${this.getSortIndicator('orders')}
+                            </th>
+                            <th class="sortable" onclick="DemandMode.handleSort('stock')">
+                                Saldo ${this.getSortIndicator('stock')}
+                            </th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayData.map((item, i) => {
+                            const sales = item[salesField] || 0;
+                            const share = totalSales > 0 ? ((sales / totalSales) * 100).toFixed(1) : 0;
+                            return `
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                    <td>${i + 1}</td>
+                                    <td><strong>${item.toolsArticleNumber}</strong></td>
+                                    <td>${item.saNumber || '-'}</td>
+                                    <td>${this.truncate(item.description, 35)}</td>
+                                    <td class="qty-cell">${this.formatNumber(sales)}</td>
+                                    <td class="qty-cell">${share}%</td>
+                                    <td class="qty-cell">${item.orderCount || 0}</td>
+                                    <td class="qty-cell ${item.stock < 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
+                                    <td>${this.getStockStatus(item)}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayData.length} av ${sorted.length} artikler med salg</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Render bestillingsfrekvens-analyse
+     */
+    static renderFrequencyAnalysis() {
+        const items = this.getFilteredItems();
+        const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
+        const months = this.currentPeriod === '6m' ? 6 : 12;
+
+        // Beregn frekvens (ordrer per måned)
+        const withFrequency = items
+            .filter(item => item.orderCount > 0)
+            .map(item => ({
+                ...item,
+                frequency: item.orderCount / months,
+                avgOrderSize: (item[salesField] || 0) / (item.orderCount || 1)
+            }))
+            .sort((a, b) => b.frequency - a.frequency);
+
+        const limit = this.currentLimit === 'all' ? withFrequency.length : parseInt(this.currentLimit);
+        const displayData = withFrequency.slice(0, limit);
+
+        if (displayData.length === 0) {
+            return `<div class="alert alert-info">Ingen ordredata funnet for analyse.</div>`;
+        }
+
+        return `
+            <div class="frequency-insight">
+                <div class="insight-card">
+                    <h4>Hyppige bestillinger</h4>
+                    <p>Artikler med høy bestillingsfrekvens kan være kandidater for økt BP eller lageravtale.</p>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Artikelnr</th>
+                            <th>SA-nr</th>
+                            <th>Beskrivelse</th>
+                            <th>Ordrer/mnd</th>
+                            <th>Totalt ordrer</th>
+                            <th>Gj.snitt per ordre</th>
+                            <th>Totalt solgt</th>
+                            <th>Anbefaling</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayData.map((item, i) => {
+                            const recommendation = this.getFrequencyRecommendation(item);
+                            return `
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                    <td>${i + 1}</td>
+                                    <td><strong>${item.toolsArticleNumber}</strong></td>
+                                    <td>${item.saNumber || '-'}</td>
+                                    <td>${this.truncate(item.description, 30)}</td>
+                                    <td class="qty-cell highlight">${item.frequency.toFixed(1)}</td>
+                                    <td class="qty-cell">${item.orderCount}</td>
+                                    <td class="qty-cell">${Math.round(item.avgOrderSize)}</td>
+                                    <td class="qty-cell">${this.formatNumber(item[salesField] || 0)}</td>
+                                    <td><span class="recommendation ${recommendation.type}">${recommendation.text}</span></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayData.length} av ${withFrequency.length} artikler med ordrer</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Render kundeavhengighetsanalyse
+     */
+    static renderCustomerDependency() {
+        const items = this.dataStore.getAllItems();
+
+        // Analyser kundefordeling per artikkel
+        const articleCustomers = [];
+
+        items.forEach(item => {
+            if (item.outgoingOrders.length === 0) return;
+
+            // Tell unike kunder
+            const customers = new Map();
+            item.outgoingOrders.forEach(order => {
+                const customer = order.customer || 'Ukjent';
+                if (!customers.has(customer)) {
+                    customers.set(customer, { count: 0, quantity: 0 });
+                }
+                customers.get(customer).count++;
+                customers.get(customer).quantity += order.quantity || 0;
+            });
+
+            // Beregn konsentrasjon
+            const totalQty = item.sales12m || 0;
+            const customerArray = Array.from(customers.entries())
+                .map(([name, data]) => ({
+                    name,
+                    ...data,
+                    share: totalQty > 0 ? (data.quantity / totalQty) * 100 : 0
+                }))
+                .sort((a, b) => b.quantity - a.quantity);
+
+            const topCustomerShare = customerArray[0]?.share || 0;
+
+            articleCustomers.push({
+                ...item,
+                customerCount: customers.size,
+                topCustomer: customerArray[0]?.name || '-',
+                topCustomerShare: topCustomerShare,
+                isConcentrated: topCustomerShare > 50
+            });
+        });
+
+        // Sorter etter konsentrasjon (høyest først for å vise risiko)
+        const sorted = articleCustomers
+            .filter(a => a.customerCount > 0)
+            .sort((a, b) => b.topCustomerShare - a.topCustomerShare);
+
+        const limit = this.currentLimit === 'all' ? sorted.length : parseInt(this.currentLimit);
+        const displayData = sorted.slice(0, limit);
+
+        if (displayData.length === 0) {
+            return `<div class="alert alert-info">Ingen kundedata tilgjengelig for analyse.</div>`;
+        }
+
+        const concentratedCount = sorted.filter(a => a.isConcentrated).length;
+
+        return `
+            <div class="dependency-insight">
+                <div class="insight-card ${concentratedCount > 0 ? 'warning' : 'ok'}">
+                    <h4>Kundeavhengighet</h4>
+                    <p><strong>${concentratedCount}</strong> artikler har >50% av salget til én kunde.</p>
+                    <p class="text-muted">Høy konsentrasjon = risiko ved kundefrafall</p>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Artikelnr</th>
+                            <th>SA-nr</th>
+                            <th>Beskrivelse</th>
+                            <th>Ant. kunder</th>
+                            <th>Største kunde</th>
+                            <th>Kundeandel</th>
+                            <th>Solgt 12m</th>
+                            <th>Risiko</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayData.map(item => `
+                            <tr class="${item.isConcentrated ? 'row-warning' : ''} clickable"
+                                onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <td><strong>${item.toolsArticleNumber}</strong></td>
+                                <td>${item.saNumber || '-'}</td>
+                                <td>${this.truncate(item.description, 30)}</td>
+                                <td class="qty-cell">${item.customerCount}</td>
+                                <td>${this.truncate(item.topCustomer, 20)}</td>
+                                <td class="qty-cell ${item.topCustomerShare > 50 ? 'warning' : ''}">${item.topCustomerShare.toFixed(0)}%</td>
+                                <td class="qty-cell">${this.formatNumber(item.sales12m || 0)}</td>
+                                <td>${this.getDependencyRisk(item)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayData.length} av ${sorted.length} artikler med kundedata</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Render trendanalyse
+     */
+    static renderTrends() {
+        const items = this.dataStore.getAllItems();
+
+        // Beregn trend (6m vs 12m sammenligning)
+        const withTrend = items
+            .filter(item => item.sales12m > 0)
+            .map(item => {
+                const sales6m = item.sales6m || 0;
+                const sales12m = item.sales12m || 0;
+                const firstHalf = sales12m - sales6m; // Første 6 mnd
+
+                // Trend: positiv = økende, negativ = synkende
+                let trend = 0;
+                if (firstHalf > 0) {
+                    trend = ((sales6m - firstHalf) / firstHalf) * 100;
+                } else if (sales6m > 0) {
+                    trend = 100; // Ny artikkel
+                }
+
+                return {
+                    ...item,
+                    sales6m,
+                    firstHalf,
+                    trend,
+                    trendDirection: trend > 10 ? 'up' : trend < -10 ? 'down' : 'stable'
+                };
+            })
+            .sort((a, b) => b.trend - a.trend);
+
+        const rising = withTrend.filter(i => i.trendDirection === 'up').length;
+        const falling = withTrend.filter(i => i.trendDirection === 'down').length;
+        const stable = withTrend.filter(i => i.trendDirection === 'stable').length;
+
+        const limit = this.currentLimit === 'all' ? withTrend.length : parseInt(this.currentLimit);
+        const displayData = withTrend.slice(0, limit);
+
+        return `
+            <div class="trend-insight">
+                <div class="trend-cards">
+                    <div class="trend-card up">
+                        <div class="trend-icon">↑</div>
+                        <div class="trend-value">${rising}</div>
+                        <div class="trend-label">Økende</div>
+                    </div>
+                    <div class="trend-card stable">
+                        <div class="trend-icon">→</div>
+                        <div class="trend-value">${stable}</div>
+                        <div class="trend-label">Stabile</div>
+                    </div>
+                    <div class="trend-card down">
+                        <div class="trend-icon">↓</div>
+                        <div class="trend-value">${falling}</div>
+                        <div class="trend-label">Synkende</div>
+                    </div>
+                </div>
+                <p class="trend-note">Sammenligner siste 6 mnd mot foregående 6 mnd</p>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Artikelnr</th>
+                            <th>SA-nr</th>
+                            <th>Beskrivelse</th>
+                            <th>Første 6 mnd</th>
+                            <th>Siste 6 mnd</th>
+                            <th>Endring</th>
+                            <th>Trend</th>
+                            <th>Saldo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayData.map(item => `
+                            <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <td><strong>${item.toolsArticleNumber}</strong></td>
+                                <td>${item.saNumber || '-'}</td>
+                                <td>${this.truncate(item.description, 30)}</td>
+                                <td class="qty-cell">${this.formatNumber(item.firstHalf)}</td>
+                                <td class="qty-cell">${this.formatNumber(item.sales6m)}</td>
+                                <td class="qty-cell ${item.trend > 0 ? 'positive' : item.trend < 0 ? 'negative' : ''}">${item.trend > 0 ? '+' : ''}${item.trend.toFixed(0)}%</td>
+                                <td>${this.getTrendBadge(item.trendDirection)}</td>
+                                <td class="qty-cell">${this.formatNumber(item.stock)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayData.length} av ${withTrend.length} artikler med salgshistorikk</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Hent filtrerte items
+     */
+    static getFilteredItems() {
+        let items = this.dataStore.getAllItems();
+
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            items = items.filter(item =>
+                item.toolsArticleNumber.toLowerCase().includes(term) ||
+                (item.description && item.description.toLowerCase().includes(term)) ||
+                (item.saNumber && item.saNumber.toLowerCase().includes(term))
+            );
+        }
+
+        return items;
+    }
+
+    /**
+     * Hjelpefunksjoner
+     */
+    static getStockStatus(item) {
+        if (item.stock <= 0) {
+            return '<span class="badge badge-critical">TOM</span>';
+        }
+        const monthlyConsumption = item.monthlyConsumption || 0;
+        if (monthlyConsumption > 0 && item.stock < monthlyConsumption * 2) {
+            return '<span class="badge badge-warning">LAV</span>';
+        }
+        return '<span class="badge badge-ok">OK</span>';
+    }
+
+    static getFrequencyRecommendation(item) {
+        if (item.frequency >= 2) {
+            return { type: 'high', text: 'Vurder økt BP' };
+        } else if (item.frequency >= 1) {
+            return { type: 'medium', text: 'Følg opp' };
+        }
+        return { type: 'low', text: 'OK' };
+    }
+
+    static getDependencyRisk(item) {
+        if (item.topCustomerShare > 80) {
+            return '<span class="badge badge-critical">HØY</span>';
+        } else if (item.topCustomerShare > 50) {
+            return '<span class="badge badge-warning">MIDDELS</span>';
+        }
+        return '<span class="badge badge-ok">LAV</span>';
+    }
+
+    static getTrendBadge(direction) {
+        if (direction === 'up') {
+            return '<span class="badge badge-ok">↑ ØKENDE</span>';
+        } else if (direction === 'down') {
+            return '<span class="badge badge-warning">↓ SYNKENDE</span>';
+        }
+        return '<span class="badge badge-info">→ STABIL</span>';
+    }
+
+    static getSortIndicator(column) {
+        if (this.sortColumn !== column) return '';
+        return this.sortDirection === 'asc' ? '↑' : '↓';
+    }
+
+    static formatNumber(num) {
+        if (num === null || num === undefined) return '-';
+        return Math.round(num).toLocaleString('nb-NO');
+    }
+
+    static truncate(text, maxLength) {
+        if (!text) return '-';
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    }
+
+    /**
+     * Event handlers
+     */
+    static switchView(view) {
+        this.currentView = view;
+        this.updateContent();
+
+        // Oppdater aktiv tab
+        document.querySelectorAll('.view-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        event.target.classList.add('active');
+    }
+
+    static handlePeriodChange(period) {
+        this.currentPeriod = period;
+        this.refreshAll();
+    }
+
+    static handleLimitChange(limit) {
+        this.currentLimit = limit === 'all' ? 'all' : parseInt(limit);
+        this.updateContent();
+    }
+
+    static handleSearch(term) {
+        this.searchTerm = term;
+        this.updateContent();
+    }
+
+    static handleSort(column) {
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = column === 'description' || column === 'articleNumber' ? 'asc' : 'desc';
+        }
+        this.updateContent();
+    }
+
+    static updateContent() {
+        const container = document.getElementById('demandContent');
+        if (container) {
+            container.innerHTML = this.renderCurrentView();
+        }
+    }
+
+    static refreshAll() {
+        // Re-render hele modulen
+        const moduleContent = document.getElementById('moduleContent');
+        if (moduleContent && this.dataStore) {
+            moduleContent.innerHTML = this.render(this.dataStore);
+        }
+    }
+
+    /**
+     * Vis artikkeldetaljer
+     */
+    static showDetails(articleNumber) {
+        if (!this.dataStore) return;
+
+        const item = this.dataStore.items.get(articleNumber);
+        if (!item) return;
+
+        const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
+        const sales = item[salesField] || 0;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h3>${item.toolsArticleNumber}</h3>
+                    ${item.saNumber ? `<span class="sa-badge">SA: ${item.saNumber}</span>` : ''}
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="detail-section">
+                        <h4>Artikkelinfo</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <strong>Beskrivelse</strong>
+                                ${item.description || '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Leverandør</strong>
+                                ${item.supplier || '-'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h4>Salgsstatistikk</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item highlight">
+                                <strong>Solgt ${this.currentPeriod}</strong>
+                                ${this.formatNumber(sales)} stk
+                            </div>
+                            <div class="detail-item">
+                                <strong>Solgt 12 mnd</strong>
+                                ${this.formatNumber(item.sales12m)} stk
+                            </div>
+                            <div class="detail-item">
+                                <strong>Antall ordrer</strong>
+                                ${item.orderCount || 0}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Månedlig forbruk</strong>
+                                ${(item.monthlyConsumption || 0).toFixed(1)} stk/mnd
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h4>Lagerstatus</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item ${item.stock < 0 ? 'critical' : ''}">
+                                <strong>Saldo</strong>
+                                ${this.formatNumber(item.stock)}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Disponibel</strong>
+                                ${this.formatNumber(item.available)}
+                            </div>
+                            <div class="detail-item">
+                                <strong>BP</strong>
+                                ${item.bp || '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Dager til tomt</strong>
+                                ${item.daysToEmpty === 999999 ? '∞' : item.daysToEmpty}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">Lukk</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+    }
+
+    /**
+     * Eksporter til CSV
+     */
+    static exportCSV() {
+        const items = this.getFilteredItems();
+        const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
+
+        const sorted = [...items]
+            .filter(item => (item[salesField] || 0) > 0)
+            .sort((a, b) => (b[salesField] || 0) - (a[salesField] || 0));
+
+        const limit = this.currentLimit === 'all' ? sorted.length : parseInt(this.currentLimit);
+        const data = sorted.slice(0, limit);
+
+        const headers = ['Rang', 'Artikelnr', 'SA-nummer', 'Beskrivelse', `Solgt ${this.currentPeriod}`, 'Ordrer', 'Saldo', 'Leverandør'];
+        const rows = data.map((item, i) => [
+            i + 1,
+            item.toolsArticleNumber,
+            item.saNumber || '',
+            `"${(item.description || '').replace(/"/g, '""')}"`,
+            item[salesField] || 0,
+            item.orderCount || 0,
+            item.stock || 0,
+            `"${(item.supplier || '').replace(/"/g, '""')}"`
+        ]);
+
+        const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `ettersporsel-${this.currentView}-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+}
+
+// Eksporter til global scope
+window.DemandMode = DemandMode;

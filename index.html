@@ -5,34 +5,54 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Borregaard Lageranalyse - Forenklet og fokusert lageroptimalisering"
+      content="Borregaard Dashboard - Arbeidsrettet lageroptimalisering"
     />
-    <title>Borregaard Lageranalyse</title>
+    <title>Borregaard Dashboard</title>
     <link rel="stylesheet" href="css/dashboard.css" />
   </head>
   <body>
     <div class="container">
       <!-- HEADER -->
       <header class="main-header">
-        <h1>Borregaard Lageranalyse</h1>
-        <p class="subtitle">Kommandosenter for lageroptimalisering</p>
+        <h1>Borregaard Dashboard</h1>
+        <p class="subtitle">Arbeidsrettet beslutningstøtte for lagerstyring</p>
       </header>
 
       <!-- FILE UPLOAD SECTION -->
       <section class="upload-section">
         <h2>Last opp data</h2>
-        <div class="upload-grid">
+        <div class="upload-grid four-columns">
           <div class="upload-item">
-            <label for="butlerFile">Butler / Lagerbeholdning (påkrevd)</label>
-            <input type="file" id="butlerFile" accept=".xlsx,.csv" />
+            <label for="inventoryFile">
+              <span class="file-label">Lagerbeholdning</span>
+              <span class="file-required">(påkrevd)</span>
+            </label>
+            <input type="file" id="inventoryFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Saldo, reservert, lokasjon</span>
           </div>
           <div class="upload-item">
-            <label for="salesFile">Fakturaer / Salgshistorikk (påkrevd)</label>
-            <input type="file" id="salesFile" accept=".xlsx,.csv" />
+            <label for="ordersInFile">
+              <span class="file-label">Bestillinger</span>
+              <span class="file-required">(påkrevd)</span>
+            </label>
+            <input type="file" id="ordersInFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Innkjøp til Borregaard</span>
           </div>
           <div class="upload-item">
-            <label for="departmentsFile">Andre avdelinger (valgfri)</label>
-            <input type="file" id="departmentsFile" accept=".xlsx,.csv" />
+            <label for="ordersOutFile">
+              <span class="file-label">Fakturert</span>
+              <span class="file-required">(påkrevd)</span>
+            </label>
+            <input type="file" id="ordersOutFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Salgshistorikk ut</span>
+          </div>
+          <div class="upload-item optional">
+            <label for="saNumberFile">
+              <span class="file-label">SA-Nummer</span>
+              <span class="file-optional">(valgfri)</span>
+            </label>
+            <input type="file" id="saNumberFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Tools art.nr ↔ SA-nummer</span>
           </div>
         </div>
         <div class="upload-actions">
@@ -48,43 +68,67 @@
           <div class="card-value" id="totalItems">-</div>
           <div class="card-label">Totalt artikler</div>
         </div>
-        <div class="summary-card card-ok">
-          <div class="card-value" id="topSellersCount">-</div>
-          <div class="card-label">Toppsellere</div>
+        <div class="summary-card card-critical">
+          <div class="card-value" id="criticalCount">-</div>
+          <div class="card-label">Kritiske</div>
         </div>
         <div class="summary-card card-warning">
-          <div class="card-value" id="actionItemsCount">-</div>
-          <div class="card-label">Krever handling</div>
+          <div class="card-value" id="warningCount">-</div>
+          <div class="card-label">Advarsler</div>
         </div>
-        <div class="summary-card card-critical">
-          <div class="card-value" id="slowMoversCount">-</div>
-          <div class="card-label">Ukurans</div>
+        <div class="summary-card card-ok">
+          <div class="card-value" id="saNumberCoverage">-</div>
+          <div class="card-label">SA-dekning</div>
         </div>
         <div class="summary-card">
-          <div class="card-value" id="inactiveCount">-</div>
-          <div class="card-label">Inaktive m/saldo</div>
+          <div class="card-value" id="incomingCount">-</div>
+          <div class="card-label">På vei inn</div>
         </div>
       </section>
 
-      <!-- TAB NAVIGATION -->
+      <!-- TAB NAVIGATION - 4 ARBEIDSMODUSER -->
       <nav class="tab-navigation">
-        <button class="tab active" data-module="topSellers">Toppsellere</button>
-        <button class="tab" data-module="orderSuggestions">Bestillingsforslag</button>
-        <button class="tab" data-module="slowMovers">Ukurans</button>
-        <button class="tab" data-module="inactiveItems">Inaktive varer</button>
+        <button class="tab active" data-module="overview">
+          <span class="tab-icon">1</span>
+          <span class="tab-label">Oversikt</span>
+          <span class="tab-desc">Daglig kontroll</span>
+        </button>
+        <button class="tab" data-module="demand">
+          <span class="tab-icon">2</span>
+          <span class="tab-label">Etterspørsel</span>
+          <span class="tab-desc">Salg & mønstre</span>
+        </button>
+        <button class="tab" data-module="assortment">
+          <span class="tab-icon">3</span>
+          <span class="tab-label">Sortiment</span>
+          <span class="tab-desc">Rydding</span>
+        </button>
+        <button class="tab" data-module="planning">
+          <span class="tab-icon">4</span>
+          <span class="tab-label">Planlegging</span>
+          <span class="tab-desc">Forberedelser</span>
+        </button>
       </nav>
 
       <!-- MODULE CONTENT AREA -->
       <main id="moduleContent" class="module-content">
         <div class="placeholder-content">
-          <p>Last opp Butler-data og salgshistorikk for å starte analysen.</p>
+          <div class="placeholder-icon">📊</div>
+          <h3>Last opp data for å starte</h3>
+          <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
+          <ul class="file-checklist">
+            <li><strong>Lagerbeholdning.xlsx</strong> - Nåværende saldo og lokasjoner</li>
+            <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
+            <li><strong>Fakturert.xlsx</strong> - Salgshistorikk</li>
+            <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
+          </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>
       </main>
 
       <!-- FOOTER -->
       <footer>
-        <p>Borregaard Dashboard v3.0 - Forenklet og fokusert</p>
+        <p>Borregaard Dashboard v4.0 - Arbeidsrettet beslutningstøtte</p>
         <p class="text-muted">Lokal databehandling - Ingen data sendes til skyen</p>
       </footer>
     </div>
@@ -92,10 +136,18 @@
     <!-- External Libraries -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
-    <!-- Core Data Loader -->
+    <!-- Core Data Handling -->
     <script src="js/dataLoader.js"></script>
+    <script src="js/models/unifiedItem.js"></script>
+    <script src="js/dataProcessor.js"></script>
 
-    <!-- Simplified Modules -->
+    <!-- Work Modes -->
+    <script src="js/workModes/overview.js"></script>
+    <script src="js/workModes/demand.js"></script>
+    <script src="js/workModes/assortment.js"></script>
+    <script src="js/workModes/planning.js"></script>
+
+    <!-- Legacy modules (for compatibility during transition) -->
     <script src="js/topSellers.js"></script>
     <script src="js/orderSuggestions.js"></script>
     <script src="js/slowMovers.js"></script>
