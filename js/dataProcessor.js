@@ -9,107 +9,143 @@
 class DataProcessor {
     /**
      * Kolonnevarianter for automatisk gjenkjenning
-     * Utvides basert på faktiske kolonnenavn i filene
+     * Prioritert rekkefølge: Jeeves-kolonner først, deretter fallbacks
      */
     static COLUMN_VARIANTS = {
         // Artikkelnummer (primærnøkkel)
+        // Jeeves: Artikelnr | SA-fil: Tools art.nr
         articleNumber: [
-            'Artikelnr', 'Artikkelnr', 'Artikkel nr', 'Article No', 'ArticleNo',
-            'Item ID', 'ItemNo', 'Item No', 'Item', 'Varenr', 'Varenummer',
-            'Art.nr', 'Art nr', 'Artnr', 'Tools art.nr', 'Tools artnr'
+            'Artikelnr', 'Tools art.nr', 'Tools artnr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Item ID', 'ItemNo', 'Varenr'
         ],
 
-        // SA-nummer
+        // SA-nummer (kun i SA-Nummer.xlsx)
         saNumber: [
-            'SA-nummer', 'SA nummer', 'SA-nr', 'SA nr', 'SAnr', 'SA',
-            'SA Number', 'SANumber'
+            'SA-nummer', 'SA nummer', 'SA-nr', 'SAnr', 'SA'
         ],
 
         // Beskrivelse
+        // Jeeves: Artikelbeskrivning
         description: [
-            'Beskrivelse', 'Artikelbeskrivelse', 'Artikelbeskr', 'Description',
-            'Item Description', 'ItemDesc', 'Varebeskrivelse', 'Navn', 'Name',
-            'Artikkelbeskrivelse', 'Tekst'
+            'Artikelbeskrivning', 'Artikelbeskrivelse', 'Artikelbeskr',
+            'Beskrivelse', 'Description', 'Varebeskrivelse', 'Navn'
         ],
 
         // Lagersaldo
+        // Jeeves: Lagersaldo
         stock: [
-            'Lagersaldo', 'Saldo', 'Stock', 'On Hand', 'Beholdning',
-            'Lagerbeholdning', 'Lager', 'Ant på lager', 'Antall på lager'
+            'Lagersaldo', 'Saldo', 'Stock', 'Beholdning', 'On Hand'
         ],
 
         // Reservert
+        // Jeeves: ReservAnt
         reserved: [
-            'Reservert', 'ReservAnt', 'Reserved', 'Reservert antall',
-            'Reservert ant', 'Res'
+            'ReservAnt', 'Reservert', 'Reserved', 'Reservert antall'
         ],
 
         // Disponibel
+        // Jeeves: DispLagSaldo
         available: [
-            'Disponibel', 'DispLagSaldo', 'Available', 'Disp', 'Tilgjengelig',
-            'Disponibelt', 'Ledig'
+            'DispLagSaldo', 'Disponibel', 'Available', 'Tilgjengelig', 'Disp'
         ],
 
         // Bestillingspunkt
+        // Jeeves: BP
         bp: [
-            'BP', 'Bestillingspunkt', 'Reorder Point', 'Min', 'Minimum',
-            'Min Stock', 'Minbeholdning', 'Bestillingsgrense'
+            'BP', 'Bestillingspunkt', 'Reorder Point', 'Min'
         ],
 
         // Maksimum lager
+        // Jeeves: Maxlager
         max: [
-            'Max', 'Maxlager', 'Maximum', 'Max Stock', 'Maksbeholdning',
-            'Maks', 'Maksimum'
+            'Maxlager', 'Max', 'Maximum', 'Max Stock'
         ],
 
         // Status
+        // Jeeves: Artikelstatus (hvis finnes)
         status: [
-            'Status', 'Artikelstatus', 'Varestatus', 'ItemStatus', 'State',
-            'Tilstand', 'Artikkelstatus'
+            'Artikelstatus', 'Status', 'Varestatus', 'ItemStatus'
         ],
 
         // Leverandør
+        // Jeeves Bestillinger: Leverantör
         supplier: [
-            'Leverandør', 'Supplier', 'Supplier Name', 'Leverandørnavn',
-            'Vendor', 'Lev', 'Levnr'
+            'Leverantör', 'Leverandør', 'Supplier', 'Supplier Name', 'Vendor'
         ],
 
-        // Lokasjon/Hylle
+        // Lokasjon/Lagersted
+        // Jeeves: Lagerställe
         location: [
-            'Lokasjon', 'Location', 'Lager', 'Warehouse', 'Hylla 1', 'Hylle',
-            'Shelf', 'Hylleplassering', 'Plass'
+            'Lagerställe', 'Lokasjon', 'Location', 'Warehouse', 'Lager', 'Hylle'
         ],
 
-        // Dato
-        date: [
-            'Dato', 'Date', 'Delivery date', 'Leveringsdato', 'Order Date',
-            'Ordredato', 'Invoice date', 'Fakturadato', 'Forventet dato',
-            'Expected date', 'Leveringsdato', 'Bestillingsdato'
+        // Siste bevegelse
+        // Jeeves: Senaste rörelse
+        lastMovement: [
+            'Senaste rörelse', 'Siste bevegelse', 'Last Movement', 'LastMovement'
         ],
 
-        // Antall/Kvantum
-        quantity: [
-            'Antall', 'Quantity', 'Qty', 'Mengde', 'Kvantitet', 'Ant',
-            'Invoiced quantity', 'Fakturert antall', 'Bestilt antall',
-            'Order quantity', 'Ordreantall'
+        // ===== BESTILLINGER INN (Jeeves) =====
+
+        // Bestillingsnummer
+        // Jeeves: Beställningsnummer
+        orderNoIn: [
+            'Beställningsnummer', 'Bestillingsnr', 'Bestillingsnummer', 'PO Number'
         ],
 
-        // Ordrenummer
-        orderNo: [
-            'Ordrenr', 'Ordrenummer', 'Order number', 'OrderNo', 'Order No',
-            'Order', 'Ordre', 'Bestillingsnr'
+        // Restantall (åpen mengde)
+        // Jeeves: RestAntLgrEnh
+        quantityIn: [
+            'RestAntLgrEnh', 'Restantall', 'Open Qty', 'Åpen mengde', 'Bestilt antall'
         ],
 
-        // Kundenummer/navn
+        // Forventet leveringsdato
+        // Jeeves: BerLevDat
+        expectedDate: [
+            'BerLevDat', 'Forventet dato', 'Expected date', 'Leveringsdato', 'Forventet levering'
+        ],
+
+        // ===== ORDRER UT / FAKTURERT (Jeeves) =====
+
+        // Ordrenummer (salg)
+        // Jeeves: OrderNr
+        orderNoOut: [
+            'OrderNr', 'Ordrenr', 'Order number', 'OrderNo', 'Ordre'
+        ],
+
+        // Ordreantall
+        // Jeeves: OrdRadAnt
+        quantityOut: [
+            'OrdRadAnt', 'Ordreantall', 'Order Qty', 'Quantity', 'Antall'
+        ],
+
+        // Fakturadato
+        // Jeeves: FaktDat
+        invoiceDate: [
+            'FaktDat', 'Fakturadato', 'Invoice date', 'Faktureringsdato'
+        ],
+
+        // Kunde
+        // Jeeves: Företagsnamn
         customer: [
-            'Kunde', 'Kundenr', 'Customer', 'CustomerNo', 'Customer Name',
-            'Kundenavn', 'Cust', 'Klient'
+            'Företagsnamn', 'Kundenavn', 'Customer', 'Kunde', 'Customer Name'
         ],
 
-        // Fakturanummer
-        invoiceNo: [
-            'Fakturanr', 'Fakturanummer', 'Invoice No', 'InvoiceNo',
-            'Invoice number', 'Faktura'
+        // ===== LEGACY/FALLBACK =====
+
+        // Generisk dato (fallback)
+        date: [
+            'Dato', 'Date', 'FaktDat', 'BerLevDat'
+        ],
+
+        // Generisk antall (fallback)
+        quantity: [
+            'Antall', 'Quantity', 'Qty', 'OrdRadAnt', 'RestAntLgrEnh'
+        ],
+
+        // Generisk ordrenummer (fallback)
+        orderNo: [
+            'OrderNr', 'Beställningsnummer', 'Ordrenr', 'Order number'
         ]
     };
 
@@ -309,9 +345,22 @@ class DataProcessor {
     }
 
     /**
-     * Prosesser lagerbeholdningsdata
+     * Prosesser lagerbeholdningsdata (Lagerbeholdning_Jeeves.xlsx)
+     *
+     * Jeeves-kolonner som brukes:
+     * - Artikelnr → toolsArticleNumber
+     * - Artikelbeskrivning → description
+     * - Lagerställe → location
+     * - Lagersaldo → stock
+     * - ReservAnt → reserved
+     * - DispLagSaldo → available
+     * - BP → bp
+     * - Maxlager → max
+     * - Senaste rörelse → lastMovementDate (hvis finnes)
      */
     static processInventoryData(data, store) {
+        let missingColumns = [];
+
         data.forEach(row => {
             const articleNo = this.getColumnValue(row, 'articleNumber');
             if (!articleNo) return;
@@ -319,22 +368,45 @@ class DataProcessor {
             const item = store.getOrCreate(articleNo);
             if (!item) return;
 
+            // Grunndata fra Jeeves
             item.description = this.getColumnValue(row, 'description') || item.description;
+            item.location = this.getColumnValue(row, 'location');
+            item.shelf = item.location; // Alias
+
+            // Lagerstatus fra Jeeves
             item.stock = this.parseNumber(this.getColumnValue(row, 'stock'));
             item.reserved = this.parseNumber(this.getColumnValue(row, 'reserved'));
             item.available = this.parseNumber(this.getColumnValue(row, 'available'));
+
+            // Bestillingspunkter fra Jeeves
             item.bp = this.parseNumber(this.getColumnValue(row, 'bp'));
             item.max = this.parseNumber(this.getColumnValue(row, 'max'));
+
+            // Status (hvis finnes)
             item.status = this.getColumnValue(row, 'status');
-            item.supplier = this.getColumnValue(row, 'supplier');
-            item.location = this.getColumnValue(row, 'location');
-            item.shelf = this.getColumnValue(row, 'location'); // Alias
+
+            // Siste bevegelse fra Jeeves (Senaste rörelse)
+            const lastMovementStr = this.getColumnValue(row, 'lastMovement');
+            if (lastMovementStr) {
+                item.lastMovementDate = this.parseDate(lastMovementStr);
+            }
 
             // Beregn tilgjengelig hvis ikke satt
             if (item.available === 0 && item.stock > 0) {
                 item.available = item.stock - item.reserved;
             }
         });
+
+        // Logg warning for første rad hvis kolonner mangler
+        if (data.length > 0) {
+            const firstRow = data[0];
+            const expectedCols = ['articleNumber', 'description', 'location', 'stock', 'reserved', 'available', 'bp', 'max'];
+            expectedCols.forEach(col => {
+                if (!this.getColumnValue(firstRow, col)) {
+                    console.warn(`Lagerbeholdning: Kolonne '${col}' ikke funnet`);
+                }
+            });
+        }
     }
 
     /**
@@ -352,7 +424,16 @@ class DataProcessor {
     }
 
     /**
-     * Prosesser bestillinger INN (innkjøp)
+     * Prosesser bestillinger INN (Bestillinger_Jeeves.xlsx)
+     *
+     * Jeeves-kolonner som brukes:
+     * - Artikelnr → toolsArticleNumber
+     * - Beställningsnummer → orderNo
+     * - RestAntLgrEnh → quantity (åpen mengde)
+     * - BerLevDat → expectedDate
+     * - Leverantör → supplier
+     *
+     * Ignorerer: pris, CO2, valuta, økonomiske felt
      */
     static processOrdersInData(data, store) {
         data.forEach(row => {
@@ -367,19 +448,51 @@ class DataProcessor {
                 item.description = this.getColumnValue(row, 'description');
             }
 
-            // Legg til bestilling
+            // Hent mengde (Jeeves: RestAntLgrEnh = åpen restmengde)
+            const quantity = this.parseNumber(
+                this.getColumnValue(row, 'quantityIn') || this.getColumnValue(row, 'quantity')
+            );
+
+            // Hopp over rader uten åpen mengde (fullførte bestillinger)
+            if (quantity <= 0) return;
+
+            // Legg til bestilling med Jeeves-kolonner
             item.addIncomingOrder({
-                orderNo: this.getColumnValue(row, 'orderNo'),
-                quantity: this.parseNumber(this.getColumnValue(row, 'quantity')),
-                expectedDate: this.parseDate(this.getColumnValue(row, 'date')),
+                orderNo: this.getColumnValue(row, 'orderNoIn') || this.getColumnValue(row, 'orderNo'),
+                quantity: quantity,
+                expectedDate: this.parseDate(
+                    this.getColumnValue(row, 'expectedDate') || this.getColumnValue(row, 'date')
+                ),
                 supplier: this.getColumnValue(row, 'supplier'),
                 status: this.getColumnValue(row, 'status')
             });
         });
+
+        // Logg warning for første rad hvis kolonner mangler
+        if (data.length > 0) {
+            const firstRow = data[0];
+            if (!this.getColumnValue(firstRow, 'orderNoIn') && !this.getColumnValue(firstRow, 'orderNo')) {
+                console.warn('Bestillinger: Kolonne for ordrenummer ikke funnet');
+            }
+            if (!this.getColumnValue(firstRow, 'quantityIn') && !this.getColumnValue(firstRow, 'quantity')) {
+                console.warn('Bestillinger: Kolonne for antall ikke funnet');
+            }
+        }
     }
 
     /**
-     * Prosesser fakturert UT (salg)
+     * Prosesser fakturert UT / Ordrer (Ordrer_Jeeves.xlsx)
+     *
+     * Jeeves-kolonner som brukes:
+     * - Artikelnr → toolsArticleNumber
+     * - OrderNr → orderNo
+     * - OrdRadAnt → quantity
+     * - FaktDat → deliveryDate
+     * - Företagsnamn → customer
+     *
+     * Brukes til beregning av:
+     * - sales12m, salesVolume, orderCount
+     * - monthlyConsumption, lastMovementDate
      */
     static processOrdersOutData(data, store) {
         data.forEach(row => {
@@ -394,15 +507,39 @@ class DataProcessor {
                 item.description = this.getColumnValue(row, 'description');
             }
 
-            // Legg til salgsordre
+            // Hent mengde (Jeeves: OrdRadAnt)
+            const quantity = this.parseNumber(
+                this.getColumnValue(row, 'quantityOut') || this.getColumnValue(row, 'quantity')
+            );
+
+            // Hopp over rader uten mengde
+            if (quantity <= 0) return;
+
+            // Legg til salgsordre med Jeeves-kolonner
             item.addOutgoingOrder({
-                orderNo: this.getColumnValue(row, 'orderNo'),
-                quantity: this.parseNumber(this.getColumnValue(row, 'quantity')),
-                deliveryDate: this.parseDate(this.getColumnValue(row, 'date')),
+                orderNo: this.getColumnValue(row, 'orderNoOut') || this.getColumnValue(row, 'orderNo'),
+                quantity: quantity,
+                deliveryDate: this.parseDate(
+                    this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
+                ),
                 customer: this.getColumnValue(row, 'customer'),
-                invoiceNo: this.getColumnValue(row, 'invoiceNo')
+                invoiceNo: null // Ikke brukt fra Jeeves
             });
         });
+
+        // Logg warning for første rad hvis kolonner mangler
+        if (data.length > 0) {
+            const firstRow = data[0];
+            if (!this.getColumnValue(firstRow, 'orderNoOut') && !this.getColumnValue(firstRow, 'orderNo')) {
+                console.warn('Ordrer: Kolonne for ordrenummer ikke funnet');
+            }
+            if (!this.getColumnValue(firstRow, 'quantityOut') && !this.getColumnValue(firstRow, 'quantity')) {
+                console.warn('Ordrer: Kolonne for antall ikke funnet');
+            }
+            if (!this.getColumnValue(firstRow, 'customer')) {
+                console.warn('Ordrer: Kolonne for kunde (Företagsnamn) ikke funnet');
+            }
+        }
     }
 
     /**
