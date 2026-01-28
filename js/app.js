@@ -252,18 +252,15 @@ class DashboardApp {
                 break;
 
             case 'demand':
-                // Modus 2: Etterspørsel & Salg (kommer i neste steg)
-                contentDiv.innerHTML = this.renderPlaceholder('Etterspørsel & Salg', 'Kommer snart...');
+                contentDiv.innerHTML = DemandMode.render(this.dataStore);
                 break;
 
             case 'assortment':
-                // Modus 3: Sortiment & Rydding (kommer i neste steg)
-                contentDiv.innerHTML = this.renderPlaceholder('Sortiment & Rydding', 'Kommer snart...');
+                contentDiv.innerHTML = AssortmentMode.render(this.dataStore);
                 break;
 
             case 'planning':
-                // Modus 4: Planlegging (kommer i neste steg)
-                contentDiv.innerHTML = this.renderPlaceholder('Planlegging', 'Kommer snart...');
+                contentDiv.innerHTML = PlanningMode.render(this.dataStore);
                 break;
 
             // Legacy-moduler (bakoverkompatibilitet)
