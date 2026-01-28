@@ -20,8 +20,9 @@ class DataProcessor {
         ],
 
         // SA-nummer (kun i SA-Nummer.xlsx)
+        // Faktisk kolonne: Kunds artikelnummer
         saNumber: [
-            'SA-nummer', 'SA nummer', 'SA-nr', 'SAnr', 'SA'
+            'Kunds artikelnummer', 'SA-nummer', 'SA nummer', 'SA-nr', 'SAnr', 'SA'
         ],
 
         // Beskrivelse
