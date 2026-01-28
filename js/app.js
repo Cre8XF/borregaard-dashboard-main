@@ -1,59 +1,70 @@
 // ===================================
-// BORREGAARD LAGERANALYSE v3.0
-// Simplified Dashboard Application
+// BORREGAARD DASHBOARD v4.0
+// Arbeidsrettet beslutningstøtte
 // ===================================
 
 /**
- * DashboardApp - Main application controller
- * Manages data flow, file uploads, and module coordination
+ * DashboardApp - Hovedkontroller for applikasjonen
+ * Koordinerer dataflyt, filopplasting og modulvisning
  */
 class DashboardApp {
     constructor() {
-        this.data = {
-            butler: [],        // Butler/Lagerbeholdning data
-            sales: [],         // Fakturaer/salgshistorikk
-            departments: []    // Andre avdelinger (valgfri)
+        // Datakilder (rå filer)
+        this.files = {
+            inventory: null,    // Lagerbeholdning.xlsx
+            ordersIn: null,     // Bestillinger.xlsx
+            ordersOut: null,    // Fakturert.xlsx
+            saNumber: null      // SA-Nummer.xlsx (valgfri)
         };
 
+        // Samlet datastruktur
+        this.dataStore = null;
+
+        // Legacy data (for bakoverkompatibilitet)
         this.processedData = [];
-        this.currentModule = 'topSellers';
+
+        // Nåværende arbeidsmodus
+        this.currentModule = 'overview';
 
         this.init();
     }
 
     /**
-     * Initialize the dashboard
+     * Initialiser applikasjonen
      */
     init() {
-        console.log('Borregaard Lageranalyse v3.0 initializing...');
+        console.log('Borregaard Dashboard v4.0 initializing...');
         this.setupEventListeners();
         this.loadStoredData();
     }
 
     /**
-     * Set up event listeners
+     * Sett opp event listeners
      */
     setupEventListeners() {
-        // Upload button
+        // Upload-knapp
         const uploadBtn = document.getElementById('uploadBtn');
         if (uploadBtn) {
             uploadBtn.addEventListener('click', () => this.handleFileUpload());
         }
 
-        // Clear button
+        // Nullstill-knapp
         const clearBtn = document.getElementById('clearBtn');
         if (clearBtn) {
             clearBtn.addEventListener('click', () => this.clearAllData());
         }
 
-        // Tab navigation
+        // Tab-navigasjon (arbeidsmoduser)
         document.querySelectorAll('.tab-navigation .tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
-                this.switchModule(e.target.dataset.module);
+                const module = e.currentTarget.dataset.module;
+                if (module) {
+                    this.switchModule(module);
+                }
             });
         });
 
-        // Keyboard shortcuts
+        // Tastatursnarvei: Ctrl+S for å lagre
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 's') {
                 e.preventDefault();
@@ -64,15 +75,18 @@ class DashboardApp {
     }
 
     /**
-     * Handle file upload
+     * Håndter filopplasting
      */
     async handleFileUpload() {
-        const butlerFile = document.getElementById('butlerFile').files[0];
-        const salesFile = document.getElementById('salesFile').files[0];
-        const deptsFile = document.getElementById('departmentsFile').files[0];
+        // Hent filer fra input-elementer
+        const inventoryFile = document.getElementById('inventoryFile')?.files[0];
+        const ordersInFile = document.getElementById('ordersInFile')?.files[0];
+        const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
+        const saNumberFile = document.getElementById('saNumberFile')?.files[0];
 
-        if (!butlerFile || !salesFile) {
-            this.showStatus('Butler og Fakturaer er påkrevd!', 'error');
+        // Valider påkrevde filer
+        if (!inventoryFile || !ordersInFile || !ordersOutFile) {
+            this.showStatus('Lagerbeholdning, Bestillinger og Fakturert er påkrevd!', 'error');
             return;
         }
 
@@ -80,37 +94,29 @@ class DashboardApp {
         this.setLoadingState(true);
 
         try {
-            // Load Butler data
-            this.showStatus('Laster lagerbeholdning...', 'info');
-            const butlerResult = await this.loadFile(butlerFile);
-            this.data.butler = butlerResult.data;
-            console.log(`Butler: ${this.data.butler.length} rader lastet`);
+            // Prosesser alle filer via DataProcessor
+            this.dataStore = await DataProcessor.processAllFiles({
+                inventory: inventoryFile,
+                ordersIn: ordersInFile,
+                ordersOut: ordersOutFile,
+                saNumber: saNumberFile
+            }, (status) => this.showStatus(status, 'info'));
 
-            // Load Sales data
-            this.showStatus('Laster salgshistorikk...', 'info');
-            const salesResult = await this.loadFile(salesFile);
-            this.data.sales = salesResult.data;
-            console.log(`Sales: ${this.data.sales.length} rader lastet`);
+            // Generer legacy processedData for bakoverkompatibilitet
+            this.processedData = this.generateLegacyData();
 
-            // Load departments (optional)
-            if (deptsFile) {
-                this.showStatus('Laster avdelingsdata...', 'info');
-                const deptsResult = await this.loadFile(deptsFile);
-                this.data.departments = deptsResult.data;
-                console.log(`Departments: ${this.data.departments.length} rader lastet`);
-            }
+            console.log(`Prosessert: ${this.dataStore.items.size} artikler`);
 
-            // Process data
-            this.showStatus('Analyserer data...', 'info');
-            this.processedData = this.processData();
-            console.log(`Processed: ${this.processedData.length} artikler`);
-
-            // Update UI
+            // Oppdater UI
             this.updateSummaryCards();
             this.renderCurrentModule();
             this.saveData();
 
-            this.showStatus(`Ferdig! ${this.processedData.length} artikler analysert.`, 'success');
+            const quality = this.dataStore.getDataQualityReport();
+            this.showStatus(
+                `Ferdig! ${quality.totalArticles} artikler analysert. SA-dekning: ${quality.saNumberCoverage}%`,
+                'success'
+            );
 
         } catch (error) {
             console.error('Upload error:', error);
@@ -121,218 +127,87 @@ class DashboardApp {
     }
 
     /**
-     * Load a file (CSV or Excel)
+     * Generer legacy-format for bakoverkompatibilitet
      */
-    async loadFile(file) {
-        const fileName = file.name.toLowerCase();
+    generateLegacyData() {
+        if (!this.dataStore) return [];
 
-        if (fileName.endsWith('.csv')) {
-            return await DataLoader.loadCSV(file);
-        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-            return await DataLoader.loadExcel(file);
-        } else {
-            throw new Error('Ugyldig filformat. Kun CSV og XLSX støttes.');
-        }
-    }
-
-    /**
-     * Get value from object with flexible column name matching
-     * Handles variations in casing, spaces, and column names
-     */
-    getColumnValue(row, ...columnNames) {
-        // First try exact matches
-        for (const name of columnNames) {
-            if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
-                return row[name];
-            }
-        }
-
-        // Then try case-insensitive matches
-        const keys = Object.keys(row);
-        for (const name of columnNames) {
-            const lowerName = name.toLowerCase().trim();
-            for (const key of keys) {
-                if (key.toLowerCase().trim() === lowerName) {
-                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-                        return row[key];
-                    }
-                }
-            }
-        }
-
-        // Try partial matches (column contains the search term)
-        for (const name of columnNames) {
-            const lowerName = name.toLowerCase();
-            for (const key of keys) {
-                if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
-                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-                        return row[key];
-                    }
-                }
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * Process data - match Butler with Sales
-     */
-    processData() {
-        const processed = [];
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-        // Build article number lookup
-        const butlerItems = this.data.butler;
-
-        // Debug: Log first item column names
-        if (butlerItems.length > 0) {
-            console.log('Butler columns:', Object.keys(butlerItems[0]));
-        }
-
-        butlerItems.forEach(butlerItem => {
-            // Get item number (try different column names)
-            const itemNo = this.getColumnValue(butlerItem,
-                'Artikelnr', 'Item ID', 'ItemNo', 'Varenr', 'Item', 'ArticleNo', 'Artikkelnr'
-            );
-
-            if (!itemNo) return;
-
-            // Get description from Butler - this is the primary source
-            const description = this.getColumnValue(butlerItem,
-                'Artikelbeskrivelse', 'Artikelbeskr', 'Description', 'Beskrivelse',
-                'Item Description', 'ItemDesc', 'Varebeskrivelse', 'Navn', 'Name'
-            );
-
-            // Find sales for this item
-            const itemSales = this.data.sales.filter(sale => {
-                const saleItemNo = this.getColumnValue(sale,
-                    'Item ID', 'Artikelnr', 'ItemNo', 'Item', 'Varenr'
-                );
-                return saleItemNo === itemNo || String(saleItemNo) === String(itemNo);
-            });
-
-            // Filter to last 12 months
-            const recentSales = itemSales.filter(sale => {
-                const dateStr = this.getColumnValue(sale,
-                    'Delivery date', 'Dato', 'Date', 'Invoice date', 'Fakturadato'
-                );
-                if (!dateStr) return true;
-                const saleDate = DataLoader.parseDate(dateStr);
-                return saleDate && saleDate >= oneYearAgo;
-            });
-
-            // Calculate metrics
-            const sales12m = recentSales.reduce((sum, s) => {
-                const qty = parseFloat(this.getColumnValue(s,
-                    'Invoiced quantity', 'Antall', 'Quantity', 'Qty', 'Fakturert antall'
-                ) || 0);
-                return sum + (isNaN(qty) ? 0 : qty);
-            }, 0);
-
-            const orderNumbers = new Set(recentSales.map(s =>
-                this.getColumnValue(s, 'Order number', 'Ordrenr', 'OrderNo', 'Order') || Math.random().toString()
-            ));
-            const orderCount = orderNumbers.size;
-
-            const stock = parseFloat(this.getColumnValue(butlerItem,
-                'Lagersaldo', 'Stock', 'Beholdning', 'Lager', 'OnHand'
-            ) || 0) || 0;
-
-            const bp = parseFloat(this.getColumnValue(butlerItem,
-                'BP', 'Bestillingspunkt', 'Reorder Point', 'Min'
-            ) || 0) || 0;
-
-            const monthlyConsumption = sales12m / 12;
-            const daysToEmpty = monthlyConsumption > 0 ?
-                Math.round(stock / (sales12m / 365)) : 999999;
-
-            // Get last sale date
-            let lastSaleDate = null;
-            if (recentSales.length > 0) {
-                const dates = recentSales
-                    .map(s => this.getColumnValue(s, 'Delivery date', 'Dato', 'Date') || '')
-                    .filter(d => d)
-                    .sort()
-                    .reverse();
-                lastSaleDate = dates[0] || null;
-            }
-
-            processed.push({
-                itemNo: itemNo,
-                description: description,
-                stock: stock,
-                available: parseFloat(this.getColumnValue(butlerItem,
-                    'DispLagSaldo', 'Available', 'Disponibel', 'Disp'
-                ) || stock) || 0,
-                reserved: parseFloat(this.getColumnValue(butlerItem,
-                    'ReservAnt', 'Reserved', 'Reservert'
-                ) || 0) || 0,
-                bp: bp,
-                max: parseFloat(this.getColumnValue(butlerItem,
-                    'Maxlager', 'Max', 'Maximum'
-                ) || 0) || 0,
-                status: this.getColumnValue(butlerItem,
-                    'Artikelstatus', 'Status', 'ItemStatus', 'Varestatus'
-                ),
-                supplier: this.getColumnValue(butlerItem,
-                    'Supplier Name', 'Leverandør', 'Supplier', 'Vendor', 'Leverandørnavn'
-                ),
-                r12: parseFloat(this.getColumnValue(butlerItem,
-                    'R12 Del Qty', 'R12', 'Rolling12'
-                ) || 0) || 0,
-                shelf: this.getColumnValue(butlerItem,
-                    'Hylla 1', 'Shelf', 'Hylleplassering', 'Location', 'Lokasjon'
-                ),
-                sales12m: Math.round(sales12m),
-                orderCount: orderCount,
-                monthlyConsumption: monthlyConsumption,
-                daysToEmpty: daysToEmpty,
-                lastSaleDate: lastSaleDate,
-                price: parseFloat(this.getColumnValue(butlerItem,
-                    'Price', 'Pris', 'Unit Price', 'Enhetspris'
-                ) || 50) || 50
-            });
+        return this.dataStore.getAllItems().map(item => {
+            const display = item.toDisplayObject();
+            return {
+                itemNo: item.toolsArticleNumber,
+                description: item.description,
+                stock: item.stock,
+                available: item.available,
+                reserved: item.reserved,
+                bp: item.bp,
+                max: item.max,
+                status: item.status,
+                supplier: item.supplier,
+                shelf: item.shelf,
+                sales12m: display.sales12m,
+                orderCount: display.orderCount,
+                monthlyConsumption: display.monthlyConsumption,
+                daysToEmpty: display.daysToEmpty,
+                lastSaleDate: display.lastSaleDate,
+                r12: display.sales12m,
+                price: 50 // Default
+            };
         });
-
-        return processed;
     }
 
     /**
-     * Update summary cards
+     * Oppdater sammendragskort
      */
     updateSummaryCards() {
-        // Total items
-        document.getElementById('totalItems').textContent =
-            this.processedData.length.toLocaleString('nb-NO');
+        if (!this.dataStore) return;
 
-        // Top sellers (items with sales > 0)
-        const topSellersCount = TopSellers.getCount(this.processedData);
-        document.getElementById('topSellersCount').textContent =
-            topSellersCount.toLocaleString('nb-NO');
+        const quality = this.dataStore.getDataQualityReport();
+        const items = this.dataStore.getAllItems();
 
-        // Action items (need BP adjustment)
-        const actionItemsCount = OrderSuggestions.getCount(this.processedData);
-        document.getElementById('actionItemsCount').textContent =
-            actionItemsCount.toLocaleString('nb-NO');
+        // Totalt artikler
+        const totalEl = document.getElementById('totalItems');
+        if (totalEl) {
+            totalEl.textContent = quality.totalArticles.toLocaleString('nb-NO');
+        }
 
-        // Slow movers
-        const slowMoversCount = SlowMovers.getCount(this.processedData);
-        document.getElementById('slowMoversCount').textContent =
-            slowMoversCount.toLocaleString('nb-NO');
+        // Kritiske issues
+        let criticalCount = 0;
+        let warningCount = 0;
+        items.forEach(item => {
+            const issues = item.getIssues();
+            criticalCount += issues.filter(i => i.type === 'critical').length;
+            warningCount += issues.filter(i => i.type === 'warning').length;
+        });
 
-        // Inactive with stock
-        const inactiveCount = InactiveItems.getCount(this.processedData);
-        document.getElementById('inactiveCount').textContent =
-            inactiveCount.toLocaleString('nb-NO');
+        const criticalEl = document.getElementById('criticalCount');
+        if (criticalEl) {
+            criticalEl.textContent = criticalCount.toLocaleString('nb-NO');
+        }
+
+        const warningEl = document.getElementById('warningCount');
+        if (warningEl) {
+            warningEl.textContent = warningCount.toLocaleString('nb-NO');
+        }
+
+        // SA-nummer dekning
+        const saEl = document.getElementById('saNumberCoverage');
+        if (saEl) {
+            saEl.textContent = `${quality.saNumberCoverage}%`;
+        }
+
+        // Innkommende bestillinger
+        const incomingEl = document.getElementById('incomingCount');
+        if (incomingEl) {
+            incomingEl.textContent = quality.withIncoming.toLocaleString('nb-NO');
+        }
     }
 
     /**
-     * Switch module/tab
+     * Bytt arbeidsmodus/tab
      */
     switchModule(moduleName) {
-        // Update active tab
+        // Oppdater aktiv tab
         document.querySelectorAll('.tab-navigation .tab').forEach(tab => {
             tab.classList.remove('active');
             if (tab.dataset.module === moduleName) {
@@ -345,44 +220,100 @@ class DashboardApp {
     }
 
     /**
-     * Render current module
+     * Render nåværende modul
      */
     renderCurrentModule() {
         const contentDiv = document.getElementById('moduleContent');
+        if (!contentDiv) return;
 
-        if (this.processedData.length === 0) {
+        // Sjekk om vi har data
+        if (!this.dataStore || this.dataStore.items.size === 0) {
             contentDiv.innerHTML = `
                 <div class="placeholder-content">
-                    <p>Last opp Butler-data og salgshistorikk for å starte analysen.</p>
+                    <div class="placeholder-icon">📊</div>
+                    <h3>Last opp data for å starte</h3>
+                    <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
+                    <ul class="file-checklist">
+                        <li><strong>Lagerbeholdning.xlsx</strong> - Nåværende saldo og lokasjoner</li>
+                        <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
+                        <li><strong>Fakturert.xlsx</strong> - Salgshistorikk</li>
+                        <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
+                    </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
                 </div>
             `;
             return;
         }
 
+        // Render basert på valgt modus
         switch (this.currentModule) {
+            case 'overview':
+                contentDiv.innerHTML = OverviewMode.render(this.dataStore);
+                break;
+
+            case 'demand':
+                // Modus 2: Etterspørsel & Salg (kommer i neste steg)
+                contentDiv.innerHTML = this.renderPlaceholder('Etterspørsel & Salg', 'Kommer snart...');
+                break;
+
+            case 'assortment':
+                // Modus 3: Sortiment & Rydding (kommer i neste steg)
+                contentDiv.innerHTML = this.renderPlaceholder('Sortiment & Rydding', 'Kommer snart...');
+                break;
+
+            case 'planning':
+                // Modus 4: Planlegging (kommer i neste steg)
+                contentDiv.innerHTML = this.renderPlaceholder('Planlegging', 'Kommer snart...');
+                break;
+
+            // Legacy-moduler (bakoverkompatibilitet)
             case 'topSellers':
-                contentDiv.innerHTML = TopSellers.render(this.processedData);
+                if (typeof TopSellers !== 'undefined') {
+                    contentDiv.innerHTML = TopSellers.render(this.processedData);
+                }
                 break;
+
             case 'orderSuggestions':
-                contentDiv.innerHTML = OrderSuggestions.render(this.processedData);
+                if (typeof OrderSuggestions !== 'undefined') {
+                    contentDiv.innerHTML = OrderSuggestions.render(this.processedData);
+                }
                 break;
+
             case 'slowMovers':
-                contentDiv.innerHTML = SlowMovers.render(
-                    this.processedData,
-                    this.data.departments
-                );
+                if (typeof SlowMovers !== 'undefined') {
+                    contentDiv.innerHTML = SlowMovers.render(this.processedData, []);
+                }
                 break;
+
             case 'inactiveItems':
-                contentDiv.innerHTML = InactiveItems.render(this.processedData);
+                if (typeof InactiveItems !== 'undefined') {
+                    contentDiv.innerHTML = InactiveItems.render(this.processedData);
+                }
                 break;
+
             default:
-                contentDiv.innerHTML = TopSellers.render(this.processedData);
+                contentDiv.innerHTML = OverviewMode.render(this.dataStore);
         }
     }
 
     /**
-     * Show status message
+     * Render placeholder for moduler som ikke er implementert ennå
+     */
+    renderPlaceholder(title, message) {
+        return `
+            <div class="module-header">
+                <h2>${title}</h2>
+            </div>
+            <div class="placeholder-content">
+                <div class="placeholder-icon">🚧</div>
+                <h3>${message}</h3>
+                <p class="text-muted">Denne modulen er under utvikling.</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Vis statusmelding
      */
     showStatus(message, type = 'info') {
         const statusDiv = document.getElementById('uploadStatus');
@@ -391,7 +322,7 @@ class DashboardApp {
         statusDiv.textContent = message;
         statusDiv.className = 'status-message ' + type;
 
-        // Auto-hide success messages
+        // Auto-skjul suksessmeldinger
         if (type === 'success') {
             setTimeout(() => {
                 statusDiv.className = 'status-message';
@@ -401,7 +332,7 @@ class DashboardApp {
     }
 
     /**
-     * Show toast notification
+     * Vis toast-notifikasjon
      */
     showToast(message, type = 'success') {
         const existingToasts = document.querySelectorAll('.toast');
@@ -420,7 +351,7 @@ class DashboardApp {
     }
 
     /**
-     * Set loading state
+     * Sett lasting-tilstand
      */
     setLoadingState(loading) {
         const uploadBtn = document.getElementById('uploadBtn');
@@ -442,21 +373,26 @@ class DashboardApp {
     }
 
     /**
-     * Save data to localStorage
+     * Lagre data til localStorage
      */
     saveData() {
         try {
+            // Lagre serialisert versjon av dataStore
             const dataToSave = {
-                processedData: this.processedData,
+                version: '4.0',
                 currentModule: this.currentModule,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                // Lagre som array av display-objekter
+                items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
+                saMapping: this.dataStore ? Array.from(this.dataStore.saMapping.entries()) : [],
+                dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null
             };
 
-            localStorage.setItem('borregaardDashboardV3', JSON.stringify(dataToSave));
-            console.log('Data saved to localStorage');
+            localStorage.setItem('borregaardDashboardV4', JSON.stringify(dataToSave));
+            console.log('Data lagret til localStorage');
             return true;
         } catch (error) {
-            console.error('Could not save to localStorage:', error);
+            console.error('Kunne ikke lagre til localStorage:', error);
             if (error.name === 'QuotaExceededError') {
                 this.showToast('Lagringskvote overskredet', 'error');
             }
@@ -465,20 +401,22 @@ class DashboardApp {
     }
 
     /**
-     * Load data from localStorage
+     * Last data fra localStorage
      */
     loadStoredData() {
         try {
-            const stored = localStorage.getItem('borregaardDashboardV3');
+            const stored = localStorage.getItem('borregaardDashboardV4');
 
             if (stored) {
                 const parsed = JSON.parse(stored);
 
-                if (parsed.processedData && parsed.processedData.length > 0) {
-                    this.processedData = parsed.processedData;
-                    this.currentModule = parsed.currentModule || 'topSellers';
+                if (parsed.version === '4.0' && parsed.items && parsed.items.length > 0) {
+                    // Gjenoppbygg dataStore fra lagrede data
+                    this.dataStore = this.rebuildDataStore(parsed);
+                    this.processedData = this.generateLegacyData();
+                    this.currentModule = parsed.currentModule || 'overview';
 
-                    console.log('Loaded stored data from:', parsed.timestamp);
+                    console.log('Lastet lagret data fra:', parsed.timestamp);
 
                     this.updateSummaryCards();
                     this.renderCurrentModule();
@@ -486,55 +424,98 @@ class DashboardApp {
                 }
             }
         } catch (error) {
-            console.error('Could not load from localStorage:', error);
+            console.error('Kunne ikke laste fra localStorage:', error);
         }
     }
 
     /**
-     * Clear all data
+     * Gjenoppbygg dataStore fra lagrede data
+     */
+    rebuildDataStore(parsed) {
+        const store = new UnifiedDataStore();
+
+        // Gjenoppbygg SA-mapping
+        if (parsed.saMapping) {
+            parsed.saMapping.forEach(([key, value]) => {
+                store.setSAMapping(key, value);
+            });
+        }
+
+        // Gjenoppbygg items
+        if (parsed.items) {
+            parsed.items.forEach(itemData => {
+                const item = store.getOrCreate(itemData.toolsArticleNumber);
+                if (item) {
+                    // Kopier alle felter
+                    item.saNumber = itemData.saNumber;
+                    item.description = itemData.description;
+                    item.location = itemData.location;
+                    item.stock = itemData.stock || 0;
+                    item.reserved = itemData.reserved || 0;
+                    item.available = itemData.available || 0;
+                    item.bp = itemData.bp || 0;
+                    item.max = itemData.max || 0;
+                    item.status = itemData.status;
+                    item.supplier = itemData.supplier;
+                    item.shelf = itemData.shelf;
+                    item.hasSANumber = itemData.hasSANumber;
+
+                    // Beregn verdier (simuler)
+                    item.sales6m = itemData.sales6m || 0;
+                    item.sales12m = itemData.sales12m || 0;
+                    item.orderCount = itemData.orderCount || 0;
+                    item.monthlyConsumption = itemData.monthlyConsumption || 0;
+                    item.daysToEmpty = itemData.daysToEmpty || 999999;
+                }
+            });
+        }
+
+        // Oppdater datakvalitet
+        store.calculateAll();
+
+        return store;
+    }
+
+    /**
+     * Slett all data
      */
     clearAllData() {
         if (confirm('Er du sikker på at du vil slette all data? Dette kan ikke angres.')) {
-            this.data = {
-                butler: [],
-                sales: [],
-                departments: []
+            this.files = {
+                inventory: null,
+                ordersIn: null,
+                ordersOut: null,
+                saNumber: null
             };
+            this.dataStore = null;
             this.processedData = [];
 
-            localStorage.removeItem('borregaardDashboardV3');
+            localStorage.removeItem('borregaardDashboardV4');
+            localStorage.removeItem('borregaardDashboardV3'); // Fjern også gammel versjon
 
-            // Reset file inputs
+            // Nullstill file inputs
             document.querySelectorAll('input[type="file"]').forEach(input => {
                 input.value = '';
             });
 
-            // Reset summary cards
-            ['totalItems', 'topSellersCount', 'actionItemsCount', 'slowMoversCount', 'inactiveCount']
+            // Nullstill sammendragskort
+            ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount']
                 .forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = '-';
                 });
 
-            // Reset content
-            const contentDiv = document.getElementById('moduleContent');
-            if (contentDiv) {
-                contentDiv.innerHTML = `
-                    <div class="placeholder-content">
-                        <p>Last opp Butler-data og salgshistorikk for å starte analysen.</p>
-                        <p class="text-muted">Støttede formater: .xlsx, .csv</p>
-                    </div>
-                `;
-            }
+            // Nullstill innhold
+            this.renderCurrentModule();
 
             this.showToast('All data slettet', 'success');
         }
     }
 }
 
-// Initialize app when DOM is ready
+// Initialiser app når DOM er klar
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new DashboardApp();
 });
 
-console.log('Borregaard Lageranalyse v3.0 loaded');
+console.log('Borregaard Dashboard v4.0 loaded');
