@@ -40,6 +40,8 @@ class AssortmentMode {
 
             ${this.renderSummaryCards(analysis)}
 
+            ${this.renderCategoryFocusStrip()}
+
             <div class="view-tabs">
                 <button class="view-tab ${this.currentView === 'slowMovers' ? 'active' : ''}"
                         onclick="AssortmentMode.switchView('slowMovers')">
@@ -295,6 +297,45 @@ class AssortmentMode {
     }
 
     /**
+     * Sjekk om kategori-fokus er aktivt
+     */
+    static isCategoryFocusActive() {
+        return this.currentCategory && this.currentCategory !== 'all';
+    }
+
+    /**
+     * Render kategori-fokus-indikator og sammendragsstripe
+     * Vises kun når en spesifikk kategori er valgt
+     */
+    static renderCategoryFocusStrip() {
+        if (!this.isCategoryFocusActive()) return '';
+
+        const summary = this.getCategorySummary(this.currentCategory);
+        if (!summary) return '';
+
+        return `
+            <div class="category-focus-strip">
+                <div class="category-focus-header">
+                    <span class="category-focus-label">Arbeider med kategori:</span>
+                    <span class="category-focus-name">${this.currentCategory}</span>
+                    <span class="category-focus-total">${summary.totalItems} artikler</span>
+                </div>
+                <div class="category-focus-counts">
+                    <span class="category-focus-count ${summary.discontinued.length > 0 ? 'has-items' : ''}">
+                        Utgående: <strong>${summary.discontinued.length}</strong>
+                    </span>
+                    <span class="category-focus-count ${summary.slowMovers.length > 0 ? 'has-items' : ''}">
+                        Slow movers: <strong>${summary.slowMovers.length}</strong>
+                    </span>
+                    <span class="category-focus-count ${summary.noSales.length > 0 ? 'has-items' : ''}">
+                        Null-salg: <strong>${summary.noSales.length}</strong>
+                    </span>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
      * Render nåværende visning
      */
     static renderCurrentView(analysis) {
@@ -323,7 +364,7 @@ class AssortmentMode {
         const displayData = filtered.slice(0, limit);
 
         if (displayData.length === 0) {
-            return `<div class="alert alert-success">Ingen slow movers funnet!</div>`;
+            return `<div class="alert alert-success">${this.getEmptyStateMessage('Ingen slow movers funnet')}</div>`;
         }
 
         const totalValue = displayData.reduce((sum, i) => sum + i.estimatedValue, 0);
@@ -378,7 +419,7 @@ class AssortmentMode {
         const displayData = filtered.slice(0, limit);
 
         if (displayData.length === 0) {
-            return `<div class="alert alert-success">Alle artikler med lager har hatt salg!</div>`;
+            return `<div class="alert alert-success">${this.getEmptyStateMessage('Ingen artikler uten salg funnet')}</div>`;
         }
 
         const totalValue = displayData.reduce((sum, i) => sum + i.estimatedValue, 0);
@@ -434,7 +475,7 @@ class AssortmentMode {
         const displayData = filtered.slice(0, limit);
 
         if (displayData.length === 0) {
-            return `<div class="alert alert-success">Ingen inaktive artikler med saldo!</div>`;
+            return `<div class="alert alert-success">${this.getEmptyStateMessage('Ingen inaktive artikler med saldo')}</div>`;
         }
 
         const totalStock = displayData.reduce((sum, i) => sum + (i.stock || 0), 0);
@@ -490,7 +531,7 @@ class AssortmentMode {
         const displayData = filtered.slice(0, limit);
 
         if (displayData.length === 0) {
-            return `<div class="alert alert-success">Ingen utgående artikler med lagersaldo!</div>`;
+            return `<div class="alert alert-success">${this.getEmptyStateMessage('Ingen utgående artikler med lagersaldo')}</div>`;
         }
 
         const totalStock = displayData.reduce((sum, i) => sum + (i.stock || 0), 0);
@@ -545,7 +586,7 @@ class AssortmentMode {
         const displayData = filtered.slice(0, limit);
 
         if (displayData.length === 0) {
-            return `<div class="alert alert-info">Ingen tydelige utfasingskandidater identifisert.</div>`;
+            return `<div class="alert alert-info">${this.getEmptyStateMessage('Ingen tydelige utfasingskandidater identifisert')}</div>`;
         }
 
         return `
@@ -629,6 +670,17 @@ class AssortmentMode {
         return Array.from(categories).sort((a, b) =>
             a.localeCompare(b, 'nb-NO')
         );
+    }
+
+    /**
+     * Generer kontekstuell tom-tilstand melding
+     * Legger til kategorinavn hvis kategori-fokus er aktivt
+     */
+    static getEmptyStateMessage(baseMessage) {
+        if (this.isCategoryFocusActive()) {
+            return `${baseMessage} i kategori «${this.currentCategory}»`;
+        }
+        return baseMessage;
     }
 
     /**
