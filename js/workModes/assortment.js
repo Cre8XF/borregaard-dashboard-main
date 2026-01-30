@@ -885,6 +885,139 @@ class AssortmentMode {
         a.click();
         URL.revokeObjectURL(url);
     }
+
+    // =========================================================================
+    // CATEGORY WORKFLOW – DESIGN SCAFFOLDING (Phase 2B, not wired to UI)
+    // =========================================================================
+    //
+    // DESIGN INTENT:
+    // Allow users to "work with one category at a time" (e.g. Festemidler).
+    // This is DIFFERENT from the category filter (Phase 2A) which is a simple
+    // dropdown that narrows visible items.
+    //
+    // The category workflow is a focused mode that:
+    // 1. Selects a category to work on
+    // 2. Shows a combined dashboard for that category:
+    //    - Utgående med saldo (discontinued items with stock)
+    //    - Slow movers within category
+    //    - Null-salg within category
+    // 3. Enables future capabilities:
+    //    - Priority scoring per category
+    //    - Bulk actions (mark for return, mark for write-off)
+    //    - Category-specific CSV export
+    //    - Butler deep-links per item
+    //
+    // SEPARATION OF CONCERNS:
+    // - currentCategory (Phase 2A) = filter dropdown, orthogonal to tabs
+    // - categoryWorkflow (Phase 2B) = focused work mode, replaces tab content
+    //
+    // ACTIVATION:
+    // - Not yet active. When ready, add a "Jobb med kategori" button/mode
+    //   that calls enterCategoryWorkflow(categoryName)
+    //
+    // =========================================================================
+
+    /**
+     * Get a summary of all items in a specific category
+     * Returns counts and items for each problem type within the category.
+     * NOT wired to UI – helper for future category workflow.
+     *
+     * @param {string} categoryName - Category to summarize
+     * @returns {Object} Category summary with discontinued, slowMovers, noSales arrays
+     */
+    static getCategorySummary(categoryName) {
+        if (!this.dataStore) return null;
+
+        const items = this.dataStore.getAllItems().filter(
+            item => item.category === categoryName
+        );
+
+        const SLOW_MOVER_THRESHOLD = 365;
+
+        const summary = {
+            category: categoryName,
+            totalItems: items.length,
+            discontinued: [],
+            slowMovers: [],
+            noSales: [],
+            totalStock: 0,
+            totalEstimatedValue: 0
+        };
+
+        items.forEach(item => {
+            const estimatedValue = (item.stock || 0) * 50;
+            summary.totalStock += item.stock || 0;
+            summary.totalEstimatedValue += estimatedValue;
+
+            if (item.isDiscontinued && item.stock > 0) {
+                summary.discontinued.push({ ...item, estimatedValue });
+            }
+
+            if (item.stock > 0 && item.daysToEmpty > SLOW_MOVER_THRESHOLD) {
+                summary.slowMovers.push({ ...item, estimatedValue });
+            }
+
+            if (item.stock > 0 && (item.sales12m || 0) === 0) {
+                summary.noSales.push({ ...item, estimatedValue });
+            }
+        });
+
+        return summary;
+    }
+
+    /**
+     * Get all categories with their problem counts.
+     * Useful for prioritizing which category to work on first.
+     * NOT wired to UI – helper for future category prioritization.
+     *
+     * @returns {Array<Object>} Array of { category, totalItems, problemCount, ... }
+     */
+    static getCategoryOverview() {
+        const categories = this.getCategories(this.dataStore);
+        return categories.map(cat => {
+            const summary = this.getCategorySummary(cat);
+            return {
+                category: cat,
+                totalItems: summary.totalItems,
+                discontinuedCount: summary.discontinued.length,
+                slowMoverCount: summary.slowMovers.length,
+                noSalesCount: summary.noSales.length,
+                problemCount: summary.discontinued.length + summary.slowMovers.length + summary.noSales.length,
+                totalStock: summary.totalStock,
+                totalEstimatedValue: summary.totalEstimatedValue
+            };
+        }).sort((a, b) => b.problemCount - a.problemCount);
+    }
+
+    // TODO (Phase 2B): enterCategoryWorkflow(categoryName)
+    //   - Set a "workflowCategory" state
+    //   - Replace tab content with combined category dashboard
+    //   - Show discontinued + slow movers + null-salg for that category
+    //   - Add "Tilbake til oversikt" button to exit workflow
+
+    // TODO (Phase 2B): renderCategoryWorkflow(summary)
+    //   - Render combined view for a single category
+    //   - Three collapsible sections: Utgående, Slow movers, Null-salg
+    //   - Category-level KPI cards (totals within category)
+
+    // TODO (Phase 2B): exportCategoryCSV(categoryName)
+    //   - Export all problem items for a specific category
+    //   - Include category name in filename
+
+    // TODO (Future): Priority scoring per category
+    //   - Rank categories by total estimated value at risk
+    //   - Rank categories by number of problem items
+    //   - Surface "worst" category as recommended next action
+
+    // TODO (Future): Bulk actions
+    //   - Select multiple items within category workflow
+    //   - "Mark for return to supplier"
+    //   - "Mark for write-off"
+    //   - "Mark as reviewed"
+
+    // TODO (Future): Butler deep-links
+    //   - Generate Butler links per item from within category workflow
+    //   - Open Jeeves article card directly
 }
 
 // Eksporter til global scope
