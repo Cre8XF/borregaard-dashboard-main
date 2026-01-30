@@ -16,11 +16,12 @@
 class AssortmentMode {
     static currentView = 'slowMovers';
     static searchTerm = '';
-    static sortColumn = 'value';
-    static sortDirection = 'desc';
+    static sortColumn = null;
+    static sortDirection = 'asc';
     static dataStore = null;
     static currentLimit = 50;
     static currentCategory = 'all';
+    static currentSupplier = 'all';
 
     /**
      * Render sortimentvisningen
@@ -81,6 +82,15 @@ class AssortmentMode {
                         <option value="all" ${this.currentCategory === 'all' ? 'selected' : ''}>Alle kategorier</option>
                         ${this.getCategories(store).map(cat => `
                             <option value="${cat}" ${this.currentCategory === cat ? 'selected' : ''}>${cat}</option>
+                        `).join('')}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Leverandør:</label>
+                    <select id="supplierFilter" class="filter-select" onchange="AssortmentMode.handleSupplierChange(this.value)">
+                        <option value="all" ${this.currentSupplier === 'all' ? 'selected' : ''}>Alle leverandører</option>
+                        ${this.getSuppliers(store).map(sup => `
+                            <option value="${sup}" ${this.currentSupplier === sup ? 'selected' : ''}>${sup}</option>
                         `).join('')}
                     </select>
                 </div>
@@ -304,33 +314,55 @@ class AssortmentMode {
     }
 
     /**
-     * Render kategori-fokus-indikator og sammendragsstripe
-     * Vises kun når en spesifikk kategori er valgt
+     * Sjekk om leverandør-fokus er aktivt
+     */
+    static isSupplierFocusActive() {
+        return this.currentSupplier && this.currentSupplier !== 'all';
+    }
+
+    /**
+     * Render fokus-indikator og sammendragsstripe
+     * Vises når en spesifikk kategori og/eller leverandør er valgt
      */
     static renderCategoryFocusStrip() {
-        if (!this.isCategoryFocusActive()) return '';
+        if (!this.isCategoryFocusActive() && !this.isSupplierFocusActive()) return '';
 
-        const summary = this.getCategorySummary(this.currentCategory);
-        if (!summary) return '';
+        // Bygg kontekst-linjer
+        const contextParts = [];
+        if (this.isCategoryFocusActive()) {
+            contextParts.push(`<span class="category-focus-label">Kategori:</span> <span class="category-focus-name">${this.currentCategory}</span>`);
+        }
+        if (this.isSupplierFocusActive()) {
+            contextParts.push(`<span class="category-focus-label">Leverandør:</span> <span class="category-focus-name">${this.currentSupplier}</span>`);
+        }
+
+        // Hent oppsummering for kategori (hvis aktiv)
+        let countsHtml = '';
+        if (this.isCategoryFocusActive()) {
+            const summary = this.getCategorySummary(this.currentCategory);
+            if (summary) {
+                countsHtml = `
+                    <div class="category-focus-counts">
+                        <span class="category-focus-count ${summary.discontinued.length > 0 ? 'has-items' : ''}">
+                            Utgående: <strong>${summary.discontinued.length}</strong>
+                        </span>
+                        <span class="category-focus-count ${summary.slowMovers.length > 0 ? 'has-items' : ''}">
+                            Slow movers: <strong>${summary.slowMovers.length}</strong>
+                        </span>
+                        <span class="category-focus-count ${summary.noSales.length > 0 ? 'has-items' : ''}">
+                            Null-salg: <strong>${summary.noSales.length}</strong>
+                        </span>
+                    </div>
+                `;
+            }
+        }
 
         return `
             <div class="category-focus-strip">
                 <div class="category-focus-header">
-                    <span class="category-focus-label">Arbeider med kategori:</span>
-                    <span class="category-focus-name">${this.currentCategory}</span>
-                    <span class="category-focus-total">${summary.totalItems} artikler</span>
+                    ${contextParts.join('<span class="category-focus-separator">&middot;</span>')}
                 </div>
-                <div class="category-focus-counts">
-                    <span class="category-focus-count ${summary.discontinued.length > 0 ? 'has-items' : ''}">
-                        Utgående: <strong>${summary.discontinued.length}</strong>
-                    </span>
-                    <span class="category-focus-count ${summary.slowMovers.length > 0 ? 'has-items' : ''}">
-                        Slow movers: <strong>${summary.slowMovers.length}</strong>
-                    </span>
-                    <span class="category-focus-count ${summary.noSales.length > 0 ? 'has-items' : ''}">
-                        Null-salg: <strong>${summary.noSales.length}</strong>
-                    </span>
-                </div>
+                ${countsHtml}
             </div>
         `;
     }
@@ -360,6 +392,7 @@ class AssortmentMode {
      */
     static renderSlowMovers(items) {
         let filtered = this.filterItems(items);
+        filtered = this.sortItems(filtered);
         const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
         const displayData = filtered.slice(0, limit);
 
@@ -378,13 +411,13 @@ class AssortmentMode {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Artikelnr</th>
-                            <th>SA-nr</th>
-                            <th>Beskrivelse</th>
-                            <th>Saldo</th>
-                            <th>Solgt 12m</th>
-                            <th>Dager til tomt</th>
-                            <th>Est. verdi</th>
+                            ${this.renderSortableHeader('Artikelnr', 'toolsArticleNumber')}
+                            ${this.renderSortableHeader('SA-nr', 'saNumber')}
+                            ${this.renderSortableHeader('Beskrivelse', 'description')}
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Solgt 12m', 'sales12m')}
+                            ${this.renderSortableHeader('Dager til tomt', 'daysToEmpty')}
+                            ${this.renderSortableHeader('Est. verdi', 'estimatedValue')}
                             <th>Handling</th>
                             <th>Butler</th>
                         </tr>
@@ -417,6 +450,7 @@ class AssortmentMode {
      */
     static renderNoSales(items) {
         let filtered = this.filterItems(items);
+        filtered = this.sortItems(filtered);
         const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
         const displayData = filtered.slice(0, limit);
 
@@ -436,13 +470,13 @@ class AssortmentMode {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Artikelnr</th>
-                            <th>SA-nr</th>
-                            <th>Beskrivelse</th>
-                            <th>Saldo</th>
-                            <th>Reservert</th>
-                            <th>Est. verdi</th>
-                            <th>Leverandør</th>
+                            ${this.renderSortableHeader('Artikelnr', 'toolsArticleNumber')}
+                            ${this.renderSortableHeader('SA-nr', 'saNumber')}
+                            ${this.renderSortableHeader('Beskrivelse', 'description')}
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Reservert', 'reserved')}
+                            ${this.renderSortableHeader('Est. verdi', 'estimatedValue')}
+                            ${this.renderSortableHeader('Leverandør', 'supplier')}
                             <th>Anbefaling</th>
                             <th>Butler</th>
                         </tr>
@@ -475,6 +509,7 @@ class AssortmentMode {
      */
     static renderInactive(items) {
         let filtered = this.filterItems(items);
+        filtered = this.sortItems(filtered);
         const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
         const displayData = filtered.slice(0, limit);
 
@@ -494,13 +529,13 @@ class AssortmentMode {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Artikelnr</th>
-                            <th>SA-nr</th>
-                            <th>Beskrivelse</th>
-                            <th>Status</th>
-                            <th>Saldo</th>
-                            <th>Reservert</th>
-                            <th>Est. verdi</th>
+                            ${this.renderSortableHeader('Artikelnr', 'toolsArticleNumber')}
+                            ${this.renderSortableHeader('SA-nr', 'saNumber')}
+                            ${this.renderSortableHeader('Beskrivelse', 'description')}
+                            ${this.renderSortableHeader('Status', 'status')}
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Reservert', 'reserved')}
+                            ${this.renderSortableHeader('Est. verdi', 'estimatedValue')}
                             <th>Handling</th>
                             <th>Butler</th>
                         </tr>
@@ -533,6 +568,7 @@ class AssortmentMode {
      */
     static renderDiscontinued(items) {
         let filtered = this.filterItems(items);
+        filtered = this.sortItems(filtered);
         const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
         const displayData = filtered.slice(0, limit);
 
@@ -553,13 +589,13 @@ class AssortmentMode {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Artikelnr</th>
-                            <th>SA-nr</th>
-                            <th>Beskrivelse</th>
-                            <th>Leverandør</th>
-                            <th>Lokasjon</th>
-                            <th>Saldo</th>
-                            <th>Status</th>
+                            ${this.renderSortableHeader('Artikelnr', 'toolsArticleNumber')}
+                            ${this.renderSortableHeader('SA-nr', 'saNumber')}
+                            ${this.renderSortableHeader('Beskrivelse', 'description')}
+                            ${this.renderSortableHeader('Leverandør', 'supplier')}
+                            ${this.renderSortableHeader('Lokasjon', 'location')}
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Status', 'statusText')}
                             <th>Butler</th>
                         </tr>
                     </thead>
@@ -590,6 +626,7 @@ class AssortmentMode {
      */
     static renderCandidates(items) {
         let filtered = this.filterItems(items);
+        filtered = this.sortItems(filtered);
         const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
         const displayData = filtered.slice(0, limit);
 
@@ -606,13 +643,13 @@ class AssortmentMode {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Score</th>
-                            <th>Artikelnr</th>
-                            <th>SA-nr</th>
-                            <th>Beskrivelse</th>
+                            ${this.renderSortableHeader('Score', 'score')}
+                            ${this.renderSortableHeader('Artikelnr', 'toolsArticleNumber')}
+                            ${this.renderSortableHeader('SA-nr', 'saNumber')}
+                            ${this.renderSortableHeader('Beskrivelse', 'description')}
                             <th>Årsaker</th>
-                            <th>Saldo</th>
-                            <th>Est. verdi</th>
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Est. verdi', 'estimatedValue')}
                             <th>Anbefaling</th>
                             <th>Butler</th>
                         </tr>
@@ -653,6 +690,13 @@ class AssortmentMode {
             );
         }
 
+        // Leverandørfilter (orthogonal – påvirker kun synlige rader)
+        if (this.currentSupplier && this.currentSupplier !== 'all') {
+            filtered = filtered.filter(item =>
+                item.supplier && item.supplier === this.currentSupplier
+            );
+        }
+
         // Tekstsøk
         if (this.searchTerm) {
             const term = this.searchTerm.toLowerCase();
@@ -683,14 +727,33 @@ class AssortmentMode {
     }
 
     /**
+     * Hent unike leverandører fra datastore, sortert alfabetisk
+     */
+    static getSuppliers(store) {
+        const suppliers = new Set();
+        store.getAllItems().forEach(item => {
+            if (item.supplier) {
+                suppliers.add(item.supplier);
+            }
+        });
+        return Array.from(suppliers).sort((a, b) =>
+            a.localeCompare(b, 'nb-NO')
+        );
+    }
+
+    /**
      * Generer kontekstuell tom-tilstand melding
      * Legger til kategorinavn hvis kategori-fokus er aktivt
      */
     static getEmptyStateMessage(baseMessage) {
+        const parts = [baseMessage];
         if (this.isCategoryFocusActive()) {
-            return `${baseMessage} i kategori «${this.currentCategory}»`;
+            parts.push(`i kategori «${this.currentCategory}»`);
         }
-        return baseMessage;
+        if (this.currentSupplier && this.currentSupplier !== 'all') {
+            parts.push(`hos leverandør «${this.currentSupplier}»`);
+        }
+        return parts.join(' ');
     }
 
     /**
@@ -736,6 +799,47 @@ class AssortmentMode {
                    onclick="event.stopPropagation()">&#x1F517;</a>`;
     }
 
+    /**
+     * Render sorterbar kolonne-header
+     */
+    static renderSortableHeader(label, key) {
+        const indicator = this.sortColumn === key
+            ? (this.sortDirection === 'asc' ? ' &#9650;' : ' &#9660;')
+            : '';
+        return `<th class="sortable-header" onclick="AssortmentMode.handleSort('${key}')">${label}${indicator}</th>`;
+    }
+
+    /**
+     * Sorter items basert på valgt kolonne
+     */
+    static sortItems(items) {
+        if (!this.sortColumn) return items;
+
+        const col = this.sortColumn;
+        const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...items].sort((a, b) => {
+            let aVal = a[col];
+            let bVal = b[col];
+
+            // Null-håndtering
+            if (aVal == null) aVal = '';
+            if (bVal == null) bVal = '';
+
+            // Infinity-håndtering (daysToEmpty)
+            if (aVal === Infinity) aVal = Number.MAX_SAFE_INTEGER;
+            if (bVal === Infinity) bVal = Number.MAX_SAFE_INTEGER;
+
+            // Numerisk sammenligning
+            if (typeof aVal === 'number' && typeof bVal === 'number') {
+                return (aVal - bVal) * dir;
+            }
+
+            // Tekst-sammenligning
+            return String(aVal).localeCompare(String(bVal), 'nb-NO') * dir;
+        });
+    }
+
     static getActionButton(item) {
         if ((item.sales12m || 0) === 0) {
             return '<span class="recommendation critical">Vurder utfasing</span>';
@@ -775,6 +879,21 @@ class AssortmentMode {
 
     static handleCategoryChange(category) {
         this.currentCategory = category;
+        this.refreshAll();
+    }
+
+    static handleSupplierChange(supplier) {
+        this.currentSupplier = supplier;
+        this.refreshAll();
+    }
+
+    static handleSort(column) {
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = 'asc';
+        }
         this.refreshAll();
     }
 
