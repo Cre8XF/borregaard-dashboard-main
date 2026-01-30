@@ -20,6 +20,7 @@ class AssortmentMode {
     static sortDirection = 'desc';
     static dataStore = null;
     static currentLimit = 50;
+    static currentCategory = 'all';
 
     /**
      * Render sortimentvisningen
@@ -70,6 +71,15 @@ class AssortmentMode {
                         <option value="50" ${this.currentLimit === 50 ? 'selected' : ''}>Top 50</option>
                         <option value="100" ${this.currentLimit === 100 ? 'selected' : ''}>Top 100</option>
                         <option value="all" ${this.currentLimit === 'all' ? 'selected' : ''}>Alle</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Kategori:</label>
+                    <select id="categoryFilter" class="filter-select" onchange="AssortmentMode.handleCategoryChange(this.value)">
+                        <option value="all" ${this.currentCategory === 'all' ? 'selected' : ''}>Alle kategorier</option>
+                        ${this.getCategories(store).map(cat => `
+                            <option value="${cat}" ${this.currentCategory === cat ? 'selected' : ''}>${cat}</option>
+                        `).join('')}
                     </select>
                 </div>
                 <div class="search-group">
@@ -580,16 +590,44 @@ class AssortmentMode {
     }
 
     /**
-     * Filtrer items basert på søk
+     * Filtrer items basert på søk og kategori
      */
     static filterItems(items) {
-        if (!this.searchTerm) return items;
+        let filtered = items;
 
-        const term = this.searchTerm.toLowerCase();
-        return items.filter(item =>
-            item.toolsArticleNumber.toLowerCase().includes(term) ||
-            (item.description && item.description.toLowerCase().includes(term)) ||
-            (item.saNumber && item.saNumber.toLowerCase().includes(term))
+        // Kategorifilter (orthogonal – påvirker ikke KPI-tellinger)
+        if (this.currentCategory && this.currentCategory !== 'all') {
+            filtered = filtered.filter(item =>
+                item.category && item.category === this.currentCategory
+            );
+        }
+
+        // Tekstsøk
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            filtered = filtered.filter(item =>
+                item.toolsArticleNumber.toLowerCase().includes(term) ||
+                (item.description && item.description.toLowerCase().includes(term)) ||
+                (item.saNumber && item.saNumber.toLowerCase().includes(term)) ||
+                (item.supplier && item.supplier.toLowerCase().includes(term))
+            );
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Hent unike kategorier fra datastore, sortert alfabetisk
+     */
+    static getCategories(store) {
+        const categories = new Set();
+        store.getAllItems().forEach(item => {
+            if (item.category) {
+                categories.add(item.category);
+            }
+        });
+        return Array.from(categories).sort((a, b) =>
+            a.localeCompare(b, 'nb-NO')
         );
     }
 
@@ -630,6 +668,11 @@ class AssortmentMode {
 
     static handleSearch(term) {
         this.searchTerm = term;
+        this.refreshAll();
+    }
+
+    static handleCategoryChange(category) {
+        this.currentCategory = category;
         this.refreshAll();
     }
 
