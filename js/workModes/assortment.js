@@ -52,6 +52,10 @@ class AssortmentMode {
                         onclick="AssortmentMode.switchView('inactive')">
                     Inaktive (${analysis.inactive.length})
                 </button>
+                <button class="view-tab ${this.currentView === 'discontinued' ? 'active' : ''}"
+                        onclick="AssortmentMode.switchView('discontinued')">
+                    Utgående med saldo (${analysis.discontinued.length})
+                </button>
                 <button class="view-tab ${this.currentView === 'candidates' ? 'active' : ''}"
                         onclick="AssortmentMode.switchView('candidates')">
                     Utfasings­kandidater
@@ -91,6 +95,7 @@ class AssortmentMode {
             slowMovers: [],
             noSales: [],
             inactive: [],
+            discontinued: [],
             candidates: [],
             totalValue: 0,
             slowMoverValue: 0
@@ -112,6 +117,15 @@ class AssortmentMode {
                     ...item,
                     estimatedValue,
                     reason: 'Inaktiv artikkel med saldo'
+                });
+            }
+
+            // Sjekk utgående (planned discontinued med saldo)
+            if (item.isDiscontinued && item.stock > 0) {
+                analysis.discontinued.push({
+                    ...item,
+                    estimatedValue,
+                    reason: 'Utgående artikkel med lagersaldo'
                 });
             }
 
@@ -144,6 +158,7 @@ class AssortmentMode {
         analysis.slowMovers.sort((a, b) => b.estimatedValue - a.estimatedValue);
         analysis.noSales.sort((a, b) => b.estimatedValue - a.estimatedValue);
         analysis.inactive.sort((a, b) => b.stock - a.stock);
+        analysis.discontinued.sort((a, b) => b.stock - a.stock);
 
         return analysis;
     }
@@ -255,6 +270,11 @@ class AssortmentMode {
                     <div class="stat-label">Inaktive m/saldo</div>
                     <div class="stat-sub">Utgåtte artikler</div>
                 </div>
+                <div class="stat-card critical">
+                    <div class="stat-value">${analysis.discontinued.length}</div>
+                    <div class="stat-label">Utgående med saldo</div>
+                    <div class="stat-sub">Skal utgå (discontinued)</div>
+                </div>
                 <div class="stat-card highlight">
                     <div class="stat-value">${slowMoverPercent}%</div>
                     <div class="stat-label">Bundet kapital</div>
@@ -275,6 +295,8 @@ class AssortmentMode {
                 return this.renderNoSales(analysis.noSales);
             case 'inactive':
                 return this.renderInactive(analysis.inactive);
+            case 'discontinued':
+                return this.renderDiscontinued(analysis.discontinued);
             case 'candidates':
                 return this.renderCandidates(analysis.candidates);
             default:
@@ -445,6 +467,61 @@ class AssortmentMode {
             </div>
             <div class="table-footer">
                 <p class="text-muted">Viser ${displayData.length} av ${filtered.length} inaktive artikler med saldo</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Render utgående artikler med saldo (planned discontinued)
+     */
+    static renderDiscontinued(items) {
+        let filtered = this.filterItems(items);
+        const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
+        const displayData = filtered.slice(0, limit);
+
+        if (displayData.length === 0) {
+            return `<div class="alert alert-success">Ingen utgående artikler med lagersaldo!</div>`;
+        }
+
+        const totalStock = displayData.reduce((sum, i) => sum + (i.stock || 0), 0);
+        const totalValue = displayData.reduce((sum, i) => sum + i.estimatedValue, 0);
+
+        return `
+            <div class="view-insight critical">
+                <p><strong>Utgående artikler med saldo</strong> er merket som "planned discontinued" / "skal utgå" i Jeeves, men har fortsatt lagerbeholdning.</p>
+                <p>Disse bør selges ut, returneres eller avskrives før utfasing fullføres.</p>
+                <p class="text-muted">Totalt: <strong>${this.formatNumber(totalStock)} stk</strong> &mdash; Est. verdi: <strong>${this.formatNumber(totalValue)} kr</strong></p>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Artikelnr</th>
+                            <th>SA-nr</th>
+                            <th>Beskrivelse</th>
+                            <th>Leverandør</th>
+                            <th>Lokasjon</th>
+                            <th>Saldo</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayData.map(item => `
+                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                                <td><strong>${item.toolsArticleNumber}</strong></td>
+                                <td>${item.saNumber || '-'}</td>
+                                <td>${this.truncate(item.description, 30)}</td>
+                                <td>${this.truncate(item.supplier, 20)}</td>
+                                <td>${item.location || item.placementLocation || '-'}</td>
+                                <td class="qty-cell">${this.formatNumber(item.stock)}</td>
+                                <td><span class="badge badge-critical">${item.statusText || 'Utgående'}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayData.length} av ${filtered.length} utgående artikler med saldo</p>
             </div>
         `;
     }
@@ -727,6 +804,9 @@ class AssortmentMode {
             case 'inactive':
                 items = analysis.inactive;
                 break;
+            case 'discontinued':
+                items = analysis.discontinued;
+                break;
             case 'candidates':
                 items = analysis.candidates;
                 break;
@@ -738,16 +818,19 @@ class AssortmentMode {
         const limit = this.currentLimit === 'all' ? items.length : parseInt(this.currentLimit);
         items = items.slice(0, limit);
 
-        const headers = ['Artikelnr', 'SA-nummer', 'Beskrivelse', 'Saldo', 'Solgt 12m', 'Dager til tomt', 'Est. verdi', 'Status'];
+        const headers = ['Artikelnr', 'SA-nummer', 'Beskrivelse', 'Leverandør', 'Lokasjon', 'Saldo', 'Solgt 12m', 'Dager til tomt', 'Est. verdi', 'Status', 'Statusbeskrivelse'];
         const rows = items.map(item => [
             item.toolsArticleNumber,
             item.saNumber || '',
             `"${(item.description || '').replace(/"/g, '""')}"`,
+            `"${(item.supplier || '').replace(/"/g, '""')}"`,
+            item.location || item.placementLocation || '',
             item.stock || 0,
             item.sales12m || 0,
             item.daysToEmpty === Infinity ? 'Uendelig' : (item.daysToEmpty || 0),
             item.estimatedValue || 0,
-            item.status || ''
+            item.status || '',
+            item.statusText || ''
         ]);
 
         const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
