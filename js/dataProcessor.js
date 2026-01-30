@@ -68,6 +68,21 @@ class DataProcessor {
             'Artikelstatus', 'Status', 'Varestatus', 'ItemStatus'
         ],
 
+        // Tekstlig artikkelstatus (planned discontinued / skal utgå)
+        // Jeeves: itemstsbeskr, Teknisk Status, eller annen tekstlig status
+        statusText: [
+            'itemstsbeskr', 'Teknisk Status', 'Artikelstatusbeskrivning',
+            'Status beskrivning', 'StatusText', 'Item Status Description'
+        ],
+
+        // Kategori / Varugrupp
+        // Jeeves: Varugrupp, Artikelgrupp, Produktgrupp
+        category: [
+            'Varugrupp', 'Artikelgrupp', 'Produktgrupp',
+            'Varegruppe', 'Artikkelgruppe', 'Produktgruppe',
+            'Item Group', 'Product Group', 'Category'
+        ],
+
         // Leverandør
         // Jeeves Lagerbeholdning: Företagsnamn | Jeeves Bestillinger: Leverantör
         supplier: [
@@ -391,6 +406,24 @@ class DataProcessor {
 
             // Status (hvis finnes)
             item.status = this.getColumnValue(row, 'status');
+
+            // Tekstlig artikkelstatus (planned discontinued / skal utgå)
+            const statusTextValue = this.getColumnValue(row, 'statusText');
+            if (statusTextValue) {
+                item.statusText = statusTextValue;
+                const lowerStatus = statusTextValue.toLowerCase();
+                item.isDiscontinued =
+                    lowerStatus.includes('discontinued') ||
+                    lowerStatus.includes('utgå') ||
+                    lowerStatus.includes('avvikles') ||
+                    lowerStatus.includes('utgående');
+            }
+
+            // Kategori fra Jeeves (Varugrupp/Artikelgrupp/Produktgrupp)
+            const categoryValue = this.getColumnValue(row, 'category');
+            if (categoryValue) {
+                item.category = categoryValue;
+            }
 
             // Leverandør fra Jeeves (Företagsnamn)
             const supplierValue = this.getColumnValue(row, 'supplier');

@@ -24,9 +24,12 @@ class UnifiedItem {
         this.bp = 0;          // Bestillingspunkt
         this.max = 0;         // Maksimum lager
         this.status = '';     // Artikkelstatus
+        this.statusText = null;   // Tekstlig artikkelstatus (f.eks. "planned discontinued")
+        this.isDiscontinued = false; // Flagg: artikkel skal utgå
         this.supplier = '';
         this.shelf = '';      // Hylleplassering
         this.placementLocation = ''; // Plasseringslokasjon fra SA-fil
+        this.category = null; // Varugrupp/Artikelgrupp fra Jeeves
 
         // Bestillinger INN (fra Bestillinger.xlsx)
         this.incomingOrders = [];
@@ -227,9 +230,12 @@ class UnifiedItem {
             bp: this.bp,
             max: this.max,
             status: this.status,
+            statusText: this.statusText,
+            isDiscontinued: this.isDiscontinued,
             supplier: this.supplier,
             shelf: this.shelf,
             placementLocation: this.placementLocation,
+            category: this.category,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
             orderCount: this.orderCount,
