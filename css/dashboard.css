@@ -2776,6 +2776,23 @@ select:focus-visible {
   font-weight: 700;
 }
 
+.category-focus-separator {
+  margin: 0 8px;
+  color: var(--text-muted);
+}
+
+/* Sortable table headers (Phase 2C) */
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sortable-header:hover {
+  color: var(--primary);
+  background: #eef4ff !important;
+}
+
 /* Butler deep-links (Phase 3A) */
 .butler-link {
   text-decoration: none;
