@@ -2717,6 +2717,65 @@ select:focus-visible {
   grid-template-columns: repeat(5, 1fr);
 }
 
+/* Category focus strip (Phase 2B) */
+.category-focus-strip {
+  background: #f0f8ff;
+  border: 1px solid var(--primary);
+  border-left: 4px solid var(--primary);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-focus-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.category-focus-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.category-focus-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--primary);
+}
+
+.category-focus-total {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--white);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--light-gray);
+}
+
+.category-focus-counts {
+  display: flex;
+  gap: 16px;
+}
+
+.category-focus-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.category-focus-count.has-items {
+  color: var(--dark);
+}
+
+.category-focus-count strong {
+  font-weight: 700;
+}
+
 .stat-card {
   background: var(--white);
   border-radius: 8px;
