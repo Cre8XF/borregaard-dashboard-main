@@ -386,6 +386,7 @@ class AssortmentMode {
                             <th>Dager til tomt</th>
                             <th>Est. verdi</th>
                             <th>Handling</th>
+                            <th>Butler</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -399,6 +400,7 @@ class AssortmentMode {
                                 <td class="qty-cell warning">${item.daysToEmpty === Infinity ? '∞' : this.formatNumber(item.daysToEmpty)}</td>
                                 <td class="qty-cell">${this.formatNumber(item.estimatedValue)} kr</td>
                                 <td>${this.getActionButton(item)}</td>
+                                <td>${this.renderButlerLink(item)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -442,6 +444,7 @@ class AssortmentMode {
                             <th>Est. verdi</th>
                             <th>Leverandør</th>
                             <th>Anbefaling</th>
+                            <th>Butler</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -455,6 +458,7 @@ class AssortmentMode {
                                 <td class="qty-cell">${this.formatNumber(item.estimatedValue)} kr</td>
                                 <td>${this.truncate(item.supplier, 20)}</td>
                                 <td><span class="recommendation warning">Vurder utfasing</span></td>
+                                <td>${this.renderButlerLink(item)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -498,6 +502,7 @@ class AssortmentMode {
                             <th>Reservert</th>
                             <th>Est. verdi</th>
                             <th>Handling</th>
+                            <th>Butler</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -511,6 +516,7 @@ class AssortmentMode {
                                 <td class="qty-cell">${this.formatNumber(item.reserved || 0)}</td>
                                 <td class="qty-cell">${this.formatNumber(item.estimatedValue)} kr</td>
                                 <td><span class="recommendation critical">Krever handling</span></td>
+                                <td>${this.renderButlerLink(item)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -554,6 +560,7 @@ class AssortmentMode {
                             <th>Lokasjon</th>
                             <th>Saldo</th>
                             <th>Status</th>
+                            <th>Butler</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -566,6 +573,7 @@ class AssortmentMode {
                                 <td>${item.location || item.placementLocation || '-'}</td>
                                 <td class="qty-cell">${this.formatNumber(item.stock)}</td>
                                 <td><span class="badge badge-critical">${item.statusText || 'Utgående'}</span></td>
+                                <td>${this.renderButlerLink(item, true)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -606,6 +614,7 @@ class AssortmentMode {
                             <th>Saldo</th>
                             <th>Est. verdi</th>
                             <th>Anbefaling</th>
+                            <th>Butler</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -619,6 +628,7 @@ class AssortmentMode {
                                 <td class="qty-cell">${this.formatNumber(item.stock)}</td>
                                 <td class="qty-cell">${this.formatNumber(item.estimatedValue)} kr</td>
                                 <td><span class="recommendation ${item.recommendation.class}">${item.recommendation.text}</span></td>
+                                <td>${this.renderButlerLink(item)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -686,6 +696,46 @@ class AssortmentMode {
     /**
      * Hjelpefunksjoner
      */
+
+    /**
+     * Bygg Butler deep-link for en artikkel
+     * Widget 142 = Utgående artikler med saldo
+     * @param {Object} item - Artikkel med toolsArticleNumber
+     * @returns {string|null} Full Butler URL, eller null hvis art.nr mangler
+     */
+    static buildButlerLink(item) {
+        if (!item || !item.toolsArticleNumber) return null;
+        const baseUrl = 'https://butler.ad.alligo.cloud/vb-host/monitor/dashboard/.../widget/details/142';
+        const params = new URLSearchParams({ artnr: item.toolsArticleNumber });
+        if (item.location) {
+            params.set('lager', item.location);
+        }
+        return `${baseUrl}?${params.toString()}`;
+    }
+
+    /**
+     * Render Butler-lenke for en tabellrad
+     * @param {Object} item - Artikkel
+     * @param {boolean} prominent - Hvis true, vis tydelig blå lenke med tekst (for Utgående-fanen)
+     * @returns {string} HTML for Butler-lenke
+     */
+    static renderButlerLink(item, prominent = false) {
+        const url = this.buildButlerLink(item);
+        if (!url) {
+            return `<span class="butler-link butler-link-disabled" title="Ingen Butler-lenke tilgjengelig">&#x1F517;</span>`;
+        }
+        if (prominent) {
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer"
+                       class="butler-link butler-link-prominent"
+                       title="Åpne artikkel i Butler (Utgående med saldo)"
+                       onclick="event.stopPropagation()">Se i Butler &#x2197;</a>`;
+        }
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer"
+                   class="butler-link"
+                   title="Åpne artikkel i Butler"
+                   onclick="event.stopPropagation()">&#x1F517;</a>`;
+    }
+
     static getActionButton(item) {
         if ((item.sales12m || 0) === 0) {
             return '<span class="recommendation critical">Vurder utfasing</span>';
@@ -1067,9 +1117,10 @@ class AssortmentMode {
     //   - "Mark for write-off"
     //   - "Mark as reviewed"
 
-    // TODO (Future): Butler deep-links
-    //   - Generate Butler links per item from within category workflow
-    //   - Open Jeeves article card directly
+    // DONE (Phase 3A): Butler deep-links
+    //   - buildButlerLink(item) generates URL to widget 142
+    //   - renderButlerLink(item, prominent) renders link in all tabs
+    //   - Prominent variant (blue text + "Se i Butler") used in Utgående med saldo
 }
 
 // Eksporter til global scope
