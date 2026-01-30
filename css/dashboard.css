@@ -2713,6 +2713,10 @@ select:focus-visible {
   margin-bottom: 25px;
 }
 
+.assortment-summary {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .stat-card {
   background: var(--white);
   border-radius: 8px;
