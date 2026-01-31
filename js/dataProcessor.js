@@ -153,6 +153,12 @@ class DataProcessor {
             'Företagsnamn', 'Kundenavn', 'Customer', 'Kunde', 'Customer Name'
         ],
 
+        // Leveringslager (DH)
+        // Jeeves Ordrer: DH (kolonne for leveringslager/leveringssted)
+        deliveryLocation: [
+            'DH', 'Leveringslager', 'Delivery Warehouse', 'Leveringssted', 'Del. Warehouse'
+        ],
+
         // ===== LEGACY/FALLBACK =====
 
         // Generisk dato (fallback)
@@ -580,6 +586,7 @@ class DataProcessor {
                     this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
                 ),
                 customer: this.getColumnValue(row, 'customer'),
+                deliveryLocation: this.getColumnValue(row, 'deliveryLocation'),
                 invoiceNo: null // Ikke brukt fra Jeeves
             });
         });

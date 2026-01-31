@@ -76,6 +76,7 @@ class UnifiedItem {
             quantity: parseFloat(order.quantity) || 0,
             deliveryDate: order.deliveryDate || null,
             customer: order.customer || '',
+            deliveryLocation: order.deliveryLocation || '',
             invoiceNo: order.invoiceNo || ''
         });
         this.hasOutgoingOrders = true;

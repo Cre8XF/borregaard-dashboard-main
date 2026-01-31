@@ -20,6 +20,8 @@ class DemandMode {
     static sortDirection = 'desc';
     static dataStore = null;
     static currentLimit = 50;
+    static currentDeliveryLocation = 'all';
+    static currentCategory = 'all';
 
     /**
      * Render etterspørselsvisningen
@@ -56,6 +58,10 @@ class DemandMode {
                         onclick="DemandMode.switchView('trends')">
                     Trender
                 </button>
+                <button class="view-tab ${this.currentView === 'warehouse' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('warehouse')">
+                    Leveringslager-trender
+                </button>
             </div>
 
             <div class="module-controls">
@@ -66,6 +72,26 @@ class DemandMode {
                         <option value="12m" ${this.currentPeriod === '12m' ? 'selected' : ''}>Siste 12 mnd</option>
                     </select>
                 </div>
+                ${this.currentView === 'warehouse' ? `
+                <div class="filter-group">
+                    <label>Leveringslager:</label>
+                    <select id="deliveryLocationFilter" class="filter-select" onchange="DemandMode.handleDeliveryLocationChange(this.value)">
+                        <option value="all" ${this.currentDeliveryLocation === 'all' ? 'selected' : ''}>Alle lagre</option>
+                        ${this.getDeliveryLocations(store).map(loc =>
+                            `<option value="${loc}" ${this.currentDeliveryLocation === loc ? 'selected' : ''}>${loc}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Kategori:</label>
+                    <select id="whCategoryFilter" class="filter-select" onchange="DemandMode.handleCategoryChange(this.value)">
+                        <option value="all" ${this.currentCategory === 'all' ? 'selected' : ''}>Alle kategorier</option>
+                        ${this.getCategories(store).map(cat =>
+                            `<option value="${cat}" ${this.currentCategory === cat ? 'selected' : ''}>${cat}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                ` : `
                 <div class="filter-group">
                     <label>Vis:</label>
                     <select id="limitFilter" class="filter-select" onchange="DemandMode.handleLimitChange(this.value)">
@@ -75,6 +101,7 @@ class DemandMode {
                         <option value="all" ${this.currentLimit === 'all' ? 'selected' : ''}>Alle</option>
                     </select>
                 </div>
+                `}
                 <div class="search-group">
                     <input type="text" id="demandSearch" placeholder="Søk artikkel..."
                            class="search-input" value="${this.searchTerm}"
@@ -164,6 +191,8 @@ class DemandMode {
                 return this.renderCustomerDependency();
             case 'trends':
                 return this.renderTrends();
+            case 'warehouse':
+                return this.renderWarehouseTrends();
             default:
                 return this.renderTopSellers();
         }
@@ -519,6 +548,197 @@ class DemandMode {
     }
 
     /**
+     * Render leveringslager-trender
+     */
+    static renderWarehouseTrends() {
+        const aggregated = this.aggregateByWarehouse();
+
+        if (aggregated.length === 0) {
+            return `<div class="alert alert-info">Ingen leveringslagerdata funnet for valgt periode og filtre.</div>`;
+        }
+
+        // Apply sorting
+        const sorted = this.sortWarehouseItems(aggregated);
+
+        return `
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable-header ${this.sortColumn === 'articleNumber' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('articleNumber')">
+                                Art.nr ${this.getSortIndicator('articleNumber')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'description' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('description')">
+                                Beskrivelse ${this.getSortIndicator('description')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'deliveryLocation' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('deliveryLocation')">
+                                Leveringslager ${this.getSortIndicator('deliveryLocation')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'orderCount' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('orderCount')">
+                                Ordrer ${this.getSortIndicator('orderCount')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'avgPerOrder' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('avgPerOrder')">
+                                Snitt pr ordre ${this.getSortIndicator('avgPerOrder')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'totalQuantity' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('totalQuantity')">
+                                Totalt solgt ${this.getSortIndicator('totalQuantity')}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sorted.map(row => `
+                            <tr class="clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                                <td><strong>${row.toolsArticleNumber}</strong></td>
+                                <td>${this.truncate(row.description, 35)}</td>
+                                <td>${row.deliveryLocation || '-'}</td>
+                                <td class="qty-cell">${row.orderCount}</td>
+                                <td class="qty-cell">${Math.round(row.avgPerOrder)}</td>
+                                <td class="qty-cell">${this.formatNumber(row.totalQuantity)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${sorted.length} artikkel-lager-kombinasjoner</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Aggreger utgående ordrer per artikkel + leveringslager
+     */
+    static aggregateByWarehouse() {
+        const items = this.dataStore.getAllItems();
+        const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
+        const cutoffDate = new Date();
+        cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
+
+        // Map key: "toolsArticleNumber|deliveryLocation"
+        const aggregation = new Map();
+
+        items.forEach(item => {
+            // Apply category filter
+            if (this.currentCategory !== 'all' && item.category !== this.currentCategory) {
+                return;
+            }
+
+            // Apply search filter
+            if (this.searchTerm) {
+                const term = this.searchTerm.toLowerCase();
+                const matches =
+                    item.toolsArticleNumber.toLowerCase().includes(term) ||
+                    (item.description && item.description.toLowerCase().includes(term)) ||
+                    (item.saNumber && item.saNumber.toLowerCase().includes(term));
+                if (!matches) return;
+            }
+
+            item.outgoingOrders.forEach(order => {
+                // Period filter
+                if (order.deliveryDate && order.deliveryDate < cutoffDate) return;
+
+                const loc = order.deliveryLocation || 'Ukjent';
+
+                // Apply delivery location filter
+                if (this.currentDeliveryLocation !== 'all' && loc !== this.currentDeliveryLocation) {
+                    return;
+                }
+
+                const key = `${item.toolsArticleNumber}|${loc}`;
+                if (!aggregation.has(key)) {
+                    aggregation.set(key, {
+                        toolsArticleNumber: item.toolsArticleNumber,
+                        description: item.description,
+                        deliveryLocation: loc,
+                        totalQuantity: 0,
+                        orderCount: 0,
+                        avgPerOrder: 0
+                    });
+                }
+
+                const agg = aggregation.get(key);
+                agg.totalQuantity += order.quantity || 0;
+                agg.orderCount++;
+            });
+        });
+
+        // Calculate averages
+        aggregation.forEach(agg => {
+            agg.avgPerOrder = agg.orderCount > 0 ? agg.totalQuantity / agg.orderCount : 0;
+        });
+
+        return Array.from(aggregation.values());
+    }
+
+    /**
+     * Sorter leveringslager-resultater
+     */
+    static sortWarehouseItems(items) {
+        const col = this.sortColumn;
+        const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...items].sort((a, b) => {
+            let valA, valB;
+            switch (col) {
+                case 'articleNumber':
+                    valA = a.toolsArticleNumber || '';
+                    valB = b.toolsArticleNumber || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'description':
+                    valA = a.description || '';
+                    valB = b.description || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'deliveryLocation':
+                    valA = a.deliveryLocation || '';
+                    valB = b.deliveryLocation || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'orderCount':
+                    return dir * ((a.orderCount || 0) - (b.orderCount || 0));
+                case 'avgPerOrder':
+                    return dir * ((a.avgPerOrder || 0) - (b.avgPerOrder || 0));
+                case 'totalQuantity':
+                    return dir * ((a.totalQuantity || 0) - (b.totalQuantity || 0));
+                default:
+                    return dir * ((a.totalQuantity || 0) - (b.totalQuantity || 0));
+            }
+        });
+    }
+
+    /**
+     * Hent unike leveringslagre fra utgående ordrer
+     */
+    static getDeliveryLocations(store) {
+        const locations = new Set();
+        store.getAllItems().forEach(item => {
+            item.outgoingOrders.forEach(order => {
+                if (order.deliveryLocation && order.deliveryLocation.trim() !== '') {
+                    locations.add(order.deliveryLocation.trim());
+                }
+            });
+        });
+        return Array.from(locations).sort((a, b) => a.localeCompare(b, 'nb'));
+    }
+
+    /**
+     * Hent unike kategorier
+     */
+    static getCategories(store) {
+        const categories = new Set();
+        store.getAllItems().forEach(item => {
+            if (item.category && item.category.toString().trim() !== '') {
+                categories.add(item.category.toString().trim());
+            }
+        });
+        return Array.from(categories).sort((a, b) => a.localeCompare(b, 'nb'));
+    }
+
+    /**
      * Hent filtrerte items
      */
     static getFilteredItems() {
@@ -597,13 +817,18 @@ class DemandMode {
      */
     static switchView(view) {
         this.currentView = view;
-        this.updateContent();
 
-        // Oppdater aktiv tab
-        document.querySelectorAll('.view-tab').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        event.target.classList.add('active');
+        // Reset sort state to sensible default per view
+        if (view === 'warehouse') {
+            this.sortColumn = 'totalQuantity';
+            this.sortDirection = 'desc';
+        } else if (this.sortColumn === 'totalQuantity' || this.sortColumn === 'avgPerOrder' || this.sortColumn === 'deliveryLocation') {
+            this.sortColumn = 'sales';
+            this.sortDirection = 'desc';
+        }
+
+        // Full re-render to update controls (filters change per view)
+        this.refreshAll();
     }
 
     static handlePeriodChange(period) {
@@ -626,8 +851,18 @@ class DemandMode {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
             this.sortColumn = column;
-            this.sortDirection = column === 'description' || column === 'articleNumber' ? 'asc' : 'desc';
+            this.sortDirection = column === 'description' || column === 'articleNumber' || column === 'deliveryLocation' ? 'asc' : 'desc';
         }
+        this.updateContent();
+    }
+
+    static handleDeliveryLocationChange(location) {
+        this.currentDeliveryLocation = location;
+        this.updateContent();
+    }
+
+    static handleCategoryChange(category) {
+        this.currentCategory = category;
         this.updateContent();
     }
 
