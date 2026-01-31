@@ -13,7 +13,7 @@ class DashboardApp {
         this.files = {
             inventory: null,    // Lagerbeholdning.xlsx
             ordersIn: null,     // Bestillinger.xlsx
-            ordersOut: null,    // Fakturert.xlsx
+            ordersOut: null,    // Ordrer_Jeeves.xlsx
             saNumber: null      // SA-Nummer.xlsx (valgfri)
         };
 
@@ -172,17 +172,35 @@ class DashboardApp {
     }
 
     /**
-     * Detekter filtype basert på kolonner (primært) og filnavn (fallback)
+     * Detekter filtype basert på filnavn (primært) og kolonner (fallback)
      *
      * Prioritet:
-     *   1. Kolonnenavn (tryggest – sjekker faktisk innhold)
-     *   2. Filnavn (fallback – pattern matching)
+     *   1. Filnavn (autoritativt – stabile Jeeves-eksporter)
+     *   2. Kolonnenavn (fallback – kun hvis filnavn ikke matcher)
      *
      * @param {File} file
      * @returns {Promise<string|null>} 'inventory' | 'ordersIn' | 'ordersOut' | 'saNumber' | null
      */
     async detectFileType(file) {
-        // Try column-based detection first (read first sheet headers)
+        // Primary: filename-based detection (authoritative)
+        const name = file.name.toLowerCase();
+
+        const filenameRules = [
+            { match: 'lagerbeholdning', type: 'inventory' },
+            { match: 'bestilling',      type: 'ordersIn' },
+            { match: 'ordrer',          type: 'ordersOut' },
+            { match: 'sa-nummer',       type: 'saNumber' },
+            { match: 'sa_nummer',       type: 'saNumber' },
+            { match: 'sanummer',        type: 'saNumber' }
+        ];
+
+        for (const rule of filenameRules) {
+            if (name.includes(rule.match)) {
+                return rule.type;
+            }
+        }
+
+        // Fallback: column-based detection (only if filename did not match)
         try {
             const columns = await this.peekColumns(file);
             const colSet = new Set(columns.map(c => c.toLowerCase().trim()));
@@ -207,7 +225,7 @@ class DashboardApp {
                 return 'saNumber';
             }
 
-            // Broader column-based heuristics as secondary check
+            // Broader column heuristics
             if (colSet.has('lagerställe') || colSet.has('företagsnamn') || colSet.has('displagersaldo') || colSet.has('displagsaldo')) {
                 return 'inventory';
             }
@@ -223,13 +241,6 @@ class DashboardApp {
         } catch (e) {
             console.warn('Column detection failed for', file.name, e);
         }
-
-        // Fallback: filename-based detection
-        const name = file.name.toLowerCase();
-        if (name.includes('lager')) return 'inventory';
-        if (name.includes('bestilling') || name.includes('beställning')) return 'ordersIn';
-        if (name.includes('ordre') || name.includes('order') || name.includes('faktur')) return 'ordersOut';
-        if (name.includes('sa-nummer') || name.includes('sa_nummer') || name.includes('sanummer')) return 'saNumber';
 
         return null;
     }
@@ -323,7 +334,7 @@ class DashboardApp {
 
         // Valider påkrevde filer
         if (!inventoryFile || !ordersInFile || !ordersOutFile) {
-            this.showStatus('Lagerbeholdning, Bestillinger og Fakturert er påkrevd!', 'error');
+            this.showStatus('Lagerbeholdning, Bestillinger og Ordrer er påkrevd!', 'error');
             return;
         }
 
@@ -473,7 +484,7 @@ class DashboardApp {
                     <ul class="file-checklist">
                         <li><strong>Lagerbeholdning.xlsx</strong> - Nåværende saldo og lokasjoner</li>
                         <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
-                        <li><strong>Fakturert.xlsx</strong> - Salgshistorikk</li>
+                        <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
                         <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
