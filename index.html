@@ -21,6 +21,19 @@
       <!-- FILE UPLOAD SECTION -->
       <section class="upload-section">
         <h2>Last opp data</h2>
+
+        <!-- Multi-file drop zone -->
+        <div id="multiDropZone" class="multi-drop-zone">
+          <div class="drop-zone-content">
+            <div class="drop-zone-icon">📂</div>
+            <p class="drop-zone-text">Dra inn alle Excel-filer her</p>
+            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer)</p>
+          </div>
+        </div>
+        <div id="dropStatus" class="drop-status"></div>
+
+        <p class="upload-divider"><span>eller velg filer enkeltvis</span></p>
+
         <div class="upload-grid four-columns">
           <div class="upload-item">
             <label for="inventoryFile">
