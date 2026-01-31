@@ -62,6 +62,10 @@ class DemandMode {
                         onclick="DemandMode.switchView('warehouse')">
                     Leveringslager-trender
                 </button>
+                <button class="view-tab ${this.currentView === 'critical' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('critical')">
+                    Kritisk 3018
+                </button>
             </div>
 
             <div class="module-controls">
@@ -72,7 +76,7 @@ class DemandMode {
                         <option value="12m" ${this.currentPeriod === '12m' ? 'selected' : ''}>Siste 12 mnd</option>
                     </select>
                 </div>
-                ${this.currentView === 'warehouse' ? `
+                ${this.currentView === 'warehouse' || this.currentView === 'critical' ? `
                 <div class="filter-group">
                     <label>Leveringslager:</label>
                     <select id="deliveryLocationFilter" class="filter-select" onchange="DemandMode.handleDeliveryLocationChange(this.value)">
@@ -193,6 +197,8 @@ class DemandMode {
                 return this.renderTrends();
             case 'warehouse':
                 return this.renderWarehouseTrends();
+            case 'critical':
+                return this.renderCriticalDemand();
             default:
                 return this.renderTopSellers();
         }
@@ -739,6 +745,258 @@ class DemandMode {
     }
 
     /**
+     * Analyser kritisk etterspørsel mot lager 3018
+     * Seleksjon: ≥2 leveringslagre OR ≥12 ordrer 12m OR gjentakende etterspørsel
+     */
+    static analyzeCriticalDemand() {
+        const items = this.dataStore.getAllItems();
+        const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
+        const periodWeeks = periodMonths * (52 / 12); // ~4.33 weeks per month
+        const cutoffDate = new Date();
+        cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
+
+        const results = [];
+
+        items.forEach(item => {
+            // Apply category filter
+            if (this.currentCategory !== 'all' && item.category !== this.currentCategory) {
+                return;
+            }
+
+            // Apply search filter
+            if (this.searchTerm) {
+                const term = this.searchTerm.toLowerCase();
+                const matches =
+                    item.toolsArticleNumber.toLowerCase().includes(term) ||
+                    (item.description && item.description.toLowerCase().includes(term)) ||
+                    (item.saNumber && item.saNumber.toLowerCase().includes(term));
+                if (!matches) return;
+            }
+
+            // Aggregate orders within period
+            const warehouseSet = new Set();
+            const monthBuckets = new Set();
+            let totalSold = 0;
+            let orderCount = 0;
+
+            item.outgoingOrders.forEach(order => {
+                if (order.deliveryDate && order.deliveryDate < cutoffDate) return;
+
+                const loc = order.deliveryLocation || 'Ukjent';
+
+                // Apply delivery location filter
+                if (this.currentDeliveryLocation !== 'all' && loc !== this.currentDeliveryLocation) {
+                    return;
+                }
+
+                warehouseSet.add(loc);
+                totalSold += order.quantity || 0;
+                orderCount++;
+
+                // Track unique months with orders for recurring demand detection
+                if (order.deliveryDate) {
+                    const ym = order.deliveryDate.getFullYear() * 12 + order.deliveryDate.getMonth();
+                    monthBuckets.add(ym);
+                }
+            });
+
+            if (orderCount === 0) return;
+
+            const warehouseCount = warehouseSet.size;
+            // Recurring: orders in at least half of the months in the period
+            const isRecurring = monthBuckets.size >= Math.ceil(periodMonths / 2);
+
+            // Selection: at least ONE criterion met
+            if (warehouseCount < 2 && orderCount < 12 && !isRecurring) {
+                return;
+            }
+
+            const avgPerWeek = periodWeeks > 0 ? totalSold / periodWeeks : 0;
+            const stock3018 = item.stock || 0;
+            const coverageWeeks = avgPerWeek > 0 ? stock3018 / avgPerWeek : (stock3018 > 0 ? 999 : 0);
+
+            const articleStatus = item.isDiscontinued ? 'Utgående' : 'Aktiv';
+
+            let risk;
+            if (item.isDiscontinued || coverageWeeks < 2) {
+                risk = 'CRITICAL';
+            } else if (coverageWeeks < 4) {
+                risk = 'RISK';
+            } else {
+                risk = 'OK';
+            }
+
+            results.push({
+                toolsArticleNumber: item.toolsArticleNumber,
+                description: item.description,
+                warehouseCount,
+                orderCount,
+                totalSold,
+                avgPerWeek,
+                stock3018,
+                coverageWeeks,
+                articleStatus,
+                risk
+            });
+        });
+
+        return results;
+    }
+
+    /**
+     * Render kritisk etterspørsel 3018
+     */
+    static renderCriticalDemand() {
+        const analyzed = this.analyzeCriticalDemand();
+
+        if (analyzed.length === 0) {
+            return `<div class="alert alert-info">Ingen artikler med høy/bred etterspørsel funnet for valgt periode og filtre.</div>`;
+        }
+
+        const sorted = this.sortCriticalItems(analyzed);
+
+        const criticalCount = sorted.filter(r => r.risk === 'CRITICAL').length;
+        const riskCount = sorted.filter(r => r.risk === 'RISK').length;
+
+        return `
+            <div class="critical-insight">
+                <div class="insight-card ${criticalCount > 0 ? 'warning' : 'ok'}">
+                    <h4>Lager 3018 – beredskap</h4>
+                    <p><strong>${criticalCount}</strong> kritiske og <strong>${riskCount}</strong> risikoartikler blant ${sorted.length} med bred/høy etterspørsel.</p>
+                    <p class="text-muted">Artikler solgt til ≥2 lagre, ≥12 ordrer, eller jevn månedlig etterspørsel</p>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable-header ${this.sortColumn === 'articleNumber' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('articleNumber')">
+                                Art.nr ${this.getSortIndicator('articleNumber')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'description' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('description')">
+                                Beskrivelse ${this.getSortIndicator('description')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'warehouseCount' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('warehouseCount')">
+                                Lev.lagre ${this.getSortIndicator('warehouseCount')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'orderCount' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('orderCount')">
+                                Ordrer ${this.getSortIndicator('orderCount')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'totalSold' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('totalSold')">
+                                Totalt solgt ${this.getSortIndicator('totalSold')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'avgPerWeek' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('avgPerWeek')">
+                                Snitt/uke ${this.getSortIndicator('avgPerWeek')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'stock3018' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('stock3018')">
+                                Saldo 3018 ${this.getSortIndicator('stock3018')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'coverageWeeks' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('coverageWeeks')">
+                                Dekning (uker) ${this.getSortIndicator('coverageWeeks')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'status' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('status')">
+                                Status ${this.getSortIndicator('status')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'risk' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('risk')">
+                                Risiko ${this.getSortIndicator('risk')}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sorted.map(row => {
+                            const rowClass = row.risk === 'CRITICAL' ? 'row-critical' : row.risk === 'RISK' ? 'row-warning' : '';
+                            const coverageDisplay = row.coverageWeeks >= 999 ? '∞' : row.coverageWeeks.toFixed(1);
+                            return `
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                                <td><strong>${row.toolsArticleNumber}</strong></td>
+                                <td>${this.truncate(row.description, 30)}</td>
+                                <td class="qty-cell">${row.warehouseCount}</td>
+                                <td class="qty-cell">${row.orderCount}</td>
+                                <td class="qty-cell">${this.formatNumber(row.totalSold)}</td>
+                                <td class="qty-cell">${row.avgPerWeek.toFixed(1)}</td>
+                                <td class="qty-cell ${row.stock3018 <= 0 ? 'negative' : ''}">${this.formatNumber(row.stock3018)}</td>
+                                <td class="qty-cell ${row.coverageWeeks < 2 ? 'negative' : row.coverageWeeks < 4 ? 'warning' : ''}">${coverageDisplay}</td>
+                                <td>${row.articleStatus === 'Utgående' ? '<span class="badge badge-warning">Utgående</span>' : '<span class="badge badge-ok">Aktiv</span>'}</td>
+                                <td>${this.getCriticalRiskBadge(row.risk)}</td>
+                            </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${sorted.length} artikler med bred/høy etterspørsel (kritisk: ${criticalCount}, risiko: ${riskCount}, ok: ${sorted.length - criticalCount - riskCount})</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Sorter kritisk etterspørsel-resultater
+     */
+    static sortCriticalItems(items) {
+        const col = this.sortColumn;
+        const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...items].sort((a, b) => {
+            let valA, valB;
+            switch (col) {
+                case 'articleNumber':
+                    valA = a.toolsArticleNumber || '';
+                    valB = b.toolsArticleNumber || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'description':
+                    valA = a.description || '';
+                    valB = b.description || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'warehouseCount':
+                    return dir * ((a.warehouseCount || 0) - (b.warehouseCount || 0));
+                case 'orderCount':
+                    return dir * ((a.orderCount || 0) - (b.orderCount || 0));
+                case 'totalSold':
+                    return dir * ((a.totalSold || 0) - (b.totalSold || 0));
+                case 'avgPerWeek':
+                    return dir * ((a.avgPerWeek || 0) - (b.avgPerWeek || 0));
+                case 'stock3018':
+                    return dir * ((a.stock3018 || 0) - (b.stock3018 || 0));
+                case 'coverageWeeks':
+                    return dir * ((a.coverageWeeks || 0) - (b.coverageWeeks || 0));
+                case 'status':
+                    valA = a.articleStatus || '';
+                    valB = b.articleStatus || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'risk': {
+                    const riskOrder = { 'CRITICAL': 0, 'RISK': 1, 'OK': 2 };
+                    return dir * ((riskOrder[a.risk] ?? 2) - (riskOrder[b.risk] ?? 2));
+                }
+                default:
+                    return dir * ((a.coverageWeeks || 0) - (b.coverageWeeks || 0));
+            }
+        });
+    }
+
+    /**
+     * Risk badge for critical demand view
+     */
+    static getCriticalRiskBadge(risk) {
+        if (risk === 'CRITICAL') {
+            return '<span class="badge badge-critical">KRITISK</span>';
+        } else if (risk === 'RISK') {
+            return '<span class="badge badge-warning">RISIKO</span>';
+        }
+        return '<span class="badge badge-ok">OK</span>';
+    }
+
+    /**
      * Hent filtrerte items
      */
     static getFilteredItems() {
@@ -819,10 +1077,13 @@ class DemandMode {
         this.currentView = view;
 
         // Reset sort state to sensible default per view
-        if (view === 'warehouse') {
+        if (view === 'critical') {
+            this.sortColumn = 'coverageWeeks';
+            this.sortDirection = 'asc';
+        } else if (view === 'warehouse') {
             this.sortColumn = 'totalQuantity';
             this.sortDirection = 'desc';
-        } else if (this.sortColumn === 'totalQuantity' || this.sortColumn === 'avgPerOrder' || this.sortColumn === 'deliveryLocation') {
+        } else if (['totalQuantity', 'avgPerOrder', 'deliveryLocation', 'coverageWeeks', 'warehouseCount', 'avgPerWeek', 'stock3018', 'risk'].includes(this.sortColumn)) {
             this.sortColumn = 'sales';
             this.sortDirection = 'desc';
         }
@@ -851,7 +1112,7 @@ class DemandMode {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
             this.sortColumn = column;
-            this.sortDirection = column === 'description' || column === 'articleNumber' || column === 'deliveryLocation' ? 'asc' : 'desc';
+            this.sortDirection = ['description', 'articleNumber', 'deliveryLocation', 'status'].includes(column) ? 'asc' : 'desc';
         }
         this.updateContent();
     }
