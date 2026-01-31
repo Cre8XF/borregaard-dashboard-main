@@ -153,10 +153,10 @@ class DataProcessor {
             'Företagsnamn', 'Kundenavn', 'Customer', 'Kunde', 'Customer Name'
         ],
 
-        // Leveringslager (DH)
-        // Jeeves Ordrer: DH (kolonne for leveringslager/leveringssted)
+        // Leveringslager
+        // Jeeves Ordrer: LevPlFtgKod (leveringsplats företagskod)
         deliveryLocation: [
-            'DH', 'Leveringslager', 'Delivery Warehouse', 'Leveringssted', 'Del. Warehouse'
+            'LevPlFtgKod', 'DH', 'Leveringslager', 'Delivery Warehouse', 'Leveringssted', 'Del. Warehouse'
         ],
 
         // ===== LEGACY/FALLBACK =====
