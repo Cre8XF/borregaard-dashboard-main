@@ -82,6 +82,115 @@ header h1 {
   color: var(--dark);
 }
 
+/* Multi-file drop zone */
+.multi-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 30px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--light-gray);
+  margin-bottom: 10px;
+}
+
+.multi-drop-zone:hover {
+  border-color: var(--primary);
+  background: #f0f8ff;
+}
+
+.multi-drop-zone.drag-active {
+  border-color: var(--primary);
+  border-width: 3px;
+  background: #e8f4fd;
+}
+
+.drop-zone-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.drop-zone-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dark);
+  margin: 0 0 4px 0;
+}
+
+.drop-zone-hint {
+  font-size: 13px;
+  color: var(--gray);
+  margin: 0;
+}
+
+/* Drop status feedback */
+.drop-status {
+  margin-bottom: 10px;
+}
+
+.drop-status-line {
+  font-size: 13px;
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drop-status-icon {
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+}
+
+.drop-status-ok {
+  color: var(--success);
+}
+
+.drop-status-warning {
+  color: var(--warning);
+}
+
+.drop-status-error {
+  color: var(--danger);
+}
+
+.drop-status-info {
+  color: var(--gray);
+}
+
+/* Upload divider ("eller velg filer enkeltvis") */
+.upload-divider {
+  text-align: center;
+  margin: 12px 0;
+  position: relative;
+  font-size: 13px;
+  color: var(--gray);
+}
+
+.upload-divider::before,
+.upload-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 100px);
+  height: 1px;
+  background: var(--border);
+}
+
+.upload-divider::before {
+  left: 0;
+}
+
+.upload-divider::after {
+  right: 0;
+}
+
+.upload-divider span {
+  background: var(--white);
+  padding: 0 12px;
+  position: relative;
+}
+
 .upload-controls {
   display: flex;
   gap: 10px;

@@ -35,6 +35,7 @@ class DashboardApp {
     init() {
         console.log('Borregaard Dashboard v4.0 initializing...');
         this.setupEventListeners();
+        this.setupDropZone();
         this.loadStoredData();
     }
 
@@ -72,6 +73,242 @@ class DashboardApp {
                 this.showToast('Data lagret', 'success');
             }
         });
+    }
+
+    /**
+     * Sett opp multi-file drop zone
+     */
+    setupDropZone() {
+        const dropZone = document.getElementById('multiDropZone');
+        if (!dropZone) return;
+
+        // Prevent default drag behaviors on the whole page
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        // Highlight on drag enter/over
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('drag-active');
+            });
+        });
+
+        // Remove highlight on drag leave/drop
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('drag-active');
+            });
+        });
+
+        // Handle drop
+        dropZone.addEventListener('drop', (e) => {
+            const files = Array.from(e.dataTransfer.files);
+            const xlsxFiles = files.filter(f =>
+                f.name.endsWith('.xlsx') || f.name.endsWith('.csv')
+            );
+
+            if (xlsxFiles.length === 0) {
+                this.updateDropStatus([{ status: 'error', message: 'Ingen Excel/CSV-filer funnet' }]);
+                return;
+            }
+
+            this.handleMultiFileDrop(xlsxFiles);
+        });
+    }
+
+    /**
+     * Håndter multi-file drop — detekter og ruter filer til riktig input
+     */
+    async handleMultiFileDrop(files) {
+        this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
+
+        const results = [];
+        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null };
+        const ignored = [];
+
+        for (const file of files) {
+            try {
+                const fileType = await this.detectFileType(file);
+
+                if (fileType && !routed[fileType]) {
+                    routed[fileType] = file;
+                    results.push({ status: 'ok', message: this.getFileTypeLabel(fileType) + ': ' + file.name });
+                } else if (fileType && routed[fileType]) {
+                    // Duplicate type — overwrite with latest
+                    routed[fileType] = file;
+                    results.push({ status: 'ok', message: this.getFileTypeLabel(fileType) + ': ' + file.name + ' (overskrevet)' });
+                } else {
+                    ignored.push(file.name);
+                    results.push({ status: 'error', message: 'Ukjent fil ignorert: ' + file.name });
+                }
+            } catch (err) {
+                ignored.push(file.name);
+                results.push({ status: 'error', message: 'Feil ved lesing: ' + file.name });
+            }
+        }
+
+        // Place files into input elements using DataTransfer
+        this.setFileInput('inventoryFile', routed.inventory);
+        this.setFileInput('ordersInFile', routed.ordersIn);
+        this.setFileInput('ordersOutFile', routed.ordersOut);
+        this.setFileInput('saNumberFile', routed.saNumber);
+
+        // Add missing file warnings
+        if (!routed.inventory) results.push({ status: 'warning', message: 'Lagerbeholdning mangler (påkrevd)' });
+        if (!routed.ordersIn) results.push({ status: 'warning', message: 'Bestillinger mangler (påkrevd)' });
+        if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer mangler (påkrevd)' });
+        if (!routed.saNumber) results.push({ status: 'info', message: 'SA-nummer mangler (valgfri)' });
+
+        this.updateDropStatus(results);
+
+        // Auto-trigger analysis if all required files are present
+        if (routed.inventory && routed.ordersIn && routed.ordersOut) {
+            this.handleFileUpload();
+        }
+    }
+
+    /**
+     * Detekter filtype basert på kolonner (primært) og filnavn (fallback)
+     *
+     * Prioritet:
+     *   1. Kolonnenavn (tryggest – sjekker faktisk innhold)
+     *   2. Filnavn (fallback – pattern matching)
+     *
+     * @param {File} file
+     * @returns {Promise<string|null>} 'inventory' | 'ordersIn' | 'ordersOut' | 'saNumber' | null
+     */
+    async detectFileType(file) {
+        // Try column-based detection first (read first sheet headers)
+        try {
+            const columns = await this.peekColumns(file);
+            const colSet = new Set(columns.map(c => c.toLowerCase().trim()));
+
+            // Lagerbeholdning: Lagerställe, Artikelnr, Företagsnamn
+            if (colSet.has('lagerställe') && colSet.has('artikelnr') && colSet.has('företagsnamn')) {
+                return 'inventory';
+            }
+
+            // Bestillinger: Beställning, Artikelnr, BestAnt
+            if (colSet.has('beställning') && colSet.has('artikelnr') && colSet.has('bestant')) {
+                return 'ordersIn';
+            }
+
+            // Ordrer: Artikelnr, LevPlFtgKod, Antal
+            if (colSet.has('artikelnr') && colSet.has('levplftgkod') && colSet.has('antal')) {
+                return 'ordersOut';
+            }
+
+            // SA-nummer: Kunds artikelnummer, Artikelnr
+            if (colSet.has('kunds artikelnummer') && colSet.has('artikelnr')) {
+                return 'saNumber';
+            }
+
+            // Broader column-based heuristics as secondary check
+            if (colSet.has('lagerställe') || colSet.has('företagsnamn') || colSet.has('displagersaldo') || colSet.has('displagsaldo')) {
+                return 'inventory';
+            }
+            if (colSet.has('beställning') || colSet.has('bestant') || colSet.has('restantlgrenhet') || colSet.has('restantlgrenh')) {
+                return 'ordersIn';
+            }
+            if (colSet.has('levplftgkod') || colSet.has('ordradant') || colSet.has('faktdat')) {
+                return 'ordersOut';
+            }
+            if (colSet.has('kunds artikelnummer')) {
+                return 'saNumber';
+            }
+        } catch (e) {
+            console.warn('Column detection failed for', file.name, e);
+        }
+
+        // Fallback: filename-based detection
+        const name = file.name.toLowerCase();
+        if (name.includes('lager')) return 'inventory';
+        if (name.includes('bestilling') || name.includes('beställning')) return 'ordersIn';
+        if (name.includes('ordre') || name.includes('order') || name.includes('faktur')) return 'ordersOut';
+        if (name.includes('sa-nummer') || name.includes('sa_nummer') || name.includes('sanummer')) return 'saNumber';
+
+        return null;
+    }
+
+    /**
+     * Les kolonneoverskrifter fra en Excel/CSV-fil uten å parse hele filen
+     */
+    async peekColumns(file) {
+        if (file.name.endsWith('.csv')) {
+            const text = await file.text();
+            const firstLine = text.split(/\r?\n/)[0] || '';
+            const delimiter = [';', ',', '\t'].reduce((best, d) => {
+                const count = (firstLine.match(new RegExp('\\' + d, 'g')) || []).length;
+                return count > best.count ? { d, count } : best;
+            }, { d: ',', count: 0 }).d;
+            return firstLine.split(delimiter).map(h => h.replace(/"/g, '').trim());
+        }
+
+        // Excel: use XLSX to read just the header
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array', sheetRows: 1 });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    resolve(rows[0] ? rows[0].map(c => String(c)) : []);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error('Read error'));
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    /**
+     * Plasser fil i et input-element via DataTransfer
+     */
+    setFileInput(inputId, file) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+
+        if (file) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+        }
+    }
+
+    /**
+     * Oppdater drop-status visning
+     */
+    updateDropStatus(results) {
+        const container = document.getElementById('dropStatus');
+        if (!container) return;
+
+        const icons = { ok: '✔', warning: '⚠', error: '✘', info: 'ℹ' };
+
+        container.innerHTML = results.map(r =>
+            `<div class="drop-status-line drop-status-${r.status}">
+                <span class="drop-status-icon">${icons[r.status] || ''}</span>
+                ${r.message}
+            </div>`
+        ).join('');
+    }
+
+    /**
+     * Hent label for filtype
+     */
+    getFileTypeLabel(type) {
+        const labels = {
+            inventory: 'Lagerbeholdning',
+            ordersIn: 'Bestillinger',
+            ordersOut: 'Ordrer',
+            saNumber: 'SA-nummer'
+        };
+        return labels[type] || type;
     }
 
     /**
@@ -490,10 +727,12 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV4');
             localStorage.removeItem('borregaardDashboardV3'); // Fjern også gammel versjon
 
-            // Nullstill file inputs
+            // Nullstill file inputs og drop-status
             document.querySelectorAll('input[type="file"]').forEach(input => {
                 input.value = '';
             });
+            const dropStatus = document.getElementById('dropStatus');
+            if (dropStatus) dropStatus.innerHTML = '';
 
             // Nullstill sammendragskort
             ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount']
