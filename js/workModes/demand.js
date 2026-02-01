@@ -17,6 +17,10 @@
  *     mot flere leveringslagre alltid er tilgjengelige på hovedlager (3018),
  *     og ikke er utgående eller feil styrt.
  *     Erstatningslogikk og sortimentskoblinger kommer i senere fase.
+ * - Kritiske salgsartikler – status-basert risiko:
+ *     Identifiserer artikler med regelmessig salg til ≥ 2 leveringslagre
+ *     som har risikofylt status (utgående eller ukjent).
+ *     Risikonivå: Høy (utgående), Middels (ukjent status), Lav (aktiv).
  */
 class DemandMode {
     static currentView = 'topSellers';
@@ -28,6 +32,7 @@ class DemandMode {
     static currentLimit = 50;
     static currentDeliveryLocation = 'all';
     static currentCategory = 'all';
+    static currentMinOrders = 6;
 
     /**
      * Render etterspørselsvisningen
@@ -72,6 +77,10 @@ class DemandMode {
                         onclick="DemandMode.switchView('critical')">
                     Kritisk 3018
                 </button>
+                <button class="view-tab ${this.currentView === 'criticalSales' ? 'active' : ''}"
+                        onclick="DemandMode.switchView('criticalSales')">
+                    Kritiske salgsartikler
+                </button>
             </div>
 
             <div class="module-controls">
@@ -82,7 +91,7 @@ class DemandMode {
                         <option value="12m" ${this.currentPeriod === '12m' ? 'selected' : ''}>Siste 12 mnd</option>
                     </select>
                 </div>
-                ${this.currentView === 'warehouse' || this.currentView === 'critical' ? `
+                ${this.currentView === 'warehouse' || this.currentView === 'critical' || this.currentView === 'criticalSales' ? `
                 <div class="filter-group">
                     <label>Leveringslager:</label>
                     <select id="deliveryLocationFilter" class="filter-select" onchange="DemandMode.handleDeliveryLocationChange(this.value)">
@@ -101,6 +110,17 @@ class DemandMode {
                         ).join('')}
                     </select>
                 </div>
+                ${this.currentView === 'criticalSales' ? `
+                <div class="filter-group">
+                    <label>Min. ordrer:</label>
+                    <select id="minOrdersFilter" class="filter-select" onchange="DemandMode.handleMinOrdersChange(this.value)">
+                        <option value="3" ${this.currentMinOrders === 3 ? 'selected' : ''}>≥ 3</option>
+                        <option value="6" ${this.currentMinOrders === 6 ? 'selected' : ''}>≥ 6</option>
+                        <option value="10" ${this.currentMinOrders === 10 ? 'selected' : ''}>≥ 10</option>
+                        <option value="12" ${this.currentMinOrders === 12 ? 'selected' : ''}>≥ 12</option>
+                    </select>
+                </div>
+                ` : ''}
                 ` : `
                 <div class="filter-group">
                     <label>Vis:</label>
@@ -205,6 +225,8 @@ class DemandMode {
                 return this.renderWarehouseTrends();
             case 'critical':
                 return this.renderCriticalDemand();
+            case 'criticalSales':
+                return this.renderCriticalSales();
             default:
                 return this.renderTopSellers();
         }
@@ -991,6 +1013,311 @@ class DemandMode {
         return '<span class="badge badge-ok">OK</span>';
     }
 
+    // ---------------------------------------------------------------
+    // Kritiske salgsartikler – status-basert risikovisning
+    // ---------------------------------------------------------------
+
+    /**
+     * Hent kritiske salgsartikler
+     *
+     * Seleksjon:
+     *   1. ≥ currentMinOrders ordrer i perioden
+     *   2. Solgt til ≥ 2 ulike leveringslagre
+     *
+     * Risikovurdering (status-basert):
+     *   HØY     – Utgående (isDiscontinued) + ≥ 2 lagre
+     *   MIDDELS  – Ukjent / manglende status + ≥ 2 lagre
+     *   LAV     – Aktiv artikkel
+     */
+    static getCriticalSalesItems() {
+        const items = this.dataStore.getAllItems();
+        const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
+        const cutoffDate = new Date();
+        cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
+
+        const results = [];
+
+        items.forEach(item => {
+            // Apply category filter
+            if (this.currentCategory !== 'all' && item.category !== this.currentCategory) {
+                return;
+            }
+
+            // Apply search filter
+            if (this.searchTerm) {
+                const term = this.searchTerm.toLowerCase();
+                const matches =
+                    item.toolsArticleNumber.toLowerCase().includes(term) ||
+                    (item.description && item.description.toLowerCase().includes(term)) ||
+                    (item.saNumber && item.saNumber.toLowerCase().includes(term));
+                if (!matches) return;
+            }
+
+            // Aggregate orders within period
+            const warehouseSet = new Set();
+            let totalSold = 0;
+            let orderCount = 0;
+
+            item.outgoingOrders.forEach(order => {
+                if (order.deliveryDate && order.deliveryDate < cutoffDate) return;
+
+                const loc = order.deliveryLocation || 'Ukjent';
+
+                // Apply delivery location filter
+                if (this.currentDeliveryLocation !== 'all' && loc !== this.currentDeliveryLocation) {
+                    return;
+                }
+
+                warehouseSet.add(loc);
+                totalSold += order.quantity || 0;
+                orderCount++;
+            });
+
+            // Selection criterion 1: minimum orders
+            if (orderCount < this.currentMinOrders) return;
+
+            const warehouseCount = warehouseSet.size;
+
+            // Selection criterion 2: ≥ 2 unique delivery warehouses
+            if (warehouseCount < 2) return;
+
+            const avgPerOrder = orderCount > 0 ? totalSold / orderCount : 0;
+            const stock3018 = item.stock || 0;
+            const warehouseList = Array.from(warehouseSet).sort((a, b) => a.localeCompare(b, 'nb')).join(', ');
+
+            // Status text
+            const statusText = item.isDiscontinued ? 'Utgående' :
+                (item.statusText && item.statusText.trim() !== '' ? item.statusText : null);
+            const statusLabel = item.isDiscontinued ? 'Utgående' :
+                (statusText ? 'Aktiv' : 'Ukjent');
+
+            // Risk classification
+            const risk = this.getRiskLevel(item, warehouseCount);
+
+            // Recommendation text
+            let recommendation = '';
+            if (risk === 'high') {
+                recommendation = 'Sjekk BP / Status';
+            } else if (risk === 'medium') {
+                recommendation = 'Sjekk BP / Status';
+            }
+
+            results.push({
+                toolsArticleNumber: item.toolsArticleNumber,
+                description: item.description,
+                statusLabel,
+                warehouseList,
+                warehouseCount,
+                orderCount,
+                avgPerOrder,
+                totalSold,
+                stock3018,
+                risk,
+                recommendation
+            });
+        });
+
+        return results;
+    }
+
+    /**
+     * Bestem risikonivå basert på artikkelstatus
+     *
+     * @param {Object} item - UnifiedItem
+     * @param {number} warehouseCount - Antall unike leveringslagre
+     * @returns {'high'|'medium'|'low'}
+     */
+    static getRiskLevel(item, warehouseCount) {
+        if (item.isDiscontinued && warehouseCount >= 2) {
+            return 'high';
+        }
+        // Ukjent status: statusText is null, undefined, or empty
+        const hasKnownStatus = item.isDiscontinued ||
+            (item.statusText && item.statusText.trim() !== '');
+        if (!hasKnownStatus && warehouseCount >= 2) {
+            return 'medium';
+        }
+        return 'low';
+    }
+
+    /**
+     * Render kritiske salgsartikler – 11-kolonne tabell
+     */
+    static renderCriticalSales() {
+        const analyzed = this.getCriticalSalesItems();
+
+        if (analyzed.length === 0) {
+            return `<div class="alert alert-info">Ingen artikler oppfyller kriteriene (≥${this.currentMinOrders} ordrer + ≥2 leveringslagre) for valgt filtre.</div>`;
+        }
+
+        const sorted = this.sortCriticalSalesItems(analyzed);
+
+        const highCount = sorted.filter(r => r.risk === 'high').length;
+        const mediumCount = sorted.filter(r => r.risk === 'medium').length;
+        const lowCount = sorted.filter(r => r.risk === 'low').length;
+
+        return `
+            <div class="critical-insight">
+                <div class="insight-card ${highCount > 0 ? 'warning' : 'ok'}">
+                    <h4>Kritiske salgsartikler – statusrisiko</h4>
+                    <p><strong>${highCount}</strong> høy risiko, <strong>${mediumCount}</strong> middels, <strong>${lowCount}</strong> lav – totalt ${sorted.length} artikler.</p>
+                    <p class="text-muted">Artikler med ≥${this.currentMinOrders} ordrer til ≥2 leveringslagre. Risikovurdering basert på artikkelstatus.</p>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable-header ${this.sortColumn === 'articleNumber' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('articleNumber')">
+                                Art.nr ${this.getSortIndicator('articleNumber')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'description' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('description')">
+                                Beskrivelse ${this.getSortIndicator('description')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'statusLabel' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('statusLabel')">
+                                Status ${this.getSortIndicator('statusLabel')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'warehouseList' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('warehouseList')">
+                                Leveringslagre ${this.getSortIndicator('warehouseList')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'warehouseCount' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('warehouseCount')">
+                                Ant. lagre ${this.getSortIndicator('warehouseCount')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'orderCount' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('orderCount')">
+                                Ordrer (${this.currentPeriod === '6m' ? '6m' : '12m'}) ${this.getSortIndicator('orderCount')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'avgPerOrder' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('avgPerOrder')">
+                                Snitt pr ordre ${this.getSortIndicator('avgPerOrder')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'totalSold' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('totalSold')">
+                                Solgt ${this.currentPeriod === '6m' ? '6m' : '12m'} ${this.getSortIndicator('totalSold')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'stock3018' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('stock3018')">
+                                Saldo (3018) ${this.getSortIndicator('stock3018')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'risk' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('risk')">
+                                Risiko ${this.getSortIndicator('risk')}
+                            </th>
+                            <th class="sortable-header ${this.sortColumn === 'recommendation' ? 'active' : ''}"
+                                onclick="DemandMode.handleSort('recommendation')">
+                                Anbefaling ${this.getSortIndicator('recommendation')}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sorted.map(row => {
+                            const rowClass = row.risk === 'high' ? 'row-critical' : row.risk === 'medium' ? 'row-warning' : '';
+                            return `
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                                <td><strong>${row.toolsArticleNumber}</strong></td>
+                                <td>${this.truncate(row.description, 30)}</td>
+                                <td>${this.getStatusBadge(row.statusLabel)}</td>
+                                <td>${row.warehouseList}</td>
+                                <td class="qty-cell">${row.warehouseCount}</td>
+                                <td class="qty-cell">${row.orderCount}</td>
+                                <td class="qty-cell">${Math.round(row.avgPerOrder)}</td>
+                                <td class="qty-cell">${this.formatNumber(row.totalSold)}</td>
+                                <td class="qty-cell ${row.stock3018 <= 0 ? 'negative' : ''}">${this.formatNumber(row.stock3018)}</td>
+                                <td>${this.getSalesRiskBadge(row.risk)}</td>
+                                <td>${row.recommendation ? `<span class="recommendation medium">${row.recommendation}</span>` : ''}</td>
+                            </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${sorted.length} artikler (høy: ${highCount}, middels: ${mediumCount}, lav: ${lowCount})</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Status badge for kritiske salgsartikler
+     */
+    static getStatusBadge(statusLabel) {
+        if (statusLabel === 'Utgående') {
+            return '<span class="badge badge-critical">Utgående</span>';
+        } else if (statusLabel === 'Ukjent') {
+            return '<span class="badge badge-warning">Ukjent</span>';
+        }
+        return '<span class="badge badge-ok">Aktiv</span>';
+    }
+
+    /**
+     * Risk badge for kritiske salgsartikler (status-basert)
+     */
+    static getSalesRiskBadge(risk) {
+        if (risk === 'high') {
+            return '<span class="badge badge-critical">Høy</span>';
+        } else if (risk === 'medium') {
+            return '<span class="badge badge-warning">Middels</span>';
+        }
+        return '<span class="badge badge-ok">Lav</span>';
+    }
+
+    /**
+     * Sorter kritiske salgsartikler
+     */
+    static sortCriticalSalesItems(items) {
+        const col = this.sortColumn;
+        const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...items].sort((a, b) => {
+            let valA, valB;
+            switch (col) {
+                case 'articleNumber':
+                    valA = a.toolsArticleNumber || '';
+                    valB = b.toolsArticleNumber || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'description':
+                    valA = a.description || '';
+                    valB = b.description || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'statusLabel':
+                    valA = a.statusLabel || '';
+                    valB = b.statusLabel || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'warehouseList':
+                    valA = a.warehouseList || '';
+                    valB = b.warehouseList || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                case 'warehouseCount':
+                    return dir * ((a.warehouseCount || 0) - (b.warehouseCount || 0));
+                case 'orderCount':
+                    return dir * ((a.orderCount || 0) - (b.orderCount || 0));
+                case 'avgPerOrder':
+                    return dir * ((a.avgPerOrder || 0) - (b.avgPerOrder || 0));
+                case 'totalSold':
+                    return dir * ((a.totalSold || 0) - (b.totalSold || 0));
+                case 'stock3018':
+                    return dir * ((a.stock3018 || 0) - (b.stock3018 || 0));
+                case 'risk': {
+                    const riskOrder = { 'high': 0, 'medium': 1, 'low': 2 };
+                    return dir * ((riskOrder[a.risk] ?? 2) - (riskOrder[b.risk] ?? 2));
+                }
+                case 'recommendation':
+                    valA = a.recommendation || '';
+                    valB = b.recommendation || '';
+                    return dir * valA.localeCompare(valB, 'nb');
+                default: {
+                    const riskOrder = { 'high': 0, 'medium': 1, 'low': 2 };
+                    return (riskOrder[a.risk] ?? 2) - (riskOrder[b.risk] ?? 2);
+                }
+            }
+        });
+    }
+
     /**
      * Hent filtrerte items
      */
@@ -1075,10 +1402,13 @@ class DemandMode {
         if (view === 'critical') {
             this.sortColumn = 'risk';
             this.sortDirection = 'asc';
+        } else if (view === 'criticalSales') {
+            this.sortColumn = 'risk';
+            this.sortDirection = 'asc';
         } else if (view === 'warehouse') {
             this.sortColumn = 'totalQuantity';
             this.sortDirection = 'desc';
-        } else if (['totalQuantity', 'avgPerOrder', 'deliveryLocation', 'warehouseCount', 'avgPerWeek', 'stock3018', 'risk'].includes(this.sortColumn)) {
+        } else if (['totalQuantity', 'avgPerOrder', 'deliveryLocation', 'warehouseCount', 'avgPerWeek', 'stock3018', 'risk', 'totalSold', 'statusLabel', 'warehouseList', 'recommendation'].includes(this.sortColumn)) {
             this.sortColumn = 'sales';
             this.sortDirection = 'desc';
         }
@@ -1107,7 +1437,7 @@ class DemandMode {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
             this.sortColumn = column;
-            this.sortDirection = ['description', 'articleNumber', 'deliveryLocation', 'status'].includes(column) ? 'asc' : 'desc';
+            this.sortDirection = ['description', 'articleNumber', 'deliveryLocation', 'status', 'statusLabel', 'warehouseList', 'recommendation'].includes(column) ? 'asc' : 'desc';
         }
         this.updateContent();
     }
@@ -1119,6 +1449,11 @@ class DemandMode {
 
     static handleCategoryChange(category) {
         this.currentCategory = category;
+        this.updateContent();
+    }
+
+    static handleMinOrdersChange(value) {
+        this.currentMinOrders = parseInt(value);
         this.updateContent();
     }
 
@@ -1233,6 +1568,9 @@ class DemandMode {
         if (this.currentView === 'critical') {
             return this.exportCriticalCSV();
         }
+        if (this.currentView === 'criticalSales') {
+            return this.exportCriticalSalesCSV();
+        }
 
         const items = this.getFilteredItems();
         const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
@@ -1279,6 +1617,35 @@ class DemandMode {
         ]);
 
         this.downloadCSV(headers, rows, 'etterspørselskritisk-3018');
+    }
+
+    /**
+     * Eksporter kritiske salgsartikler til CSV
+     */
+    static exportCriticalSalesCSV() {
+        const analyzed = this.getCriticalSalesItems();
+        const sorted = this.sortCriticalSalesItems(analyzed);
+
+        const riskLabel = { 'high': 'Høy', 'medium': 'Middels', 'low': 'Lav' };
+        const periodLabel = this.currentPeriod === '6m' ? '6m' : '12m';
+
+        const headers = ['Art.nr', 'Beskrivelse', 'Status', 'Leveringslagre', 'Ant. lagre',
+            `Ordrer (${periodLabel})`, 'Snitt pr ordre', `Solgt ${periodLabel}`, 'Saldo (3018)', 'Risiko', 'Anbefaling'];
+        const rows = sorted.map(row => [
+            row.toolsArticleNumber,
+            `"${(row.description || '').replace(/"/g, '""')}"`,
+            row.statusLabel,
+            `"${row.warehouseList}"`,
+            row.warehouseCount,
+            row.orderCount,
+            Math.round(row.avgPerOrder),
+            row.totalSold,
+            row.stock3018,
+            riskLabel[row.risk] || 'Lav',
+            `"${row.recommendation}"`
+        ]);
+
+        this.downloadCSV(headers, rows, 'kritiske-salgsartikler');
     }
 
     /**
