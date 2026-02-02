@@ -644,6 +644,13 @@ class DataProcessor {
         store.items.forEach((item, articleNo) => {
             const statusValue = statusByItemId.get(articleNo);
             item._status = normalizeItemStatus(statusValue);
+
+            // Bridge: sett isDiscontinued fra lifecycle-status slik at
+            // «Utgående med saldo»-modulen plukker opp UTGAENDE/UTGAATT
+            if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') {
+                item.isDiscontinued = true;
+            }
+
             if (statusValue) matchCount++;
         });
 

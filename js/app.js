@@ -194,7 +194,8 @@ class DashboardApp {
             { match: 'ordrer',          type: 'ordersOut' },
             { match: 'sa-nummer',       type: 'saNumber' },
             { match: 'sa_nummer',       type: 'saNumber' },
-            { match: 'sanummer',        type: 'saNumber' }
+            { match: 'sanummer',        type: 'saNumber' },
+            { match: 'artikkelstatus',  type: 'artikkelstatus' }
         ];
 
         for (const rule of filenameRules) {
@@ -226,6 +227,11 @@ class DashboardApp {
             // SA-nummer: Kunds artikelnummer, Artikelnr
             if (colSet.has('kunds artikelnummer') && colSet.has('artikelnr')) {
                 return 'saNumber';
+            }
+
+            // Artikkelstatus: Item ID, Item status
+            if (colSet.has('item id') && colSet.has('item status')) {
+                return 'artikkelstatus';
             }
 
             // Broader column heuristics
