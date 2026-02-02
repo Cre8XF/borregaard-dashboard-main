@@ -230,11 +230,20 @@ class DataProcessor {
                 throw new Error('Fakturert.xlsx er påkrevd');
             }
 
-            // 5. Beregn alle avledede verdier
+            // 5. Last og prosesser Artikkelstatus / Lifecycle (valgfri)
+            if (files.artikkelstatus) {
+                statusCallback('Laster varestatus...');
+                const statusData = await this.loadFile(files.artikkelstatus);
+                console.log('Artikkelstatus kolonner:', statusData.columns);
+                this.processArticleStatusData(statusData.data, store);
+                console.log('Artikkelstatus: prosessert');
+            }
+
+            // 6. Beregn alle avledede verdier
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
-            // 6. Logg datakvalitet
+            // 7. Logg datakvalitet
             const quality = store.getDataQualityReport();
             console.log('Datakvalitet:', quality);
 
@@ -604,6 +613,41 @@ class DataProcessor {
                 console.warn('Ordrer: Kolonne for kunde (Företagsnamn) ikke funnet');
             }
         }
+    }
+
+    /**
+     * Prosesser artikkelstatus / lifecycle (artikkelstatus.xlsx)
+     *
+     * Qlik-eksport med kolonner:
+     * - Item ID → artikkelnummer (primærnøkkel)
+     * - Item status → lifecycle-status (normaliseres)
+     *
+     * Setter article._status via normalizeItemStatus()
+     */
+    static processArticleStatusData(data, store) {
+        const statusByItemId = new Map();
+
+        // Bygg lookup fra Item ID -> Item status
+        data.forEach(row => {
+            const itemId = (row['Item ID'] || '').toString().trim();
+            const itemStatus = (row['Item status'] || '').toString().trim();
+
+            if (itemId) {
+                statusByItemId.set(itemId, itemStatus);
+            }
+        });
+
+        console.log(`Artikkelstatus: ${statusByItemId.size} oppføringer i lookup`);
+
+        // Apliser status til eksisterende artikler
+        let matchCount = 0;
+        store.items.forEach((item, articleNo) => {
+            const statusValue = statusByItemId.get(articleNo);
+            item._status = normalizeItemStatus(statusValue);
+            if (statusValue) matchCount++;
+        });
+
+        console.log(`Artikkelstatus: ${matchCount} artikler matchet`);
     }
 
     /**
