@@ -519,5 +519,20 @@ class DataLoader {
     }
 }
 
+/**
+ * Normaliser Item status fra artikkelstatus.xlsx til lifecycle-kategori
+ * @param {string} raw - Rå status-streng fra Qlik-eksport
+ * @returns {string} 'AKTIV' | 'UTGAENDE' | 'UTGAATT' | 'UKJENT'
+ */
+function normalizeItemStatus(raw) {
+    if (!raw) return 'UKJENT';
+    const s = raw.toString().trim();
+    if (!s) return 'UKJENT';
+    if (s.startsWith('3 -')) return 'UTGAENDE';
+    if (s.startsWith('4 -')) return 'UTGAATT';
+    return 'AKTIV';
+}
+
 // Export for use in other modules
 window.DataLoader = DataLoader;
+window.normalizeItemStatus = normalizeItemStatus;

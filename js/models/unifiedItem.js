@@ -30,6 +30,7 @@ class UnifiedItem {
         this.shelf = '';      // Hylleplassering
         this.placementLocation = ''; // Plasseringslokasjon fra SA-fil
         this.category = null; // Varugrupp/Artikelgrupp fra Jeeves
+        this._status = 'UKJENT'; // Lifecycle-status fra artikkelstatus.xlsx (Qlik)
 
         // Bestillinger INN (fra Bestillinger.xlsx)
         this.incomingOrders = [];
@@ -237,6 +238,7 @@ class UnifiedItem {
             shelf: this.shelf,
             placementLocation: this.placementLocation,
             category: this.category,
+            _status: this._status,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
             orderCount: this.orderCount,

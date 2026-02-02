@@ -27,14 +27,14 @@
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
             <p class="drop-zone-text">Dra inn alle Excel-filer her</p>
-            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer)</p>
+            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer, Varestatus)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
 
         <p class="upload-divider"><span>eller velg filer enkeltvis</span></p>
 
-        <div class="upload-grid four-columns">
+        <div class="upload-grid five-columns">
           <div class="upload-item">
             <label for="inventoryFile">
               <span class="file-label">Lagerbeholdning</span>
@@ -66,6 +66,14 @@
             </label>
             <input type="file" id="saNumberFile" accept=".xlsx,.csv" />
             <span class="file-hint">Tools art.nr ↔ SA-nummer</span>
+          </div>
+          <div class="upload-item optional">
+            <label for="artikkelStatusFile">
+              <span class="file-label">Varestatus / Lifecycle (Qlik)</span>
+              <span class="file-optional">(valgfri)</span>
+            </label>
+            <input type="file" id="artikkelStatusFile" accept=".xlsx,.csv" />
+            <span class="file-hint">artikkelstatus.xlsx</span>
           </div>
         </div>
         <div class="upload-actions">
@@ -134,6 +142,7 @@
             <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
             <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
             <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
+            <li class="optional"><strong>artikkelstatus.xlsx</strong> - Varestatus / Lifecycle (Qlik)</li>
           </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>

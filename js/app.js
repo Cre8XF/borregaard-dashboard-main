@@ -14,7 +14,8 @@ class DashboardApp {
             inventory: null,    // Lagerbeholdning.xlsx
             ordersIn: null,     // Bestillinger.xlsx
             ordersOut: null,    // Ordrer_Jeeves.xlsx
-            saNumber: null      // SA-Nummer.xlsx (valgfri)
+            saNumber: null,     // SA-Nummer.xlsx (valgfri)
+            artikkelstatus: null // artikkelstatus.xlsx (valgfri)
         };
 
         // Samlet datastruktur
@@ -127,7 +128,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null };
+        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null, artikkelstatus: null };
         const ignored = [];
 
         for (const file of files) {
@@ -156,12 +157,14 @@ class DashboardApp {
         this.setFileInput('ordersInFile', routed.ordersIn);
         this.setFileInput('ordersOutFile', routed.ordersOut);
         this.setFileInput('saNumberFile', routed.saNumber);
+        this.setFileInput('artikkelStatusFile', routed.artikkelstatus);
 
         // Add missing file warnings
         if (!routed.inventory) results.push({ status: 'warning', message: 'Lagerbeholdning mangler (påkrevd)' });
         if (!routed.ordersIn) results.push({ status: 'warning', message: 'Bestillinger mangler (påkrevd)' });
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer mangler (påkrevd)' });
         if (!routed.saNumber) results.push({ status: 'info', message: 'SA-nummer mangler (valgfri)' });
+        if (!routed.artikkelstatus) results.push({ status: 'info', message: 'Varestatus mangler (valgfri)' });
 
         this.updateDropStatus(results);
 
@@ -317,7 +320,8 @@ class DashboardApp {
             inventory: 'Lagerbeholdning',
             ordersIn: 'Bestillinger',
             ordersOut: 'Ordrer',
-            saNumber: 'SA-nummer'
+            saNumber: 'SA-nummer',
+            artikkelstatus: 'Varestatus'
         };
         return labels[type] || type;
     }
@@ -331,6 +335,7 @@ class DashboardApp {
         const ordersInFile = document.getElementById('ordersInFile')?.files[0];
         const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
         const saNumberFile = document.getElementById('saNumberFile')?.files[0];
+        const artikkelStatusFile = document.getElementById('artikkelStatusFile')?.files[0];
 
         // Valider påkrevde filer
         if (!inventoryFile || !ordersInFile || !ordersOutFile) {
@@ -347,7 +352,8 @@ class DashboardApp {
                 inventory: inventoryFile,
                 ordersIn: ordersInFile,
                 ordersOut: ordersOutFile,
-                saNumber: saNumberFile
+                saNumber: saNumberFile,
+                artikkelstatus: artikkelStatusFile
             }, (status) => this.showStatus(status, 'info'));
 
             // Generer legacy processedData for bakoverkompatibilitet
@@ -486,6 +492,7 @@ class DashboardApp {
                         <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
                         <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
                         <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
+                        <li class="optional"><strong>artikkelstatus.xlsx</strong> - Varestatus / Lifecycle (Qlik)</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
                 </div>
@@ -704,6 +711,7 @@ class DashboardApp {
                     item.supplier = itemData.supplier;
                     item.shelf = itemData.shelf;
                     item.hasSANumber = itemData.hasSANumber;
+                    item._status = itemData._status || 'UKJENT';
 
                     // Beregn verdier (simuler)
                     item.sales6m = itemData.sales6m || 0;
@@ -730,7 +738,8 @@ class DashboardApp {
                 inventory: null,
                 ordersIn: null,
                 ordersOut: null,
-                saNumber: null
+                saNumber: null,
+                artikkelstatus: null
             };
             this.dataStore = null;
             this.processedData = [];

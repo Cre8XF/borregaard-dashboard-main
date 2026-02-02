@@ -2201,6 +2201,13 @@ select:focus-visible {
   margin-bottom: 20px;
 }
 
+.upload-grid.five-columns {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
 .upload-item {
   display: flex;
   flex-direction: column;
@@ -2733,6 +2740,10 @@ select:focus-visible {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .upload-grid.five-columns {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .overview-summary {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -2740,6 +2751,10 @@ select:focus-visible {
 
 @media (max-width: 768px) {
   .upload-grid.four-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-grid.five-columns {
     grid-template-columns: 1fr;
   }
 
