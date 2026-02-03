@@ -119,7 +119,7 @@ class AlternativeAnalysisMode {
                     altDescription: '',
                     altExistsInInventory: false,
                     altStatus: '-',
-                    classification: 'Ingen alternativ definert',
+                    classification: 'INGEN ALTERNATIV DEFINERT',
                     classType: 'critical',
                     _item: item
                 });
@@ -153,7 +153,7 @@ class AlternativeAnalysisMode {
                         sourceStatus: this.getStatusLabel(item),
                         sourceStock: item.stock || 0,
                         altArticle: alt.altArticle,
-                        altDescription: alt.altDescription || (altItem ? altItem.description : ''),
+                        altDescription: altItem ? (altItem.description || '') : '',
                         altExistsInInventory: !!altItem,
                         altStatus: altItem ? this.getStatusLabel(altItem) : '-',
                         classification: classification,
@@ -279,7 +279,7 @@ class AlternativeAnalysisMode {
             <div class="view-insight warning">
                 <p><strong>Alternativ_artikkel_Jeeves.xlsx er ikke lastet.</strong></p>
                 <p>Last opp filen for å se koblinger mellom utgående artikler og deres alternativer.
-                Uten denne filen vises alle utgående artikler som "Ingen alternativ definert".</p>
+                Uten denne filen vises alle utgående artikler som "INGEN ALTERNATIV DEFINERT".</p>
             </div>
         `;
     }
