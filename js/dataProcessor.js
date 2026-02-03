@@ -1,260 +1,134 @@
 // ===================================
 // DATA PROCESSOR
-// Håndterer lasting, mapping og sammenstilling av 4 datafiler
+// Master.xlsx er SINGLE SOURCE OF TRUTH
+// Ordrer_Jeeves.xlsx brukes KUN for salg/etterspørsel
 // ===================================
 
 /**
  * DataProcessor - Koordinerer dataflyt fra filer til UnifiedDataStore
+ *
+ * ARCHITECTURE DECISION (LOCKED):
+ *   Master.xlsx  → article identity, status, stock, reserved, available,
+ *                  incoming orders (BestAntLev), alternatives (Ersätts av artikel)
+ *   Ordrer_Jeeves.xlsx → sales history, demand patterns, top sellers
+ *
+ * DEPRECATED files (NOT used):
+ *   - Lagerbeholdning_Jeeves.xlsx
+ *   - Bestillinger_Jeeves.xlsx
+ *   - artikkelstatus.xlsx
+ *   - SA-Nummer.xlsx
+ *   - Alternativ_artikkel_Jeeves.xlsx
  */
 class DataProcessor {
-    /**
-     * Kolonnevarianter for automatisk gjenkjenning
-     * Prioritert rekkefølge: Jeeves-kolonner først, deretter fallbacks
-     */
-    static COLUMN_VARIANTS = {
-        // Artikkelnummer (primærnøkkel)
-        // Jeeves: Artikelnr | SA-fil: Tools art.nr
+
+    // ── Hard-bound Master.xlsx column names (NO autodetection) ──
+    static MASTER_COLUMNS = {
+        articleNumber:    'Artikelnr',
+        description:      'Artikelbeskrivning',
+        articleStatus:    'Artikelstatus',
+        totalStock:       'TotLagSaldo',
+        availableStock:   'DispLagSaldo',
+        reserved:         'ReservAnt',
+        orderedQty:       'BestAntLev',
+        orderNumber:      'Beställningsnummer',
+        replacedBy:       'Ersätts av artikel',
+        replaces:         'Ersätter artikel',
+        location:         'Lokasjon'
+    };
+
+    // ── Column variants for Ordrer_Jeeves.xlsx (sales data) ──
+    static ORDRER_COLUMN_VARIANTS = {
         articleNumber: [
             'Artikelnr', 'Tools art.nr', 'Tools artnr',
-            'Artikkelnr', 'Article No', 'ArticleNo', 'Item ID', 'ItemNo', 'Varenr'
+            'Artikkelnr', 'Article No', 'ArticleNo', 'ItemNo', 'Varenr'
         ],
-
-        // SA-nummer (kun i SA-Nummer.xlsx)
-        // Faktisk kolonne: Kunds artikelnummer
-        saNumber: [
-            'Kunds artikelnummer', 'SA-nummer', 'SA nummer', 'SA-nr', 'SAnr', 'SA'
-        ],
-
-        // Beskrivelse
-        // Jeeves: Artikelbeskrivning
         description: [
             'Artikelbeskrivning', 'Artikelbeskrivelse', 'Artikelbeskr',
-            'Beskrivelse', 'Description', 'Varebeskrivelse', 'Navn'
+            'Beskrivelse', 'Description', 'Varebeskrivelse', 'Namn'
         ],
-
-        // Lagersaldo
-        // Jeeves: Lagersaldo
-        stock: [
-            'Lagersaldo', 'Saldo', 'Stock', 'Beholdning', 'On Hand'
-        ],
-
-        // Reservert
-        // Jeeves: ReservAnt
-        reserved: [
-            'ReservAnt', 'Reservert', 'Reserved', 'Reservert antall'
-        ],
-
-        // Disponibel
-        // Jeeves: DispLagSaldo
-        available: [
-            'DispLagSaldo', 'Disponibel', 'Available', 'Tilgjengelig', 'Disp'
-        ],
-
-        // Bestillingspunkt
-        // Jeeves: BP
-        bp: [
-            'BP', 'Bestillingspunkt', 'Reorder Point', 'Min'
-        ],
-
-        // Maksimum lager
-        // Jeeves: Maxlager
-        max: [
-            'Maxlager', 'Max', 'Maximum', 'Max Stock'
-        ],
-
-        // Status
-        // Jeeves: Artikelstatus (hvis finnes)
-        status: [
-            'Artikelstatus', 'Status', 'Varestatus', 'ItemStatus'
-        ],
-
-        // Tekstlig artikkelstatus (planned discontinued / skal utgå)
-        // Jeeves: itemstsbeskr, Teknisk Status, eller annen tekstlig status
-        statusText: [
-            'itemstsbeskr', 'Teknisk Status', 'Artikelstatusbeskrivning',
-            'Status beskrivning', 'StatusText', 'Item Status Description'
-        ],
-
-        // Kategori / Varugrupp
-        // Jeeves: Varugrupp, Artikelgrupp, Produktgrupp
-        category: [
-            'Varugrupp', 'Artikelgrupp', 'Produktgrupp',
-            'Varegruppe', 'Artikkelgruppe', 'Produktgruppe',
-            'Item Group', 'Product Group', 'Category'
-        ],
-
-        // Leverandør
-        // Jeeves Lagerbeholdning: Företagsnamn | Jeeves Bestillinger: Leverantör
-        supplier: [
-            'Företagsnamn', 'Leverantör', 'Leverandør', 'Supplier', 'Supplier Name', 'Vendor'
-        ],
-
-        // Plasseringslokasjon (fra SA-Nummer.xlsx kolonne G: Artikelbeskrivning)
-        // OBS: I SA-filen er dette lokasjon, IKKE beskrivelse
-        placementLocation: [
-            'Artikelbeskrivning'
-        ],
-
-        // Lokasjon/Lagersted
-        // Jeeves: Lagerställe
-        location: [
-            'Lagerställe', 'Lokasjon', 'Location', 'Warehouse', 'Lager', 'Hylle'
-        ],
-
-        // Siste bevegelse
-        // Jeeves: Senaste rörelse
-        lastMovement: [
-            'Senaste rörelse', 'Siste bevegelse', 'Last Movement', 'LastMovement'
-        ],
-
-        // ===== BESTILLINGER INN (Jeeves) =====
-
-        // Bestillingsnummer
-        // Jeeves: Beställningsnummer
-        orderNoIn: [
-            'Beställningsnummer', 'Bestillingsnr', 'Bestillingsnummer', 'PO Number'
-        ],
-
-        // Restantall (åpen mengde)
-        // Jeeves: RestAntLgrEnh
-        quantityIn: [
-            'RestAntLgrEnh', 'Restantall', 'Open Qty', 'Åpen mengde', 'Bestilt antall'
-        ],
-
-        // Forventet leveringsdato
-        // Jeeves: BerLevDat
-        expectedDate: [
-            'BerLevDat', 'Forventet dato', 'Expected date', 'Leveringsdato', 'Forventet levering'
-        ],
-
-        // ===== ORDRER UT / FAKTURERT (Jeeves) =====
-
-        // Ordrenummer (salg)
-        // Jeeves: OrderNr
         orderNoOut: [
             'OrderNr', 'Ordrenr', 'Order number', 'OrderNo', 'Ordre'
         ],
-
-        // Ordreantall
-        // Jeeves: OrdRadAnt
         quantityOut: [
             'OrdRadAnt', 'Ordreantall', 'Order Qty', 'Quantity', 'Antall'
         ],
-
-        // Fakturadato
-        // Jeeves: FaktDat
         invoiceDate: [
             'FaktDat', 'Fakturadato', 'Invoice date', 'Faktureringsdato'
         ],
-
-        // Kunde
-        // Jeeves: Företagsnamn
         customer: [
             'Företagsnamn', 'Kundenavn', 'Customer', 'Kunde', 'Customer Name'
         ],
-
-        // Leveringslager
-        // Jeeves Ordrer: LevPlFtgKod (leveringsplats företagskod)
         deliveryLocation: [
-            'LevPlFtgKod', 'DH', 'Leveringslager', 'Delivery Warehouse', 'Leveringssted', 'Del. Warehouse'
+            'LevPlFtgKod', 'DH', 'Leveringslager', 'Delivery Warehouse',
+            'Leveringssted', 'Del. Warehouse'
         ],
-
-        // ===== LEGACY/FALLBACK =====
-
-        // Generisk dato (fallback)
         date: [
             'Dato', 'Date', 'FaktDat', 'BerLevDat'
         ],
-
-        // Generisk antall (fallback)
         quantity: [
-            'Antall', 'Quantity', 'Qty', 'OrdRadAnt', 'RestAntLgrEnh'
+            'Antall', 'Quantity', 'Qty', 'OrdRadAnt'
         ],
-
-        // Generisk ordrenummer (fallback)
         orderNo: [
-            'OrderNr', 'Beställningsnummer', 'Ordrenr', 'Order number'
+            'OrderNr', 'Ordrenr', 'Order number'
         ]
     };
 
     /**
      * Prosesser alle filer og bygg UnifiedDataStore
-     * @param {Object} files - Objekt med filinput-verdier
-     * @param {Function} statusCallback - Callback for statusoppdateringer
+     *
+     * Input:
+     *   files.master    → Master.xlsx   (REQUIRED)
+     *   files.ordersOut → Ordrer_Jeeves.xlsx (REQUIRED)
+     *
+     * @param {Object} files - { master: File, ordersOut: File }
+     * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
     static async processAllFiles(files, statusCallback = () => {}) {
         const store = new UnifiedDataStore();
 
+        console.log('========================================');
+        console.log('Master.xlsx is used as the single source of truth');
+        console.log('========================================');
+
         try {
-            // 1. Last og prosesser Lagerbeholdning (påkrevd)
-            if (files.inventory) {
-                statusCallback('Laster lagerbeholdning...');
-                const inventoryData = await this.loadFile(files.inventory);
-                console.log('Lagerbeholdning kolonner:', inventoryData.columns);
-                this.processInventoryData(inventoryData.data, store);
-                console.log(`Lagerbeholdning: ${store.items.size} artikler`);
-            } else {
-                throw new Error('Lagerbeholdning.xlsx er påkrevd');
+            // ── 1. Load and process Master.xlsx (REQUIRED) ──
+            if (!files.master) {
+                throw new Error('Master.xlsx er påkrevd! Last opp Master.xlsx som inneholder all artikkelinformasjon.');
             }
 
-            // 2. Last og prosesser SA-Nummer (valgfri, men gjøres tidlig for kobling)
-            if (files.saNumber) {
-                statusCallback('Laster SA-nummer mapping...');
-                const saData = await this.loadFile(files.saNumber);
-                console.log('SA-Nummer kolonner:', saData.columns);
-                this.processSANumberData(saData.data, store);
-                store.applySANumbers();
-                console.log(`SA-nummer: ${store.saMapping.size} mappinger`);
+            statusCallback('Laster Master.xlsx...');
+            const masterData = await this.loadFile(files.master);
+            console.log('Master.xlsx kolonner:', masterData.columns);
+            console.log(`Master.xlsx rader: ${masterData.rowCount}`);
+
+            this.processMasterData(masterData.data, masterData.columns, store);
+            console.log(`Master.xlsx prosessert: ${store.items.size} artikler`);
+
+            // ── 2. Load and process Ordrer_Jeeves.xlsx (REQUIRED — sales only) ──
+            if (!files.ordersOut) {
+                throw new Error('Ordrer_Jeeves.xlsx er påkrevd for salgsanalyse.');
             }
 
-            // 3. Last og prosesser Bestillinger INN (påkrevd)
-            if (files.ordersIn) {
-                statusCallback('Laster bestillinger...');
-                const ordersInData = await this.loadFile(files.ordersIn);
-                console.log('Bestillinger kolonner:', ordersInData.columns);
-                this.processOrdersInData(ordersInData.data, store);
-                console.log(`Bestillinger: prosessert`);
-            } else {
-                throw new Error('Bestillinger.xlsx er påkrevd');
-            }
+            statusCallback('Laster Ordrer_Jeeves.xlsx (salgsdata)...');
+            const ordersOutData = await this.loadFile(files.ordersOut);
+            console.log('Ordrer_Jeeves.xlsx kolonner:', ordersOutData.columns);
+            console.log(`Ordrer_Jeeves.xlsx rader: ${ordersOutData.rowCount}`);
 
-            // 4. Last og prosesser Fakturert UT (påkrevd)
-            if (files.ordersOut) {
-                statusCallback('Laster fakturert historikk...');
-                const ordersOutData = await this.loadFile(files.ordersOut);
-                console.log('Fakturert kolonner:', ordersOutData.columns);
-                this.processOrdersOutData(ordersOutData.data, store);
-                console.log(`Fakturert: prosessert`);
-            } else {
-                throw new Error('Fakturert.xlsx er påkrevd');
-            }
+            this.processOrdersOutData(ordersOutData.data, store);
+            console.log('Ordrer_Jeeves.xlsx prosessert (sales/demand)');
 
-            // 5. Last og prosesser Artikkelstatus / Lifecycle (valgfri)
-            if (files.artikkelstatus) {
-                statusCallback('Laster varestatus...');
-                const statusData = await this.loadFile(files.artikkelstatus);
-                console.log('Artikkelstatus kolonner:', statusData.columns);
-                this.processArticleStatusData(statusData.data, store);
-                console.log('Artikkelstatus: prosessert');
-            }
-
-            // 6. Last og prosesser Alternativ artikkel (valgfri)
-            if (files.alternativArtikkel) {
-                statusCallback('Laster alternativ artikkel...');
-                const altData = await this.loadFile(files.alternativArtikkel);
-                console.log('Alternativ artikkel kolonner:', altData.columns);
-                this.processAlternativeArticleData(altData.data, store);
-                console.log('Alternativ artikkel: prosessert');
-            }
-
-            // 7. Beregn alle avledede verdier
+            // ── 3. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
-            // 7. Logg datakvalitet
+            // ── 4. Log data quality ──
             const quality = store.getDataQualityReport();
             console.log('Datakvalitet:', quality);
+            console.log(`  Artikler totalt: ${quality.totalArticles}`);
+            console.log(`  Med innkommende (BestAntLev > 0): ${quality.withIncoming}`);
+            console.log(`  Med salgshistorikk: ${quality.withOutgoing}`);
+            console.log('Master.xlsx is used as the single source of truth');
 
             return store;
 
@@ -279,15 +153,265 @@ class DataProcessor {
         }
     }
 
+    // ════════════════════════════════════════════════════
+    //  MASTER.XLSX PROCESSING — HARD-BOUND COLUMNS
+    // ════════════════════════════════════════════════════
+
     /**
-     * Finn kolonneverdi med fleksibel matching
+     * Prosesser Master.xlsx — SINGLE SOURCE OF TRUTH
+     *
+     * Hard-bound columns (NO autodetection):
+     *   Artikelnr           → toolsArticleNumber (primary key)
+     *   Artikelbeskrivning  → description
+     *   Artikelstatus       → status / _status / isDiscontinued
+     *   TotLagSaldo         → stock
+     *   DispLagSaldo        → available
+     *   ReservAnt           → reserved
+     *   BestAntLev          → bestAntLev (incoming orders)
+     *   Beställningsnummer  → bestillingsNummer
+     *   Ersätts av artikel  → ersattAvArtikel (alternative/replacement)
+     *   Ersätter artikel    → ersatterArtikel
+     *   Lokasjon            → location
+     *
+     * If a column is missing → FAIL LOUDLY with clear error.
+     */
+    static processMasterData(data, columns, store) {
+        if (!data || data.length === 0) {
+            throw new Error('Master.xlsx inneholder ingen data!');
+        }
+
+        // ── Resolve actual header names (case-insensitive) ──
+        const colMap = this.resolveMasterColumns(columns);
+
+        console.log('=== Master.xlsx: Hard-bound kolonnemapping ===');
+        for (const [logical, actual] of Object.entries(colMap)) {
+            console.log(`  ${logical} → "${actual}"`);
+        }
+
+        // ── Build alternative articles mapping ──
+        if (!store.alternativeArticles) {
+            store.alternativeArticles = new Map();
+        }
+
+        let processedCount = 0;
+        let incomingCount = 0;
+        let alternativeCount = 0;
+        let selfRefSkipped = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getMasterValue(row, colMap.articleNumber);
+            if (!articleNo) return;
+
+            const item = store.getOrCreate(articleNo);
+            if (!item) return;
+
+            processedCount++;
+
+            // ── Article identity ──
+            item.description = this.getMasterValue(row, colMap.description) || item.description;
+            item.location = this.getMasterValue(row, colMap.location) || '';
+            item.shelf = item.location;
+
+            // ── Artikelstatus → status + _status + isDiscontinued ──
+            const rawStatus = this.getMasterValue(row, colMap.articleStatus) || '';
+            item.status = rawStatus;
+            item._status = normalizeItemStatus(rawStatus);
+            item.statusText = rawStatus;
+
+            if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') {
+                item.isDiscontinued = true;
+            } else {
+                // Also check for text patterns
+                const lowerStatus = rawStatus.toLowerCase();
+                if (lowerStatus.includes('utgå') || lowerStatus.includes('discontinued') ||
+                    lowerStatus.includes('avvikle') || lowerStatus.includes('utgående')) {
+                    item.isDiscontinued = true;
+                    if (item._status === 'AKTIV' || item._status === 'UKJENT') {
+                        item._status = 'UTGAENDE';
+                    }
+                }
+            }
+
+            // ── Stock levels from Master ──
+            item.stock = this.parseNumber(this.getMasterValue(row, colMap.totalStock));
+            item.available = this.parseNumber(this.getMasterValue(row, colMap.availableStock));
+            item.reserved = this.parseNumber(this.getMasterValue(row, colMap.reserved));
+
+            // ── Incoming orders from Master ──
+            const bestAntLev = this.parseNumber(this.getMasterValue(row, colMap.orderedQty));
+            item.bestAntLev = bestAntLev;
+            item.bestillingsNummer = this.getMasterValue(row, colMap.orderNumber) || '';
+
+            if (bestAntLev > 0) {
+                incomingCount++;
+                item.hasIncomingOrders = true;
+                // Create a synthetic incoming order for backward compat
+                item.addIncomingOrder({
+                    orderNo: item.bestillingsNummer,
+                    quantity: bestAntLev,
+                    expectedDate: null,
+                    supplier: '',
+                    status: 'Åpen'
+                });
+            }
+
+            // ── Alternatives from Master ──
+            const ersattAv = this.getMasterValue(row, colMap.replacedBy) || '';
+            const ersatter = this.getMasterValue(row, colMap.replaces) || '';
+
+            item.ersattAvArtikel = ersattAv.trim();
+            item.ersatterArtikel = ersatter.trim();
+
+            // Build alternative mapping: source → [{altArticle}]
+            if (ersattAv.trim() && ersattAv.trim() !== articleNo) {
+                if (!store.alternativeArticles.has(articleNo)) {
+                    store.alternativeArticles.set(articleNo, []);
+                }
+                store.alternativeArticles.get(articleNo).push({
+                    altArticle: ersattAv.trim()
+                });
+                alternativeCount++;
+            } else if (ersattAv.trim() && ersattAv.trim() === articleNo) {
+                selfRefSkipped++;
+            }
+
+            // ── Compute available if missing ──
+            if (item.available === 0 && item.stock > 0) {
+                item.available = item.stock - item.reserved;
+            }
+        });
+
+        console.log(`Master.xlsx resultat:`);
+        console.log(`  Artikler prosessert: ${processedCount}`);
+        console.log(`  Med innkommende (BestAntLev > 0): ${incomingCount}`);
+        console.log(`  Med alternativ (Ersätts av artikel): ${alternativeCount}`);
+        if (selfRefSkipped > 0) {
+            console.log(`  Selv-referanser ignorert: ${selfRefSkipped}`);
+        }
+    }
+
+    /**
+     * Resolve Master.xlsx column names with case-insensitive matching.
+     * Fails loudly if any required column is missing.
+     *
+     * @param {string[]} columns - Actual column headers from file
+     * @returns {Object} Map of logical name → actual column name
+     */
+    static resolveMasterColumns(columns) {
+        const result = {};
+        const missing = [];
+
+        for (const [logical, expected] of Object.entries(this.MASTER_COLUMNS)) {
+            // Case-insensitive exact match
+            const actual = columns.find(c =>
+                c.trim().toLowerCase() === expected.toLowerCase()
+            );
+
+            if (actual) {
+                result[logical] = actual;
+            } else {
+                missing.push(`"${expected}" (${logical})`);
+            }
+        }
+
+        if (missing.length > 0) {
+            const errorMsg = `Master.xlsx: Følgende påkrevde kolonner mangler!\n` +
+                             `  Mangler: ${missing.join(', ')}\n` +
+                             `  Tilgjengelige kolonner: ${columns.join(', ')}\n` +
+                             `  ALLE kolonner i Master.xlsx er påkrevd. Ingen fallback tillatt.`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
+        }
+
+        return result;
+    }
+
+    /**
+     * Get value from a row using the resolved column name
+     */
+    static getMasterValue(row, columnName) {
+        if (!columnName) return '';
+        const val = row[columnName];
+        if (val === undefined || val === null) return '';
+        return val.toString().trim();
+    }
+
+    // ════════════════════════════════════════════════════
+    //  ORDRER_JEEVES.XLSX PROCESSING — SALES / DEMAND ONLY
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser fakturert UT / Ordrer (Ordrer_Jeeves.xlsx)
+     *
+     * Used ONLY for: sales history, demand patterns, top sellers, frequency analysis
+     *
+     * JOIN RULE: Ordrer_Jeeves.Artikelnr === Master.Artikelnr
+     *
+     * Jeeves-kolonner:
+     *   Artikelnr      → toolsArticleNumber (join key)
+     *   OrderNr        → orderNo
+     *   OrdRadAnt      → quantity
+     *   FaktDat        → deliveryDate
+     *   Företagsnamn   → customer
+     *   LevPlFtgKod    → deliveryLocation
+     */
+    static processOrdersOutData(data, store) {
+        let joinedCount = 0;
+        let unmatchedCount = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getColumnValue(row, 'articleNumber');
+            if (!articleNo) return;
+
+            const item = store.getOrCreate(articleNo);
+            if (!item) return;
+
+            // Oppdater beskrivelse hvis tom
+            if (!item.description) {
+                item.description = this.getColumnValue(row, 'description');
+            }
+
+            // Hent mengde (Jeeves: OrdRadAnt)
+            const quantity = this.parseNumber(
+                this.getColumnValue(row, 'quantityOut') || this.getColumnValue(row, 'quantity')
+            );
+
+            // Hopp over rader uten mengde
+            if (quantity <= 0) return;
+
+            joinedCount++;
+
+            // Legg til salgsordre
+            item.addOutgoingOrder({
+                orderNo: this.getColumnValue(row, 'orderNoOut') || this.getColumnValue(row, 'orderNo'),
+                quantity: quantity,
+                deliveryDate: this.parseDate(
+                    this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
+                ),
+                customer: this.getColumnValue(row, 'customer'),
+                deliveryLocation: this.getColumnValue(row, 'deliveryLocation'),
+                invoiceNo: null
+            });
+        });
+
+        console.log(`Ordrer_Jeeves.xlsx: ${joinedCount} salgslinjer prosessert`);
+        if (unmatchedCount > 0) {
+            console.log(`  Ikke matchet mot Master: ${unmatchedCount}`);
+        }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  UTILITY METHODS
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Finn kolonneverdi med fleksibel matching (for Ordrer_Jeeves.xlsx)
      */
     static getColumnValue(row, ...columnTypes) {
         const keys = Object.keys(row);
 
         for (const columnType of columnTypes) {
-            // Sjekk om det er en kjent kolonnetype
-            const variants = this.COLUMN_VARIANTS[columnType] || [columnType];
+            const variants = this.ORDRER_COLUMN_VARIANTS[columnType] || [columnType];
 
             for (const variant of variants) {
                 // Eksakt match
@@ -305,7 +429,7 @@ class DataProcessor {
                     }
                 }
 
-                // Delvis match (kolonne inneholder søketerm)
+                // Delvis match
                 for (const key of keys) {
                     const lowerKey = key.toLowerCase();
                     if (lowerKey.includes(lowerVariant) || lowerVariant.includes(lowerKey)) {
@@ -328,23 +452,16 @@ class DataProcessor {
             return 0;
         }
 
-        // Hvis allerede tall
         if (typeof value === 'number') {
             return isNaN(value) ? 0 : value;
         }
 
-        // Konverter til string og parse
         let str = value.toString().trim();
-
-        // Fjern mellomrom (tusen-separator)
         str = str.replace(/\s/g, '');
 
-        // Håndter norsk format (1.234,56 -> 1234.56)
         if (str.includes(',') && str.includes('.')) {
-            // Anta at komma er desimalseparator
             str = str.replace(/\./g, '').replace(',', '.');
         } else if (str.includes(',')) {
-            // Kun komma - anta desimalseparator
             str = str.replace(',', '.');
         }
 
@@ -358,418 +475,30 @@ class DataProcessor {
     static parseDate(value) {
         if (!value) return null;
 
-        // Hvis allerede Date-objekt
         if (value instanceof Date) {
             return isNaN(value.getTime()) ? null : value;
         }
 
-        // Bruk DataLoader sin parseDate hvis tilgjengelig
         if (typeof DataLoader !== 'undefined' && DataLoader.parseDate) {
             return DataLoader.parseDate(value);
         }
 
-        // Fallback parsing
         const str = value.toString().trim();
 
-        // ISO format (YYYY-MM-DD)
         let date = new Date(str);
         if (!isNaN(date.getTime())) return date;
 
-        // DD.MM.YYYY (norsk)
         const ddmmyyyy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
         if (ddmmyyyy) {
             return new Date(ddmmyyyy[3], ddmmyyyy[2] - 1, ddmmyyyy[1]);
         }
 
-        // DD/MM/YYYY
         const slashFormat = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
         if (slashFormat) {
             return new Date(slashFormat[3], slashFormat[2] - 1, slashFormat[1]);
         }
 
         return null;
-    }
-
-    /**
-     * Prosesser lagerbeholdningsdata (Lagerbeholdning_Jeeves.xlsx)
-     *
-     * Jeeves-kolonner som brukes:
-     * - Artikelnr → toolsArticleNumber
-     * - Artikelbeskrivning → description
-     * - Lagerställe → location
-     * - Lagersaldo → stock
-     * - ReservAnt → reserved
-     * - DispLagSaldo → available
-     * - BP → bp
-     * - Maxlager → max
-     * - Senaste rörelse → lastMovementDate (hvis finnes)
-     */
-    static processInventoryData(data, store) {
-        let missingColumns = [];
-
-        data.forEach(row => {
-            const articleNo = this.getColumnValue(row, 'articleNumber');
-            if (!articleNo) return;
-
-            const item = store.getOrCreate(articleNo);
-            if (!item) return;
-
-            // Grunndata fra Jeeves
-            item.description = this.getColumnValue(row, 'description') || item.description;
-            item.location = this.getColumnValue(row, 'location');
-            item.shelf = item.location; // Alias
-
-            // Lagerstatus fra Jeeves
-            item.stock = this.parseNumber(this.getColumnValue(row, 'stock'));
-            item.reserved = this.parseNumber(this.getColumnValue(row, 'reserved'));
-            item.available = this.parseNumber(this.getColumnValue(row, 'available'));
-
-            // Bestillingspunkter fra Jeeves
-            item.bp = this.parseNumber(this.getColumnValue(row, 'bp'));
-            item.max = this.parseNumber(this.getColumnValue(row, 'max'));
-
-            // Status (hvis finnes)
-            item.status = this.getColumnValue(row, 'status');
-
-            // Tekstlig artikkelstatus (planned discontinued / skal utgå)
-            const statusTextValue = this.getColumnValue(row, 'statusText');
-            if (statusTextValue) {
-                item.statusText = statusTextValue;
-                const lowerStatus = statusTextValue.toLowerCase();
-                item.isDiscontinued =
-                    lowerStatus.includes('discontinued') ||
-                    lowerStatus.includes('utgå') ||
-                    lowerStatus.includes('avvikles') ||
-                    lowerStatus.includes('utgående');
-            }
-
-            // Kategori fra Jeeves (Varugrupp/Artikelgrupp/Produktgrupp)
-            const categoryValue = this.getColumnValue(row, 'category');
-            if (categoryValue) {
-                item.category = categoryValue;
-            }
-
-            // Leverandør fra Jeeves (Företagsnamn)
-            const supplierValue = this.getColumnValue(row, 'supplier');
-            if (supplierValue) {
-                item.supplier = supplierValue;
-            }
-
-            // Siste bevegelse fra Jeeves (Senaste rörelse)
-            const lastMovementStr = this.getColumnValue(row, 'lastMovement');
-            if (lastMovementStr) {
-                item.lastMovementDate = this.parseDate(lastMovementStr);
-            }
-
-            // Beregn tilgjengelig hvis ikke satt
-            if (item.available === 0 && item.stock > 0) {
-                item.available = item.stock - item.reserved;
-            }
-        });
-
-        // Logg warning for første rad hvis kolonner mangler
-        if (data.length > 0) {
-            const firstRow = data[0];
-            const expectedCols = ['articleNumber', 'description', 'location', 'stock', 'reserved', 'available', 'bp', 'max'];
-            expectedCols.forEach(col => {
-                if (!this.getColumnValue(firstRow, col)) {
-                    console.warn(`Lagerbeholdning: Kolonne '${col}' ikke funnet`);
-                }
-            });
-        }
-    }
-
-    /**
-     * Prosesser SA-nummer mapping og plasseringslokasjon
-     *
-     * SA-Nummer.xlsx kolonner:
-     * - Artikelnr → toolsArticleNumber (primærnøkkel)
-     * - Kunds artikelnummer → saNumber
-     * - Artikelbeskrivning (kolonne G) → placementLocation (IKKE beskrivelse!)
-     */
-    static processSANumberData(data, store) {
-        data.forEach(row => {
-            const articleNo = this.getColumnValue(row, 'articleNumber');
-            const saNumber = this.getColumnValue(row, 'saNumber');
-            const placementLocation = this.getColumnValue(row, 'placementLocation');
-
-            if (articleNo && saNumber) {
-                store.setSAMapping(articleNo, saNumber);
-            }
-
-            // Lagre plasseringslokasjon på artikkelen
-            if (articleNo && placementLocation) {
-                store.setPlacementLocation(articleNo, placementLocation);
-            }
-        });
-    }
-
-    /**
-     * Prosesser bestillinger INN (Bestillinger_Jeeves.xlsx)
-     *
-     * Jeeves-kolonner som brukes:
-     * - Artikelnr → toolsArticleNumber
-     * - Beställningsnummer → orderNo
-     * - RestAntLgrEnh → quantity (åpen mengde)
-     * - BerLevDat → expectedDate
-     * - Leverantör → supplier
-     *
-     * Ignorerer: pris, CO2, valuta, økonomiske felt
-     */
-    static processOrdersInData(data, store) {
-        data.forEach(row => {
-            const articleNo = this.getColumnValue(row, 'articleNumber');
-            if (!articleNo) return;
-
-            const item = store.getOrCreate(articleNo);
-            if (!item) return;
-
-            // Oppdater beskrivelse hvis tom
-            if (!item.description) {
-                item.description = this.getColumnValue(row, 'description');
-            }
-
-            // Hent mengde (Jeeves: RestAntLgrEnh = åpen restmengde)
-            const quantity = this.parseNumber(
-                this.getColumnValue(row, 'quantityIn') || this.getColumnValue(row, 'quantity')
-            );
-
-            // Hopp over rader uten åpen mengde (fullførte bestillinger)
-            if (quantity <= 0) return;
-
-            // Legg til bestilling med Jeeves-kolonner
-            item.addIncomingOrder({
-                orderNo: this.getColumnValue(row, 'orderNoIn') || this.getColumnValue(row, 'orderNo'),
-                quantity: quantity,
-                expectedDate: this.parseDate(
-                    this.getColumnValue(row, 'expectedDate') || this.getColumnValue(row, 'date')
-                ),
-                supplier: this.getColumnValue(row, 'supplier'),
-                status: this.getColumnValue(row, 'status')
-            });
-        });
-
-        // Logg warning for første rad hvis kolonner mangler
-        if (data.length > 0) {
-            const firstRow = data[0];
-            if (!this.getColumnValue(firstRow, 'orderNoIn') && !this.getColumnValue(firstRow, 'orderNo')) {
-                console.warn('Bestillinger: Kolonne for ordrenummer ikke funnet');
-            }
-            if (!this.getColumnValue(firstRow, 'quantityIn') && !this.getColumnValue(firstRow, 'quantity')) {
-                console.warn('Bestillinger: Kolonne for antall ikke funnet');
-            }
-        }
-    }
-
-    /**
-     * Prosesser fakturert UT / Ordrer (Ordrer_Jeeves.xlsx)
-     *
-     * Jeeves-kolonner som brukes:
-     * - Artikelnr → toolsArticleNumber
-     * - OrderNr → orderNo
-     * - OrdRadAnt → quantity
-     * - FaktDat → deliveryDate
-     * - Företagsnamn → customer
-     *
-     * Brukes til beregning av:
-     * - sales12m, salesVolume, orderCount
-     * - monthlyConsumption, lastMovementDate
-     */
-    static processOrdersOutData(data, store) {
-        data.forEach(row => {
-            const articleNo = this.getColumnValue(row, 'articleNumber');
-            if (!articleNo) return;
-
-            const item = store.getOrCreate(articleNo);
-            if (!item) return;
-
-            // Oppdater beskrivelse hvis tom
-            if (!item.description) {
-                item.description = this.getColumnValue(row, 'description');
-            }
-
-            // Hent mengde (Jeeves: OrdRadAnt)
-            const quantity = this.parseNumber(
-                this.getColumnValue(row, 'quantityOut') || this.getColumnValue(row, 'quantity')
-            );
-
-            // Hopp over rader uten mengde
-            if (quantity <= 0) return;
-
-            // Legg til salgsordre med Jeeves-kolonner
-            item.addOutgoingOrder({
-                orderNo: this.getColumnValue(row, 'orderNoOut') || this.getColumnValue(row, 'orderNo'),
-                quantity: quantity,
-                deliveryDate: this.parseDate(
-                    this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
-                ),
-                customer: this.getColumnValue(row, 'customer'),
-                deliveryLocation: this.getColumnValue(row, 'deliveryLocation'),
-                invoiceNo: null // Ikke brukt fra Jeeves
-            });
-        });
-
-        // Logg warning for første rad hvis kolonner mangler
-        if (data.length > 0) {
-            const firstRow = data[0];
-            if (!this.getColumnValue(firstRow, 'orderNoOut') && !this.getColumnValue(firstRow, 'orderNo')) {
-                console.warn('Ordrer: Kolonne for ordrenummer ikke funnet');
-            }
-            if (!this.getColumnValue(firstRow, 'quantityOut') && !this.getColumnValue(firstRow, 'quantity')) {
-                console.warn('Ordrer: Kolonne for antall ikke funnet');
-            }
-            if (!this.getColumnValue(firstRow, 'customer')) {
-                console.warn('Ordrer: Kolonne for kunde (Företagsnamn) ikke funnet');
-            }
-        }
-    }
-
-    /**
-     * Prosesser artikkelstatus / lifecycle (artikkelstatus.xlsx)
-     *
-     * Qlik-eksport med kolonner:
-     * - Item ID → artikkelnummer (primærnøkkel)
-     * - Item status → lifecycle-status (normaliseres)
-     *
-     * Setter article._status via normalizeItemStatus()
-     */
-    static processArticleStatusData(data, store) {
-        const statusByItemId = new Map();
-
-        // Bygg lookup fra Item ID -> Item status
-        data.forEach(row => {
-            const itemId = (row['Item ID'] || '').toString().trim();
-            const itemStatus = (row['Item status'] || '').toString().trim();
-
-            if (itemId) {
-                statusByItemId.set(itemId, itemStatus);
-            }
-        });
-
-        console.log(`Artikkelstatus: ${statusByItemId.size} oppføringer i lookup`);
-
-        // Apliser status til eksisterende artikler
-        let matchCount = 0;
-        store.items.forEach((item, articleNo) => {
-            const statusValue = statusByItemId.get(articleNo);
-            item._status = normalizeItemStatus(statusValue);
-
-            // Bridge: sett isDiscontinued fra lifecycle-status slik at
-            // «Utgående med saldo»-modulen plukker opp UTGAENDE/UTGAATT
-            if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') {
-                item.isDiscontinued = true;
-            }
-
-            if (statusValue) matchCount++;
-        });
-
-        console.log(`Artikkelstatus: ${matchCount} artikler matchet`);
-    }
-
-    /**
-     * Prosesser alternativ artikkel data (Alternativ_artikkel_Jeeves.xlsx)
-     *
-     * Hard-bound column mapping (no auto-detection):
-     *   Column A  "Artikelnr"        = outgoing/source Tools article number
-     *   Column D  "Alternative Item" = alternative article number
-     *
-     * Self-referencing rows (source === alt) are silently skipped.
-     *
-     * Lagrer i store.alternativeArticles: Map<sourceArticle -> [{altArticle}]>
-     */
-    static processAlternativeArticleData(data, store) {
-        if (!data || data.length === 0) {
-            console.warn('Alternativ artikkel: Ingen data');
-            return;
-        }
-
-        // ── Hard-bound column names ──────────────────────────────
-        const SOURCE_COL = 'Artikelnr';        // Column A
-        const ALT_COL    = 'Alternative Item'; // Column D
-
-        const columns = Object.keys(data[0]);
-        console.log('=== Alternativ artikkel: Hard-bound kolonnemapping ===');
-        console.log('  Alternative lookup: Artikelnr (A) → Alternative Item (D)');
-        console.log('  Tilgjengelige kolonner i fil:', columns);
-
-        // Resolve actual header names (case-insensitive exact match only)
-        const sourceCol = columns.find(c => c.trim().toLowerCase() === SOURCE_COL.toLowerCase());
-        const altCol    = columns.find(c => c.trim().toLowerCase() === ALT_COL.toLowerCase());
-
-        if (!sourceCol) {
-            console.error(`Alternativ artikkel: Fant ikke kolonne "${SOURCE_COL}" (Column A). Tilgjengelige: ${columns.join(', ')}`);
-            return;
-        }
-        if (!altCol) {
-            console.error(`Alternativ artikkel: Fant ikke kolonne "${ALT_COL}" (Column D). Tilgjengelige: ${columns.join(', ')}`);
-            return;
-        }
-
-        console.log(`  Bundet kilde-kolonne:      "${sourceCol}"`);
-        console.log(`  Bundet alternativ-kolonne:  "${altCol}"`);
-
-        // ── Build mapping ────────────────────────────────────────
-        if (!store.alternativeArticles) {
-            store.alternativeArticles = new Map();
-        }
-
-        let processedCount = 0;
-        let selfRefSkipped = 0;
-
-        data.forEach(row => {
-            const source = (row[sourceCol] || '').toString().trim();
-            const alt    = (row[altCol]    || '').toString().trim();
-
-            if (!source || !alt) return;
-
-            // Guard: reject self-referencing alternatives
-            if (source === alt) {
-                selfRefSkipped++;
-                return;
-            }
-
-            if (!store.alternativeArticles.has(source)) {
-                store.alternativeArticles.set(source, []);
-            }
-            store.alternativeArticles.get(source).push({ altArticle: alt });
-            processedCount++;
-        });
-
-        console.log(`Alternativ artikkel: ${processedCount} koblinger, ${store.alternativeArticles.size} unike kilde-artikler`);
-        if (selfRefSkipped > 0) {
-            console.log(`  Selv-referanser ignorert: ${selfRefSkipped}`);
-        }
-    }
-
-    /**
-     * Logg oppdagede kolonner fra fil
-     */
-    static logDiscoveredColumns(fileName, columns) {
-        console.log(`=== Kolonner i ${fileName} ===`);
-        columns.forEach((col, index) => {
-            console.log(`  ${index + 1}. ${col}`);
-        });
-
-        // Forsøk å matche til kjente kolonnetyper
-        const matches = {};
-        columns.forEach(col => {
-            for (const [type, variants] of Object.entries(this.COLUMN_VARIANTS)) {
-                const lowerCol = col.toLowerCase();
-                for (const variant of variants) {
-                    if (lowerCol === variant.toLowerCase() || lowerCol.includes(variant.toLowerCase())) {
-                        matches[col] = type;
-                        break;
-                    }
-                }
-            }
-        });
-
-        if (Object.keys(matches).length > 0) {
-            console.log('  Gjenkjente kolonner:');
-            for (const [col, type] of Object.entries(matches)) {
-                console.log(`    ${col} -> ${type}`);
-            }
-        }
     }
 }
 

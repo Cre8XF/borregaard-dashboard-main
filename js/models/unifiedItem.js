@@ -1,13 +1,18 @@
 // ===================================
 // UNIFIED ITEM MODEL
 // Normalisert datamodell for Borregaard Dashboard
+// Master.xlsx er SINGLE SOURCE OF TRUTH
 // ===================================
 
 /**
  * UnifiedItem - Normalisert datastruktur som samler data fra alle kilder
  *
- * Primærnøkkel: toolsArticleNumber
- * Sekundærnøkkel: saNumber (der det finnes)
+ * Primærnøkkel: toolsArticleNumber (Artikelnr fra Master.xlsx)
+ *
+ * Data sources:
+ *   Master.xlsx → all article identity, status, stock, reserved, available,
+ *                 incoming (BestAntLev), alternatives (Ersätts av artikel)
+ *   Ordrer_Jeeves.xlsx → sales / demand analysis only
  */
 class UnifiedItem {
     constructor(toolsArticleNumber) {
@@ -16,26 +21,34 @@ class UnifiedItem {
         this.saNumber = null;
         this.description = '';
 
-        // Lagerbeholdning (fra Lagerbeholdning.xlsx)
-        this.location = '';
-        this.stock = 0;
-        this.reserved = 0;
-        this.available = 0;
-        this.bp = 0;          // Bestillingspunkt
-        this.max = 0;         // Maksimum lager
-        this.status = '';     // Artikkelstatus
-        this.statusText = null;   // Tekstlig artikkelstatus (f.eks. "planned discontinued")
-        this.isDiscontinued = false; // Flagg: artikkel skal utgå
+        // ── Master.xlsx: lagerbeholdning ──
+        this.location = '';       // Lokasjon
+        this.stock = 0;           // TotLagSaldo
+        this.reserved = 0;        // ReservAnt
+        this.available = 0;       // DispLagSaldo
+        this.bp = 0;              // Bestillingspunkt (if present)
+        this.max = 0;             // Maksimum lager (if present)
+        this.status = '';         // Artikelstatus (raw value)
+        this.statusText = null;   // Readable status text
+        this.isDiscontinued = false;
         this.supplier = '';
-        this.shelf = '';      // Hylleplassering
-        this.placementLocation = ''; // Plasseringslokasjon fra SA-fil
-        this.category = null; // Varugrupp/Artikelgrupp fra Jeeves
-        this._status = 'UKJENT'; // Lifecycle-status fra artikkelstatus.xlsx (Qlik)
+        this.shelf = '';
+        this.placementLocation = '';
+        this.category = null;
+        this._status = 'UKJENT';  // Normalized lifecycle status
 
-        // Bestillinger INN (fra Bestillinger.xlsx)
+        // ── Master.xlsx: incoming orders ──
+        this.bestAntLev = 0;            // BestAntLev from Master
+        this.bestillingsNummer = '';     // Beställningsnummer from Master
+
+        // ── Master.xlsx: alternatives ──
+        this.ersattAvArtikel = '';       // Ersätts av artikel (replacement FOR this article)
+        this.ersatterArtikel = '';       // Ersätter artikel (this article REPLACES)
+
+        // ── Legacy incoming orders array (populated from Master BestAntLev) ──
         this.incomingOrders = [];
 
-        // Ordrer UT (fra Fakturert.xlsx)
+        // ── Ordrer_Jeeves.xlsx: ordrer UT ──
         this.outgoingOrders = [];
 
         // Beregnede felt (populeres etter datasamling)
@@ -69,7 +82,7 @@ class UnifiedItem {
     }
 
     /**
-     * Legg til utgående ordre (salg)
+     * Legg til utgående ordre (salg) — fra Ordrer_Jeeves.xlsx
      */
     addOutgoingOrder(order) {
         this.outgoingOrders.push({
@@ -104,7 +117,7 @@ class UnifiedItem {
         const oneYearAgo = new Date();
         oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-        // Beregn salg siste 6 og 12 måneder
+        // Beregn salg siste 6 og 12 måneder (fra Ordrer_Jeeves.xlsx)
         this.sales6m = 0;
         this.sales12m = 0;
         this.orderCount = 0;
@@ -117,12 +130,9 @@ class UnifiedItem {
             const qty = order.quantity || 0;
 
             if (orderDate) {
-                // Oppdater siste salgsdato
                 if (!latestSaleDate || orderDate > latestSaleDate) {
                     latestSaleDate = orderDate;
                 }
-
-                // Akkumuler salg
                 if (orderDate >= oneYearAgo) {
                     this.sales12m += qty;
                     uniqueOrders.add(order.orderNo || Math.random().toString());
@@ -131,7 +141,6 @@ class UnifiedItem {
                     this.sales6m += qty;
                 }
             } else {
-                // Hvis ingen dato, anta nylig
                 this.sales12m += qty;
                 uniqueOrders.add(order.orderNo || Math.random().toString());
             }
@@ -148,6 +157,11 @@ class UnifiedItem {
             this.daysToEmpty = Math.round(this.stock / dailyConsumption);
         } else {
             this.daysToEmpty = 999999;
+        }
+
+        // Incoming: basert på BestAntLev fra Master.xlsx
+        if (this.bestAntLev > 0) {
+            this.hasIncomingOrders = true;
         }
 
         // Finn siste innkommende bestillingsdato
@@ -174,26 +188,42 @@ class UnifiedItem {
 
     /**
      * Sjekk om artikkelen har problemer (for Oversikt-modus)
+     *
+     * Classification rules (Master.xlsx as source):
+     *   CRITICAL: DispLagSaldo <= 0 AND BestAntLev == 0
+     *   WARNING:  DispLagSaldo > 0 AND DispLagSaldo < threshold
+     *   INCOMING: BestAntLev > 0
      */
     getIssues() {
         const issues = [];
+        const WARNING_THRESHOLD = 5; // Configurable threshold for low available stock
 
-        // Negativ saldo
+        // ── CRITICAL: Negativ saldo ──
         if (this.stock < 0) {
             issues.push({ type: 'critical', code: 'NEGATIVE_STOCK', message: 'Negativ saldo' });
         }
 
-        // Under bestillingspunkt
+        // ── CRITICAL: Reservert > saldo ──
+        if (this.reserved > this.stock && this.stock >= 0) {
+            issues.push({ type: 'critical', code: 'OVERRESERVED', message: 'Reservert overstiger saldo' });
+        }
+
+        // ── CRITICAL: DispLagSaldo <= 0 AND BestAntLev == 0 ──
+        if (this.available <= 0 && this.bestAntLev === 0 && this.stock >= 0 && this.sales12m > 0) {
+            issues.push({ type: 'critical', code: 'NO_STOCK_NO_INCOMING', message: 'Ingen tilgjengelig og ingen på vei inn' });
+        }
+
+        // ── WARNING: Under bestillingspunkt ──
         if (this.bp > 0 && this.stock < this.bp && this.stock >= 0) {
             issues.push({ type: 'warning', code: 'BELOW_BP', message: 'Under bestillingspunkt' });
         }
 
-        // Reservert > saldo
-        if (this.reserved > this.stock) {
-            issues.push({ type: 'critical', code: 'OVERRESERVED', message: 'Reservert overstiger saldo' });
+        // ── WARNING: Lav disponibel beholdning ──
+        if (this.available > 0 && this.available < WARNING_THRESHOLD && this.sales12m > 0) {
+            issues.push({ type: 'warning', code: 'LOW_AVAILABLE', message: `Lav disponibel (${this.available})` });
         }
 
-        // Ingen bevegelse siste 90 dager
+        // ── INFO: Ingen bevegelse siste 90 dager ──
         if (this.lastMovementDate) {
             const daysSinceMovement = Math.floor((new Date() - this.lastMovementDate) / (1000 * 60 * 60 * 24));
             if (daysSinceMovement > 90) {
@@ -201,17 +231,14 @@ class UnifiedItem {
             }
         }
 
-        // Mangler SA-nummer (datakvalitet)
-        if (!this.hasSANumber) {
-            issues.push({ type: 'data', code: 'NO_SA_NUMBER', message: 'Mangler SA-nummer' });
+        // ── INFO: Tom saldo men har bestillinger på vei (BestAntLev) ──
+        if (this.stock === 0 && this.bestAntLev > 0) {
+            issues.push({ type: 'info', code: 'EMPTY_WITH_INCOMING', message: `Tom, men ${this.bestAntLev} på vei` });
         }
 
-        // Tom saldo men har bestillinger på vei
-        if (this.stock === 0 && this.hasIncomingOrders) {
-            const pendingQty = this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0);
-            if (pendingQty > 0) {
-                issues.push({ type: 'info', code: 'EMPTY_WITH_INCOMING', message: `Tom, men ${pendingQty} på vei` });
-            }
+        // ── DATA: Mangler SA-nummer (kept for display, only if SA data was loaded) ──
+        if (!this.hasSANumber && this.hasSANumber !== undefined) {
+            issues.push({ type: 'data', code: 'NO_SA_NUMBER', message: 'Mangler SA-nummer' });
         }
 
         return issues;
@@ -239,6 +266,10 @@ class UnifiedItem {
             placementLocation: this.placementLocation,
             category: this.category,
             _status: this._status,
+            bestAntLev: this.bestAntLev,
+            bestillingsNummer: this.bestillingsNummer,
+            ersattAvArtikel: this.ersattAvArtikel,
+            ersatterArtikel: this.ersatterArtikel,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
             orderCount: this.orderCount,
@@ -248,7 +279,7 @@ class UnifiedItem {
             lastMovementDate: this.lastMovementDate,
             hasSANumber: this.hasSANumber,
             incomingOrderCount: this.incomingOrders.length,
-            incomingQuantity: this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
+            incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             issues: this.getIssues()
         };
     }
@@ -262,7 +293,7 @@ class UnifiedDataStore {
         this.items = new Map(); // toolsArticleNumber -> UnifiedItem
         this.saMapping = new Map(); // toolsArticleNumber -> saNumber
         this.placementMapping = new Map(); // toolsArticleNumber -> placementLocation
-        this.alternativeArticles = new Map(); // sourceArticle -> [{altArticle, altDescription}]
+        this.alternativeArticles = new Map(); // sourceArticle -> [{altArticle}]
         this.dataQuality = {
             totalArticles: 0,
             withSANumber: 0,
@@ -300,7 +331,7 @@ class UnifiedDataStore {
     }
 
     /**
-     * Sett plasseringslokasjon mapping (fra SA-fil)
+     * Sett plasseringslokasjon mapping
      */
     setPlacementLocation(toolsArticleNumber, placementLocation) {
         if (toolsArticleNumber && placementLocation) {
@@ -312,15 +343,12 @@ class UnifiedDataStore {
      * Apliser SA-nummer og plasseringslokasjon til alle artikler
      */
     applySANumbers() {
-        // Apliser SA-nummer
         this.saMapping.forEach((saNumber, toolsArticleNumber) => {
             const item = this.items.get(toolsArticleNumber);
             if (item) {
                 item.setSANumber(saNumber);
             }
         });
-
-        // Apliser plasseringslokasjon
         this.placementMapping.forEach((placementLocation, toolsArticleNumber) => {
             const item = this.items.get(toolsArticleNumber);
             if (item) {
@@ -351,7 +379,8 @@ class UnifiedDataStore {
                 this.dataQuality.withoutSANumber++;
             }
 
-            if (item.hasIncomingOrders) {
+            // Incoming: BestAntLev > 0 from Master.xlsx
+            if (item.bestAntLev > 0 || item.hasIncomingOrders) {
                 this.dataQuality.withIncoming++;
             }
 
