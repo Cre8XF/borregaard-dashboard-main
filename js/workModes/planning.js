@@ -465,57 +465,257 @@ class PlanningMode {
     }
 
     /**
-     * Render innkommende bestillinger
+     * Detect the purchase order number field from incoming orders data.
+     *
+     * Strategy: The field is stored as "orderNo" on each incomingOrder object,
+     * populated by DataProcessor.processOrdersInData() which maps from the
+     * column variant "orderNoIn" (candidates: Beställningsnummer, Bestillingsnr,
+     * Bestillingsnummer, PO Number). We verify the field exists and has values.
+     *
+     * @param {Array} items - Items with incomingOrders
+     * @returns {{ field: string|null, reason: string }}
+     */
+    static detectPurchaseOrderField(items) {
+        // Candidate field names on incomingOrder objects that could represent
+        // "vårt bestillingsnummer" (our purchase order number)
+        const candidates = ['orderNo', 'purchaseOrder', 'poNumber', 'bestNr'];
+
+        for (const candidate of candidates) {
+            let foundCount = 0;
+            let totalOrders = 0;
+
+            for (const item of items) {
+                if (!item.incomingOrders) continue;
+                const orders = Array.isArray(item.incomingOrders)
+                    ? item.incomingOrders
+                    : [];
+                for (const order of orders) {
+                    totalOrders++;
+                    if (order[candidate] && order[candidate].toString().trim() !== '') {
+                        foundCount++;
+                    }
+                }
+            }
+
+            if (foundCount > 0) {
+                const reason = `Field "${candidate}" selected as purchase order number ` +
+                    `(found in ${foundCount}/${totalOrders} order lines). ` +
+                    `Source column mapped via DataProcessor.COLUMN_VARIANTS.orderNoIn: ` +
+                    `[Beställningsnummer, Bestillingsnr, Bestillingsnummer, PO Number].`;
+                console.log('[PO-gruppering] ' + reason);
+                return { field: candidate, reason };
+            }
+        }
+
+        const reason = 'No suitable purchase order field found among candidates: ' +
+            candidates.join(', ') + '. Cannot group by purchase order.';
+        console.warn('[PO-gruppering] ' + reason);
+        return { field: null, reason };
+    }
+
+    /**
+     * Build purchase order groups from items with incoming orders.
+     *
+     * Groups all individual order lines by purchase order number.
+     * Each group contains the PO number, all article lines, earliest ETA,
+     * and total quantity.
+     *
+     * @param {Array} items - Items from the store that have incoming orders
+     * @param {string} poField - The field name on incomingOrder objects (e.g. "orderNo")
+     * @returns {Array} Sorted array of PO groups
+     */
+    static buildPurchaseOrderGroups(items, poField) {
+        const groups = new Map(); // poNumber -> { poNumber, lines[], earliestEta, totalQty }
+
+        for (const item of items) {
+            if (!item.incomingOrders || !Array.isArray(item.incomingOrders)) continue;
+
+            for (const order of item.incomingOrders) {
+                const poNumber = (order[poField] || '').toString().trim() || '(ukjent)';
+                const quantity = order.quantity || 0;
+                if (quantity <= 0) continue;
+
+                if (!groups.has(poNumber)) {
+                    groups.set(poNumber, {
+                        poNumber,
+                        lines: [],
+                        earliestEta: null,
+                        totalQty: 0,
+                        supplier: ''
+                    });
+                }
+
+                const group = groups.get(poNumber);
+                const eta = order.expectedDate || null;
+
+                group.lines.push({
+                    articleNumber: item.toolsArticleNumber,
+                    saNumber: item.saNumber || '',
+                    description: item.description || '',
+                    quantity: quantity,
+                    eta: eta,
+                    stock: item.stock || 0,
+                    bp: item.bp || 0
+                });
+
+                group.totalQty += quantity;
+
+                if (eta) {
+                    if (!group.earliestEta || eta < group.earliestEta) {
+                        group.earliestEta = eta;
+                    }
+                }
+
+                if (!group.supplier && order.supplier) {
+                    group.supplier = order.supplier;
+                }
+            }
+        }
+
+        // Sort groups by earliest ETA first (null ETA last)
+        const sortedGroups = Array.from(groups.values()).sort((a, b) => {
+            if (a.earliestEta && b.earliestEta) return a.earliestEta - b.earliestEta;
+            if (a.earliestEta) return -1;
+            if (b.earliestEta) return 1;
+            return a.poNumber.localeCompare(b.poNumber, 'no');
+        });
+
+        // Sort lines within each group by article number
+        for (const group of sortedGroups) {
+            group.lines.sort((a, b) =>
+                a.articleNumber.localeCompare(b.articleNumber, 'no')
+            );
+        }
+
+        return sortedGroups;
+    }
+
+    /**
+     * Render innkommende bestillinger – grouped by purchase order number (Best.nr).
+     *
+     * Each purchase order is rendered as a visual block with a header showing
+     * the PO number, supplier, ETA, and total quantity. Articles within each
+     * PO are listed in compact rows sorted by article number.
      */
     static renderIncomingItems(items) {
-        let filtered = this.filterItems(items);
-        const limit = this.currentLimit === 'all' ? filtered.length : parseInt(this.currentLimit);
-        const displayData = filtered.slice(0, limit);
+        if (!this.dataStore) {
+            return `<div class="alert alert-info">Ingen data tilgjengelig.</div>`;
+        }
 
-        if (displayData.length === 0) {
+        // Get all items with incoming orders from the store
+        const allItems = this.dataStore.getAllItems().filter(
+            item => item.hasIncomingOrders && item.incomingOrders.length > 0
+        );
+
+        if (allItems.length === 0) {
             return `<div class="alert alert-info">Ingen aktive innkommende bestillinger registrert.</div>`;
+        }
+
+        // Detect the purchase order field
+        const detection = this.detectPurchaseOrderField(allItems);
+
+        if (!detection.field) {
+            return `
+                <div class="alert alert-warning">
+                    <strong>Fant ikke felt for vårt best.nr – kan ikke gruppere</strong>
+                    <p class="text-muted" style="margin-top:8px">${detection.reason}</p>
+                </div>
+            `;
+        }
+
+        // Build PO groups
+        let poGroups = this.buildPurchaseOrderGroups(allItems, detection.field);
+
+        // Apply search filter to groups
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            poGroups = poGroups.map(group => {
+                // Check if PO number matches
+                if (group.poNumber.toLowerCase().includes(term)) return group;
+                // Otherwise filter lines
+                const filteredLines = group.lines.filter(line =>
+                    line.articleNumber.toLowerCase().includes(term) ||
+                    line.description.toLowerCase().includes(term) ||
+                    line.saNumber.toLowerCase().includes(term)
+                );
+                if (filteredLines.length === 0) return null;
+                return { ...group, lines: filteredLines };
+            }).filter(Boolean);
+        }
+
+        // Apply limit to number of PO groups shown
+        const totalGroups = poGroups.length;
+        const limit = this.currentLimit === 'all' ? poGroups.length : parseInt(this.currentLimit);
+        const displayGroups = poGroups.slice(0, limit);
+        const totalLines = displayGroups.reduce((sum, g) => sum + g.lines.length, 0);
+
+        if (displayGroups.length === 0) {
+            return `<div class="alert alert-info">Ingen bestillinger matcher søket.</div>`;
         }
 
         return `
             <div class="view-insight ok">
-                <p><strong>Varer på vei</strong> - oversikt over åpne bestillinger fra leverandører.</p>
+                <p><strong>Varer på vei</strong> – gruppert etter vårt bestillingsnummer.</p>
+                <p class="text-muted">Sortert etter tidligste forventet levering. ${totalGroups} bestillinger, ${totalLines} ordrelinjer.</p>
             </div>
-            <div class="table-wrapper">
-                <table class="data-table">
+            <div class="po-groups-container">
+                ${displayGroups.map((group, index) => this.renderPOGroup(group, index, displayGroups.length)).join('')}
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${displayGroups.length} av ${totalGroups} bestillinger</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Render a single purchase order group block.
+     */
+    static renderPOGroup(group, index, totalGroups) {
+        const etaStr = group.earliestEta
+            ? this.formatDate(group.earliestEta)
+            : 'Ukjent';
+
+        return `
+            <div class="po-group">
+                <div class="po-group-header">
+                    <div class="po-group-title">
+                        <span class="po-group-label">Best.nr:</span>
+                        <span class="po-group-number">${group.poNumber}</span>
+                        ${group.supplier ? `<span class="po-group-supplier">${this.truncate(group.supplier, 30)}</span>` : ''}
+                    </div>
+                    <div class="po-group-meta">
+                        <span class="po-group-eta">ETA: <strong>${etaStr}</strong></span>
+                        <span class="po-group-qty">${this.formatNumber(group.totalQty)} stk</span>
+                        <span class="po-group-lines">${group.lines.length} artikler</span>
+                    </div>
+                </div>
+                <table class="data-table compact po-group-table">
                     <thead>
                         <tr>
                             <th>Artikelnr</th>
                             <th>SA-nr</th>
                             <th>Beskrivelse</th>
-                            <th>Nåv. saldo</th>
-                            <th>På vei</th>
-                            <th>Ant. bestillinger</th>
-                            <th>Dekning etter</th>
-                            <th>Status</th>
+                            <th>Antall</th>
+                            <th>ETA</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${displayData.map(item => {
-                            const statusClass = item.stock <= 0 ? 'critical' : item.stock < item.bp ? 'warning' : 'ok';
+                        ${group.lines.map(line => {
+                            const lineEta = line.eta ? this.formatDate(line.eta) : '-';
                             return `
-                                <tr class="clickable" onclick="PlanningMode.showDetails('${item.toolsArticleNumber}')">
-                                    <td><strong>${item.toolsArticleNumber}</strong></td>
-                                    <td>${item.saNumber || '-'}</td>
-                                    <td>${this.truncate(item.description, 25)}</td>
-                                    <td class="qty-cell ${item.stock <= 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
-                                    <td class="qty-cell positive">${this.formatNumber(item.incomingQuantity)}</td>
-                                    <td class="qty-cell">${item.incomingOrders}</td>
-                                    <td class="qty-cell">${item.coverageDays === 999 ? '∞' : item.coverageDays} dager</td>
-                                    <td><span class="badge badge-${statusClass}">${statusClass === 'critical' ? 'HASTER' : statusClass === 'warning' ? 'FØLG OPP' : 'OK'}</span></td>
+                                <tr class="clickable" onclick="PlanningMode.showDetails('${line.articleNumber}')">
+                                    <td><strong>${line.articleNumber}</strong></td>
+                                    <td>${line.saNumber || '-'}</td>
+                                    <td>${this.truncate(line.description, 30)}</td>
+                                    <td class="qty-cell">${this.formatNumber(line.quantity)}</td>
+                                    <td class="qty-cell">${lineEta}</td>
                                 </tr>
                             `;
                         }).join('')}
                     </tbody>
                 </table>
             </div>
-            <div class="table-footer">
-                <p class="text-muted">Viser ${displayData.length} av ${filtered.length} artikler med innkommende bestillinger</p>
-            </div>
+            ${index < totalGroups - 1 ? '<div class="po-group-separator"></div>' : ''}
         `;
     }
 
@@ -611,6 +811,16 @@ class PlanningMode {
     static truncate(text, maxLength) {
         if (!text) return '-';
         return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    }
+
+    static formatDate(date) {
+        if (!date) return '-';
+        if (typeof date === 'string') return date;
+        try {
+            return date.toLocaleDateString('nb-NO');
+        } catch {
+            return '-';
+        }
     }
 
     /**
