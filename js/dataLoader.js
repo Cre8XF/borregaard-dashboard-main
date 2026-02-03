@@ -520,16 +520,45 @@ class DataLoader {
 }
 
 /**
- * Normaliser Item status fra artikkelstatus.xlsx til lifecycle-kategori
- * @param {string} raw - Rå status-streng fra Qlik-eksport
+ * Normaliser Artikelstatus til lifecycle-kategori
+ *
+ * Handles multiple status formats from Master.xlsx / Jeeves:
+ *   "3 - Utgående"  → UTGAENDE
+ *   "4 - Utgått"    → UTGAATT
+ *   "Utgående"      → UTGAENDE
+ *   "Utgått"        → UTGAATT
+ *   "3"             → UTGAENDE
+ *   "4"             → UTGAATT
+ *   anything else   → AKTIV (if truthy) or UKJENT (if empty)
+ *
+ * @param {string} raw - Rå status-streng fra Master.xlsx Artikelstatus
  * @returns {string} 'AKTIV' | 'UTGAENDE' | 'UTGAATT' | 'UKJENT'
  */
 function normalizeItemStatus(raw) {
     if (!raw) return 'UKJENT';
     const s = raw.toString().trim();
     if (!s) return 'UKJENT';
-    if (s.startsWith('3 -')) return 'UTGAENDE';
-    if (s.startsWith('4 -')) return 'UTGAATT';
+
+    // Numeric Jeeves codes with description
+    if (s.startsWith('3 -') || s.startsWith('3-')) return 'UTGAENDE';
+    if (s.startsWith('4 -') || s.startsWith('4-')) return 'UTGAATT';
+
+    // Pure numeric codes
+    if (s === '3') return 'UTGAENDE';
+    if (s === '4') return 'UTGAATT';
+
+    // Text-based status (Norwegian)
+    const lower = s.toLowerCase();
+    if (lower === 'utgående' || lower.includes('utgående') || lower.includes('utgaende')) return 'UTGAENDE';
+    if (lower === 'utgått' || lower.includes('utgått') || lower.includes('utgaatt')) return 'UTGAATT';
+    if (lower.includes('discontinued') || lower.includes('avvikle')) return 'UTGAENDE';
+
+    // Active codes
+    if (s.startsWith('1 -') || s.startsWith('1-') || s === '1') return 'AKTIV';
+    if (s.startsWith('2 -') || s.startsWith('2-') || s === '2') return 'AKTIV';
+    if (lower === 'aktiv' || lower.includes('aktiv')) return 'AKTIV';
+
+    // Default: anything else is considered AKTIV
     return 'AKTIV';
 }
 

@@ -1,22 +1,23 @@
 // ===================================
 // BORREGAARD DASHBOARD v4.0
-// Arbeidsrettet beslutningstøtte
+// Master.xlsx er SINGLE SOURCE OF TRUTH
+// Ordrer_Jeeves.xlsx brukes KUN for salg/etterspørsel
 // ===================================
 
 /**
  * DashboardApp - Hovedkontroller for applikasjonen
  * Koordinerer dataflyt, filopplasting og modulvisning
+ *
+ * ARCHITECTURE:
+ *   Master.xlsx → all article data (stock, status, incoming, alternatives)
+ *   Ordrer_Jeeves.xlsx → sales / demand analysis only
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (rå filer)
+        // Datakilder (kun 2 filer)
         this.files = {
-            inventory: null,    // Lagerbeholdning.xlsx
-            ordersIn: null,     // Bestillinger.xlsx
-            ordersOut: null,    // Ordrer_Jeeves.xlsx
-            saNumber: null,     // SA-Nummer.xlsx (valgfri)
-            artikkelstatus: null, // artikkelstatus.xlsx (valgfri)
-            alternativArtikkel: null // Alternativ_artikkel_Jeeves.xlsx (valgfri)
+            master: null,       // Master.xlsx (REQUIRED)
+            ordersOut: null     // Ordrer_Jeeves.xlsx (REQUIRED)
         };
 
         // Samlet datastruktur
@@ -36,6 +37,7 @@ class DashboardApp {
      */
     init() {
         console.log('Borregaard Dashboard v4.0 initializing...');
+        console.log('Master.xlsx is used as the single source of truth');
         this.setupEventListeners();
         this.setupDropZone();
         this.loadStoredData();
@@ -124,13 +126,16 @@ class DashboardApp {
 
     /**
      * Håndter multi-file drop — detekter og ruter filer til riktig input
+     *
+     * Only 2 file types are recognized:
+     *   master    → Master.xlsx
+     *   ordersOut → Ordrer_Jeeves.xlsx
      */
     async handleMultiFileDrop(files) {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null, artikkelstatus: null, alternativArtikkel: null };
-        const ignored = [];
+        const routed = { master: null, ordersOut: null };
 
         for (const file of files) {
             try {
@@ -140,39 +145,28 @@ class DashboardApp {
                     routed[fileType] = file;
                     results.push({ status: 'ok', message: this.getFileTypeLabel(fileType) + ': ' + file.name });
                 } else if (fileType && routed[fileType]) {
-                    // Duplicate type — overwrite with latest
                     routed[fileType] = file;
                     results.push({ status: 'ok', message: this.getFileTypeLabel(fileType) + ': ' + file.name + ' (overskrevet)' });
                 } else {
-                    ignored.push(file.name);
                     results.push({ status: 'error', message: 'Ukjent fil ignorert: ' + file.name });
                 }
             } catch (err) {
-                ignored.push(file.name);
                 results.push({ status: 'error', message: 'Feil ved lesing: ' + file.name });
             }
         }
 
-        // Place files into input elements using DataTransfer
-        this.setFileInput('inventoryFile', routed.inventory);
-        this.setFileInput('ordersInFile', routed.ordersIn);
+        // Place files into input elements
+        this.setFileInput('masterFile', routed.master);
         this.setFileInput('ordersOutFile', routed.ordersOut);
-        this.setFileInput('saNumberFile', routed.saNumber);
-        this.setFileInput('artikkelStatusFile', routed.artikkelstatus);
-        this.setFileInput('alternativArtikkelFile', routed.alternativArtikkel);
 
         // Add missing file warnings
-        if (!routed.inventory) results.push({ status: 'warning', message: 'Lagerbeholdning mangler (påkrevd)' });
-        if (!routed.ordersIn) results.push({ status: 'warning', message: 'Bestillinger mangler (påkrevd)' });
-        if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer mangler (påkrevd)' });
-        if (!routed.saNumber) results.push({ status: 'info', message: 'SA-nummer mangler (valgfri)' });
-        if (!routed.artikkelstatus) results.push({ status: 'info', message: 'Varestatus mangler (valgfri)' });
-        if (!routed.alternativArtikkel) results.push({ status: 'info', message: 'Alternativ artikkel mangler (valgfri)' });
+        if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
+        if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
 
         this.updateDropStatus(results);
 
         // Auto-trigger analysis if all required files are present
-        if (routed.inventory && routed.ordersIn && routed.ordersOut) {
+        if (routed.master && routed.ordersOut) {
             this.handleFileUpload();
         }
     }
@@ -180,28 +174,20 @@ class DashboardApp {
     /**
      * Detekter filtype basert på filnavn (primært) og kolonner (fallback)
      *
-     * Prioritet:
-     *   1. Filnavn (autoritativt – stabile Jeeves-eksporter)
-     *   2. Kolonnenavn (fallback – kun hvis filnavn ikke matcher)
+     * Only recognizes:
+     *   master    → filename contains 'master'
+     *   ordersOut → filename contains 'ordrer'
      *
      * @param {File} file
-     * @returns {Promise<string|null>} 'inventory' | 'ordersIn' | 'ordersOut' | 'saNumber' | null
+     * @returns {Promise<string|null>} 'master' | 'ordersOut' | null
      */
     async detectFileType(file) {
-        // Primary: filename-based detection (authoritative)
         const name = file.name.toLowerCase();
 
+        // Primary: filename-based detection
         const filenameRules = [
-            { match: 'lagerbeholdning', type: 'inventory' },
-            { match: 'bestilling',      type: 'ordersIn' },
-            { match: 'ordrer',          type: 'ordersOut' },
-            { match: 'sa-nummer',       type: 'saNumber' },
-            { match: 'sa_nummer',       type: 'saNumber' },
-            { match: 'sanummer',        type: 'saNumber' },
-            { match: 'artikkelstatus',  type: 'artikkelstatus' },
-            { match: 'alternativ_artikkel', type: 'alternativArtikkel' },
-            { match: 'alternativ artikkel', type: 'alternativArtikkel' },
-            { match: 'alternativartikkel',  type: 'alternativArtikkel' }
+            { match: 'master',   type: 'master' },
+            { match: 'ordrer',   type: 'ordersOut' }
         ];
 
         for (const rule of filenameRules) {
@@ -210,48 +196,19 @@ class DashboardApp {
             }
         }
 
-        // Fallback: column-based detection (only if filename did not match)
+        // Fallback: column-based detection
         try {
             const columns = await this.peekColumns(file);
             const colSet = new Set(columns.map(c => c.toLowerCase().trim()));
 
-            // Lagerbeholdning: Lagerställe, Artikelnr, Företagsnamn
-            if (colSet.has('lagerställe') && colSet.has('artikelnr') && colSet.has('företagsnamn')) {
-                return 'inventory';
+            // Master.xlsx: must have TotLagSaldo and Artikelstatus and Ersätts av artikel
+            if (colSet.has('totlagsaldo') && colSet.has('artikelstatus')) {
+                return 'master';
             }
 
-            // Bestillinger: Beställning, Artikelnr, BestAnt
-            if (colSet.has('beställning') && colSet.has('artikelnr') && colSet.has('bestant')) {
-                return 'ordersIn';
-            }
-
-            // Ordrer: Artikelnr, LevPlFtgKod, Antal
-            if (colSet.has('artikelnr') && colSet.has('levplftgkod') && colSet.has('antal')) {
+            // Ordrer: Artikelnr + LevPlFtgKod or OrdRadAnt
+            if (colSet.has('artikelnr') && (colSet.has('levplftgkod') || colSet.has('ordradant') || colSet.has('faktdat'))) {
                 return 'ordersOut';
-            }
-
-            // SA-nummer: Kunds artikelnummer, Artikelnr
-            if (colSet.has('kunds artikelnummer') && colSet.has('artikelnr')) {
-                return 'saNumber';
-            }
-
-            // Artikkelstatus: Item ID, Item status
-            if (colSet.has('item id') && colSet.has('item status')) {
-                return 'artikkelstatus';
-            }
-
-            // Broader column heuristics
-            if (colSet.has('lagerställe') || colSet.has('företagsnamn') || colSet.has('displagersaldo') || colSet.has('displagsaldo')) {
-                return 'inventory';
-            }
-            if (colSet.has('beställning') || colSet.has('bestant') || colSet.has('restantlgrenhet') || colSet.has('restantlgrenh')) {
-                return 'ordersIn';
-            }
-            if (colSet.has('levplftgkod') || colSet.has('ordradant') || colSet.has('faktdat')) {
-                return 'ordersOut';
-            }
-            if (colSet.has('kunds artikelnummer')) {
-                return 'saNumber';
             }
         } catch (e) {
             console.warn('Column detection failed for', file.name, e);
@@ -329,12 +286,8 @@ class DashboardApp {
      */
     getFileTypeLabel(type) {
         const labels = {
-            inventory: 'Lagerbeholdning',
-            ordersIn: 'Bestillinger',
-            ordersOut: 'Ordrer',
-            saNumber: 'SA-nummer',
-            artikkelstatus: 'Varestatus',
-            alternativArtikkel: 'Alternativ artikkel'
+            master: 'Master',
+            ordersOut: 'Ordrer (salg ut)'
         };
         return labels[type] || type;
     }
@@ -344,16 +297,12 @@ class DashboardApp {
      */
     async handleFileUpload() {
         // Hent filer fra input-elementer
-        const inventoryFile = document.getElementById('inventoryFile')?.files[0];
-        const ordersInFile = document.getElementById('ordersInFile')?.files[0];
+        const masterFile = document.getElementById('masterFile')?.files[0];
         const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
-        const saNumberFile = document.getElementById('saNumberFile')?.files[0];
-        const artikkelStatusFile = document.getElementById('artikkelStatusFile')?.files[0];
-        const alternativArtikkelFile = document.getElementById('alternativArtikkelFile')?.files[0];
 
         // Valider påkrevde filer
-        if (!inventoryFile || !ordersInFile || !ordersOutFile) {
-            this.showStatus('Lagerbeholdning, Bestillinger og Ordrer er påkrevd!', 'error');
+        if (!masterFile || !ordersOutFile) {
+            this.showStatus('Master.xlsx og Ordrer_Jeeves.xlsx er påkrevd!', 'error');
             return;
         }
 
@@ -363,18 +312,15 @@ class DashboardApp {
         try {
             // Prosesser alle filer via DataProcessor
             this.dataStore = await DataProcessor.processAllFiles({
-                inventory: inventoryFile,
-                ordersIn: ordersInFile,
-                ordersOut: ordersOutFile,
-                saNumber: saNumberFile,
-                artikkelstatus: artikkelStatusFile,
-                alternativArtikkel: alternativArtikkelFile
+                master: masterFile,
+                ordersOut: ordersOutFile
             }, (status) => this.showStatus(status, 'info'));
 
             // Generer legacy processedData for bakoverkompatibilitet
             this.processedData = this.generateLegacyData();
 
             console.log(`Prosessert: ${this.dataStore.items.size} artikler`);
+            console.log('Master.xlsx is used as the single source of truth');
 
             // Oppdater UI
             this.updateSummaryCards();
@@ -383,7 +329,7 @@ class DashboardApp {
 
             const quality = this.dataStore.getDataQualityReport();
             this.showStatus(
-                `Ferdig! ${quality.totalArticles} artikler analysert. SA-dekning: ${quality.saNumberCoverage}%`,
+                `Ferdig! ${quality.totalArticles} artikler analysert fra Master.xlsx. Innkommende: ${quality.withIncoming}`,
                 'success'
             );
 
@@ -434,7 +380,7 @@ class DashboardApp {
         const quality = this.dataStore.getDataQualityReport();
         const items = this.dataStore.getAllItems();
 
-        // Totalt artikler
+        // Totalt artikler (= number of rows in Master.xlsx)
         const totalEl = document.getElementById('totalItems');
         if (totalEl) {
             totalEl.textContent = quality.totalArticles.toLocaleString('nb-NO');
@@ -465,7 +411,7 @@ class DashboardApp {
             saEl.textContent = `${quality.saNumberCoverage}%`;
         }
 
-        // Innkommende bestillinger
+        // Innkommende bestillinger (BestAntLev > 0 from Master)
         const incomingEl = document.getElementById('incomingCount');
         if (incomingEl) {
             incomingEl.textContent = quality.withIncoming.toLocaleString('nb-NO');
@@ -476,7 +422,6 @@ class DashboardApp {
      * Bytt arbeidsmodus/tab
      */
     switchModule(moduleName) {
-        // Oppdater aktiv tab
         document.querySelectorAll('.tab-navigation .tab').forEach(tab => {
             tab.classList.remove('active');
             if (tab.dataset.module === moduleName) {
@@ -501,13 +446,10 @@ class DashboardApp {
                 <div class="placeholder-content">
                     <div class="placeholder-icon">📊</div>
                     <h3>Last opp data for å starte</h3>
-                    <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
+                    <p>Last opp de 2 påkrevde filene for å begynne analysen.</p>
                     <ul class="file-checklist">
-                        <li><strong>Lagerbeholdning.xlsx</strong> - Nåværende saldo og lokasjoner</li>
-                        <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
-                        <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
-                        <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
-                        <li class="optional"><strong>artikkelstatus.xlsx</strong> - Varestatus / Lifecycle (Qlik)</li>
+                        <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
+                        <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
                 </div>
@@ -595,7 +537,6 @@ class DashboardApp {
         statusDiv.textContent = message;
         statusDiv.className = 'status-message ' + type;
 
-        // Auto-skjul suksessmeldinger
         if (type === 'success') {
             setTimeout(() => {
                 statusDiv.className = 'status-message';
@@ -650,12 +591,10 @@ class DashboardApp {
      */
     saveData() {
         try {
-            // Lagre serialisert versjon av dataStore
             const dataToSave = {
                 version: '4.0',
                 currentModule: this.currentModule,
                 timestamp: new Date().toISOString(),
-                // Lagre som array av display-objekter
                 items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
                 saMapping: this.dataStore ? Array.from(this.dataStore.saMapping.entries()) : [],
                 alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
@@ -687,12 +626,12 @@ class DashboardApp {
                 const parsed = JSON.parse(stored);
 
                 if (parsed.version === '4.0' && parsed.items && parsed.items.length > 0) {
-                    // Gjenoppbygg dataStore fra lagrede data
                     this.dataStore = this.rebuildDataStore(parsed);
                     this.processedData = this.generateLegacyData();
                     this.currentModule = parsed.currentModule || 'overview';
 
                     console.log('Lastet lagret data fra:', parsed.timestamp);
+                    console.log('Master.xlsx is used as the single source of truth');
 
                     this.updateSummaryCards();
                     this.renderCurrentModule();
@@ -729,7 +668,6 @@ class DashboardApp {
             parsed.items.forEach(itemData => {
                 const item = store.getOrCreate(itemData.toolsArticleNumber);
                 if (item) {
-                    // Kopier alle felter
                     item.saNumber = itemData.saNumber;
                     item.description = itemData.description;
                     item.location = itemData.location;
@@ -743,6 +681,10 @@ class DashboardApp {
                     item.shelf = itemData.shelf;
                     item.hasSANumber = itemData.hasSANumber;
                     item._status = itemData._status || 'UKJENT';
+                    item.bestAntLev = itemData.bestAntLev || 0;
+                    item.bestillingsNummer = itemData.bestillingsNummer || '';
+                    item.ersattAvArtikel = itemData.ersattAvArtikel || '';
+                    item.ersatterArtikel = itemData.ersatterArtikel || '';
 
                     // Beregn verdier (simuler)
                     item.sales6m = itemData.sales6m || 0;
@@ -750,11 +692,15 @@ class DashboardApp {
                     item.orderCount = itemData.orderCount || 0;
                     item.monthlyConsumption = itemData.monthlyConsumption || 0;
                     item.daysToEmpty = itemData.daysToEmpty || 999999;
+
+                    // Restore incoming flag
+                    if (item.bestAntLev > 0) {
+                        item.hasIncomingOrders = true;
+                    }
                 }
             });
         }
 
-        // Oppdater datakvalitet
         store.calculateAll();
 
         return store;
@@ -766,18 +712,14 @@ class DashboardApp {
     clearAllData() {
         if (confirm('Er du sikker på at du vil slette all data? Dette kan ikke angres.')) {
             this.files = {
-                inventory: null,
-                ordersIn: null,
-                ordersOut: null,
-                saNumber: null,
-                artikkelstatus: null,
-                alternativArtikkel: null
+                master: null,
+                ordersOut: null
             };
             this.dataStore = null;
             this.processedData = [];
 
             localStorage.removeItem('borregaardDashboardV4');
-            localStorage.removeItem('borregaardDashboardV3'); // Fjern også gammel versjon
+            localStorage.removeItem('borregaardDashboardV3');
 
             // Nullstill file inputs og drop-status
             document.querySelectorAll('input[type="file"]').forEach(input => {
@@ -807,3 +749,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 console.log('Borregaard Dashboard v4.0 loaded');
+console.log('Master.xlsx is used as the single source of truth');

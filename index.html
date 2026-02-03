@@ -26,8 +26,8 @@
         <div id="multiDropZone" class="multi-drop-zone">
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
-            <p class="drop-zone-text">Dra inn alle Excel-filer her</p>
-            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer, Varestatus, Alternativ artikkel)</p>
+            <p class="drop-zone-text">Dra inn Excel-filer her</p>
+            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
@@ -36,20 +36,12 @@
 
         <div class="upload-grid six-columns">
           <div class="upload-item">
-            <label for="inventoryFile">
-              <span class="file-label">Lagerbeholdning</span>
+            <label for="masterFile">
+              <span class="file-label">Master</span>
               <span class="file-required">(påkrevd)</span>
             </label>
-            <input type="file" id="inventoryFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Saldo, reservert, lokasjon</span>
-          </div>
-          <div class="upload-item">
-            <label for="ordersInFile">
-              <span class="file-label">Bestillinger</span>
-              <span class="file-required">(påkrevd)</span>
-            </label>
-            <input type="file" id="ordersInFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Innkjøp til Borregaard</span>
+            <input type="file" id="masterFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Artikkeldata, saldo, status, bestillinger, alternativer</span>
           </div>
           <div class="upload-item">
             <label for="ordersOutFile">
@@ -58,30 +50,6 @@
             </label>
             <input type="file" id="ordersOutFile" accept=".xlsx,.csv" />
             <span class="file-hint">Ordrer_Jeeves – salgsordrer ut</span>
-          </div>
-          <div class="upload-item optional">
-            <label for="saNumberFile">
-              <span class="file-label">SA-Nummer</span>
-              <span class="file-optional">(valgfri)</span>
-            </label>
-            <input type="file" id="saNumberFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Tools art.nr ↔ SA-nummer</span>
-          </div>
-          <div class="upload-item optional">
-            <label for="artikkelStatusFile">
-              <span class="file-label">Varestatus / Lifecycle (Qlik)</span>
-              <span class="file-optional">(valgfri)</span>
-            </label>
-            <input type="file" id="artikkelStatusFile" accept=".xlsx,.csv" />
-            <span class="file-hint">artikkelstatus.xlsx</span>
-          </div>
-          <div class="upload-item optional">
-            <label for="alternativArtikkelFile">
-              <span class="file-label">Alternativ artikkel</span>
-              <span class="file-optional">(valgfri)</span>
-            </label>
-            <input type="file" id="alternativArtikkelFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Alternativ_artikkel_Jeeves.xlsx</span>
           </div>
         </div>
         <div class="upload-actions">
@@ -115,7 +83,7 @@
         </div>
       </section>
 
-      <!-- TAB NAVIGATION - 4 ARBEIDSMODUSER -->
+      <!-- TAB NAVIGATION - 5 ARBEIDSMODUSER -->
       <nav class="tab-navigation">
         <button class="tab active" data-module="overview">
           <span class="tab-icon">1</span>
@@ -149,14 +117,10 @@
         <div class="placeholder-content">
           <div class="placeholder-icon">📊</div>
           <h3>Last opp data for å starte</h3>
-          <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
+          <p>Last opp de 2 påkrevde filene for å begynne analysen.</p>
           <ul class="file-checklist">
-            <li><strong>Lagerbeholdning.xlsx</strong> - Nåværende saldo og lokasjoner</li>
-            <li><strong>Bestillinger.xlsx</strong> - Åpne innkjøpsordrer</li>
-            <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
-            <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
-            <li class="optional"><strong>artikkelstatus.xlsx</strong> - Varestatus / Lifecycle (Qlik)</li>
-            <li class="optional"><strong>Alternativ_artikkel_Jeeves.xlsx</strong> - Alternativ artikkel-koblinger</li>
+            <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
+            <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
           </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>
@@ -165,7 +129,7 @@
       <!-- FOOTER -->
       <footer>
         <p>Borregaard Dashboard v4.0 - Arbeidsrettet beslutningstøtte</p>
-        <p class="text-muted">Lokal databehandling - Ingen data sendes til skyen</p>
+        <p class="text-muted">Master.xlsx som single source of truth - Lokal databehandling</p>
       </footer>
     </div>
 

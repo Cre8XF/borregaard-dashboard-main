@@ -1,17 +1,27 @@
 // ===================================
 // MODUS 5: UTGÅENDE ARTIKLER – ALTERNATIV-ANALYSE
-// Viser: Har utgående artikler gyldige alternativer?
+// Data source: Master.xlsx (Ersätts av artikel)
 // ===================================
 
 /**
  * AlternativeAnalysisMode - Analyserer utgående artikler og deres alternativer
  *
- * Logikk:
- * 1. Identifiser alle artikler med status "Utgående" (_status UTGAENDE/UTGAATT eller isDiscontinued)
- * 2. For hver utgående artikkel:
- *    a. Finn matchende alternativ(er) fra alternativeArticles
- *    b. For hvert alternativ: sjekk om det finnes i lagerbeholdning, hent status
- * 3. Klassifiser resultat
+ * STRICT RULE (NO EXCEPTIONS):
+ *   If Artikelstatus == "Utgående":
+ *     If "Ersätts av artikel" is populated:
+ *       → This value is the ONLY valid alternative article number
+ *     Else:
+ *       → Classification = "INGEN ALTERNATIV DEFINERT"
+ *
+ * Alternative lookup:
+ *   Look up the alternative article in THE SAME Master.xlsx dataset
+ *   Retrieve: Artikelstatus, TotLagSaldo / DispLagSaldo, BestAntLev
+ *
+ * ABSOLUTE PROHIBITIONS:
+ *   - Never infer alternatives
+ *   - Never use SA-nummer
+ *   - Never use previous alternative files
+ *   - Never allow an article to reference itself as alternative
  */
 class AlternativeAnalysisMode {
     static dataStore = null;
@@ -30,16 +40,16 @@ class AlternativeAnalysisMode {
 
         const analysis = this.analyzeOutgoingArticles(store);
 
-        // Console log for column detection and summary
-        console.log('=== Utgående artikler – alternativanalyse ===');
+        console.log('=== Utgående artikler – alternativanalyse (Master.xlsx) ===');
         console.log(`  Totalt utgående artikler: ${analysis.totalOutgoing}`);
         console.log(`  Med gyldig alternativ: ${analysis.withValidAlternative}`);
         console.log(`  Uten alternativ: ${analysis.missingAlternative}`);
+        console.log('  Data source: Master.xlsx (Ersätts av artikel)');
 
         return `
             <div class="module-header">
                 <h2>Utgående artikler – Alternativanalyse</h2>
-                <p class="module-description">Har utgående artikler gyldige alternativer i systemet?</p>
+                <p class="module-description">Har utgående artikler gyldige alternativer? (Kilde: Master.xlsx → Ersätts av artikel)</p>
             </div>
 
             ${this.renderSummaryCards(analysis)}
@@ -62,8 +72,6 @@ class AlternativeAnalysisMode {
                 <button onclick="AlternativeAnalysisMode.exportCSV()" class="btn-export">Eksporter CSV</button>
             </div>
 
-            ${this.renderNoAlternativeFileWarning(store)}
-
             <div id="altAnalysisContent">
                 ${this.renderTable(analysis)}
             </div>
@@ -72,10 +80,18 @@ class AlternativeAnalysisMode {
 
     /**
      * Analyserer alle utgående artikler og deres alternativer
+     *
+     * STRICT LOGIC:
+     * 1. For each article where Artikelstatus == "Utgående":
+     * 2.   Check "Ersätts av artikel" from Master.xlsx
+     * 3.   If populated AND not self-reference:
+     *        → Look up alternative in the same dataset
+     *        → Retrieve status, stock, incoming
+     * 4.   If NOT populated:
+     *        → INGEN ALTERNATIV DEFINERT
      */
     static analyzeOutgoingArticles(store) {
         const items = store.getAllItems();
-        const altMap = store.alternativeArticles || new Map();
         const results = [];
 
         let totalOutgoing = 0;
@@ -84,18 +100,6 @@ class AlternativeAnalysisMode {
         let missingAlternative = 0;
         let criticalCount = 0;
 
-        // Dynamisk deteksjon av artikkelstatus-felt
-        // Vi bruker _status (fra artikkelstatus.xlsx) og isDiscontinued (fra lagerbeholdning statusText)
-        const statusFields = [];
-        if (items.length > 0) {
-            const sample = items[0];
-            if (sample._status !== undefined) statusFields.push('_status');
-            if (sample.isDiscontinued !== undefined) statusFields.push('isDiscontinued');
-            if (sample.statusText !== undefined) statusFields.push('statusText');
-            if (sample.status !== undefined) statusFields.push('status');
-            console.log('  Artikkelstatus-felt detektert:', statusFields);
-        }
-
         items.forEach(item => {
             // Identifiser utgående artikkel
             const isOutgoing = this.isArticleOutgoing(item);
@@ -103,11 +107,11 @@ class AlternativeAnalysisMode {
 
             totalOutgoing++;
 
-            // Finn alternativer
-            const alternatives = altMap.get(item.toolsArticleNumber) || [];
+            // STRICT: use "Ersätts av artikel" from Master.xlsx ONLY
+            const ersattAv = (item.ersattAvArtikel || '').trim();
 
-            if (alternatives.length === 0) {
-                // Ingen alternativ definert
+            if (!ersattAv) {
+                // No alternative defined
                 missingAlternative++;
                 criticalCount++;
                 results.push({
@@ -115,58 +119,81 @@ class AlternativeAnalysisMode {
                     sourceDescription: item.description || '',
                     sourceStatus: this.getStatusLabel(item),
                     sourceStock: item.stock || 0,
+                    sourceAvailable: item.available || 0,
                     altArticle: '-',
                     altDescription: '',
                     altExistsInInventory: false,
                     altStatus: '-',
+                    altStock: 0,
+                    altAvailable: 0,
+                    altBestAntLev: 0,
+                    classification: 'INGEN ALTERNATIV DEFINERT',
+                    classType: 'critical',
+                    _item: item
+                });
+            } else if (ersattAv === item.toolsArticleNumber) {
+                // PROHIBITION: article references itself — treat as no alternative
+                missingAlternative++;
+                criticalCount++;
+                results.push({
+                    sourceArticle: item.toolsArticleNumber,
+                    sourceDescription: item.description || '',
+                    sourceStatus: this.getStatusLabel(item),
+                    sourceStock: item.stock || 0,
+                    sourceAvailable: item.available || 0,
+                    altArticle: ersattAv,
+                    altDescription: '(selv-referanse ignorert)',
+                    altExistsInInventory: false,
+                    altStatus: '-',
+                    altStock: 0,
+                    altAvailable: 0,
+                    altBestAntLev: 0,
                     classification: 'INGEN ALTERNATIV DEFINERT',
                     classType: 'critical',
                     _item: item
                 });
             } else {
+                // Alternative is defined — look it up in the SAME Master.xlsx dataset
                 withAlternative++;
-                let hasValidAlt = false;
+                const altItem = store.items.get(ersattAv);
 
-                alternatives.forEach(alt => {
-                    const altItem = store.items.get(alt.altArticle);
-                    let classification;
-                    let classType;
+                let classification;
+                let classType;
 
-                    if (altItem) {
-                        const altOutgoing = this.isArticleOutgoing(altItem);
-                        if (!altOutgoing) {
-                            classification = 'Har alternativ – finnes og er aktiv';
-                            classType = 'ok';
-                            hasValidAlt = true;
-                        } else {
-                            classification = 'Har alternativ – finnes men er ikke aktiv';
-                            classType = 'warning';
-                        }
+                if (altItem) {
+                    const altOutgoing = this.isArticleOutgoing(altItem);
+                    if (!altOutgoing) {
+                        classification = 'Har alternativ – finnes og er aktiv';
+                        classType = 'ok';
+                        withValidAlternative++;
                     } else {
-                        classification = 'Har alternativ – finnes ikke i lager';
+                        classification = 'Har alternativ – finnes men er ikke aktiv';
                         classType = 'warning';
+                        criticalCount++;
                     }
-
-                    results.push({
-                        sourceArticle: item.toolsArticleNumber,
-                        sourceDescription: item.description || '',
-                        sourceStatus: this.getStatusLabel(item),
-                        sourceStock: item.stock || 0,
-                        altArticle: alt.altArticle,
-                        altDescription: altItem ? (altItem.description || '') : '',
-                        altExistsInInventory: !!altItem,
-                        altStatus: altItem ? this.getStatusLabel(altItem) : '-',
-                        classification: classification,
-                        classType: classType,
-                        _item: item
-                    });
-                });
-
-                if (hasValidAlt) {
-                    withValidAlternative++;
                 } else {
+                    classification = 'Har alternativ – finnes ikke i lager';
+                    classType = 'warning';
                     criticalCount++;
                 }
+
+                results.push({
+                    sourceArticle: item.toolsArticleNumber,
+                    sourceDescription: item.description || '',
+                    sourceStatus: this.getStatusLabel(item),
+                    sourceStock: item.stock || 0,
+                    sourceAvailable: item.available || 0,
+                    altArticle: ersattAv,
+                    altDescription: altItem ? (altItem.description || '') : '',
+                    altExistsInInventory: !!altItem,
+                    altStatus: altItem ? this.getStatusLabel(altItem) : '-',
+                    altStock: altItem ? altItem.stock : 0,
+                    altAvailable: altItem ? altItem.available : 0,
+                    altBestAntLev: altItem ? altItem.bestAntLev : 0,
+                    classification: classification,
+                    classType: classType,
+                    _item: item
+                });
             }
         });
 
@@ -182,34 +209,36 @@ class AlternativeAnalysisMode {
 
     /**
      * Sjekk om en artikkel er utgående
-     * Dynamisk: bruker alle tilgjengelige status-felt
+     *
+     * Uses Artikelstatus from Master.xlsx:
+     *   _status UTGAENDE/UTGAATT → outgoing
+     *   isDiscontinued flag → outgoing
+     *   Numeric status 3/4 → outgoing
+     *   Text patterns → outgoing
      */
     static isArticleOutgoing(item) {
-        // Sjekk _status fra artikkelstatus.xlsx
+        // Check _status (normalized from Master.xlsx Artikelstatus)
         if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') {
             return true;
         }
 
-        // Sjekk isDiscontinued flagg (satt av statusText-matching)
+        // Check isDiscontinued flag
         if (item.isDiscontinued) {
             return true;
         }
 
-        // Sjekk statusText direkte
-        if (item.statusText) {
-            const lower = item.statusText.toLowerCase();
+        // Check statusText / raw status for text patterns
+        const rawStatus = (item.status || '').toString().trim();
+        if (rawStatus) {
+            const lower = rawStatus.toLowerCase();
             if (lower.includes('utgå') || lower.includes('discontinued') ||
                 lower.includes('avvikle') || lower.includes('utgående')) {
                 return true;
             }
-        }
 
-        // Sjekk numerisk status (Jeeves)
-        if (item.status) {
-            const statusStr = item.status.toString().trim();
-            // Status 3 = Utgående, 4 = Utgått i Jeeves
-            if (statusStr === '3' || statusStr === '4' ||
-                statusStr.startsWith('3 -') || statusStr.startsWith('4 -')) {
+            // Numeric Jeeves status codes
+            if (rawStatus === '3' || rawStatus === '4' ||
+                rawStatus.startsWith('3 -') || rawStatus.startsWith('4 -')) {
                 return true;
             }
         }
@@ -269,22 +298,6 @@ class AlternativeAnalysisMode {
     }
 
     /**
-     * Render advarsel hvis alternativ-fil ikke er lastet
-     */
-    static renderNoAlternativeFileWarning(store) {
-        if (store.alternativeArticles && store.alternativeArticles.size > 0) {
-            return '';
-        }
-        return `
-            <div class="view-insight warning">
-                <p><strong>Alternativ_artikkel_Jeeves.xlsx er ikke lastet.</strong></p>
-                <p>Last opp filen for å se koblinger mellom utgående artikler og deres alternativer.
-                Uten denne filen vises alle utgående artikler som "INGEN ALTERNATIV DEFINERT".</p>
-            </div>
-        `;
-    }
-
-    /**
      * Render hovedtabellen
      */
     static renderTable(analysis) {
@@ -307,6 +320,8 @@ class AlternativeAnalysisMode {
                             <th>Alt. beskrivelse</th>
                             ${this.renderSortableHeader('I lager', 'altExistsInInventory')}
                             ${this.renderSortableHeader('Alt. status', 'altStatus')}
+                            ${this.renderSortableHeader('Alt. saldo', 'altStock')}
+                            ${this.renderSortableHeader('Alt. på vei', 'altBestAntLev')}
                             ${this.renderSortableHeader('Vurdering', 'classType')}
                         </tr>
                     </thead>
@@ -316,7 +331,7 @@ class AlternativeAnalysisMode {
                 </table>
             </div>
             <div class="table-footer">
-                <p class="text-muted">Viser ${filtered.length} rader</p>
+                <p class="text-muted">Viser ${filtered.length} rader | Datakilde: Master.xlsx (Ersätts av artikel)</p>
             </div>
         `;
     }
@@ -337,6 +352,8 @@ class AlternativeAnalysisMode {
                 <td>${this.truncate(row.altDescription, 25)}</td>
                 <td>${row.altArticle !== '-' ? (row.altExistsInInventory ? '<span class="badge badge-ok">Ja</span>' : '<span class="badge badge-warning">Nei</span>') : '<span class="text-muted">-</span>'}</td>
                 <td>${row.altStatus !== '-' ? this.renderStatusBadge(row.altStatus) : '<span class="text-muted">-</span>'}</td>
+                <td class="qty-cell">${row.altArticle !== '-' && row.altExistsInInventory ? this.formatNumber(row.altStock) : '-'}</td>
+                <td class="qty-cell">${row.altArticle !== '-' && row.altBestAntLev > 0 ? this.formatNumber(row.altBestAntLev) : '-'}</td>
                 <td>${this.renderClassificationBadge(row.classification, row.classType)}</td>
             </tr>
         `;
@@ -376,7 +393,7 @@ class AlternativeAnalysisMode {
                 filtered = filtered.filter(r => r.altArticle !== '-');
                 break;
             case 'withoutAlt':
-                filtered = filtered.filter(r => r.altArticle === '-');
+                filtered = filtered.filter(r => r.altArticle === '-' || r.classification === 'INGEN ALTERNATIV DEFINERT');
                 break;
             case 'critical':
                 filtered = filtered.filter(r => r.classType === 'critical' || r.classType === 'warning');
@@ -474,10 +491,14 @@ class AlternativeAnalysisMode {
             'Utgående artikkelnummer',
             'Beskrivelse',
             'Saldo',
+            'Disponibel',
             'Alternativ artikkelnummer',
             'Alternativ beskrivelse',
             'Alternativ finnes i lager',
             'Alternativ status',
+            'Alternativ saldo',
+            'Alternativ disponibel',
+            'Alternativ på vei inn',
             'Vurdering'
         ];
 
@@ -485,10 +506,14 @@ class AlternativeAnalysisMode {
             r.sourceArticle,
             `"${(r.sourceDescription || '').replace(/"/g, '""')}"`,
             r.sourceStock,
+            r.sourceAvailable,
             r.altArticle,
             `"${(r.altDescription || '').replace(/"/g, '""')}"`,
             r.altExistsInInventory ? 'Ja' : 'Nei',
             r.altStatus,
+            r.altStock,
+            r.altAvailable,
+            r.altBestAntLev,
             r.classification
         ]);
 

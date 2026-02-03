@@ -468,9 +468,8 @@ class PlanningMode {
      * Detect the purchase order number field from incoming orders data.
      *
      * Strategy: The field is stored as "orderNo" on each incomingOrder object,
-     * populated by DataProcessor.processOrdersInData() which maps from the
-     * column variant "orderNoIn" (candidates: Beställningsnummer, Bestillingsnr,
-     * Bestillingsnummer, PO Number). We verify the field exists and has values.
+     * populated by DataProcessor.processMasterData() from the Master.xlsx
+     * column "Beställningsnummer". We verify the field exists and has values.
      *
      * @param {Array} items - Items with incomingOrders
      * @returns {{ field: string|null, reason: string }}
@@ -500,8 +499,7 @@ class PlanningMode {
             if (foundCount > 0) {
                 const reason = `Field "${candidate}" selected as purchase order number ` +
                     `(found in ${foundCount}/${totalOrders} order lines). ` +
-                    `Source column mapped via DataProcessor.COLUMN_VARIANTS.orderNoIn: ` +
-                    `[Beställningsnummer, Bestillingsnr, Bestillingsnummer, PO Number].`;
+                    `Source column: Master.xlsx → Beställningsnummer.`;
                 console.log('[PO-gruppering] ' + reason);
                 return { field: candidate, reason };
             }
