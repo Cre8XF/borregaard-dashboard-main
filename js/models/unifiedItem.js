@@ -262,6 +262,7 @@ class UnifiedDataStore {
         this.items = new Map(); // toolsArticleNumber -> UnifiedItem
         this.saMapping = new Map(); // toolsArticleNumber -> saNumber
         this.placementMapping = new Map(); // toolsArticleNumber -> placementLocation
+        this.alternativeArticles = new Map(); // sourceArticle -> [{altArticle, altDescription}]
         this.dataQuality = {
             totalArticles: 0,
             withSANumber: 0,
@@ -406,6 +407,7 @@ class UnifiedDataStore {
         this.items.clear();
         this.saMapping.clear();
         this.placementMapping.clear();
+        this.alternativeArticles.clear();
         this.dataQuality = {
             totalArticles: 0,
             withSANumber: 0,

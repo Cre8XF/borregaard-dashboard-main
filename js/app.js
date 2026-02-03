@@ -15,7 +15,8 @@ class DashboardApp {
             ordersIn: null,     // Bestillinger.xlsx
             ordersOut: null,    // Ordrer_Jeeves.xlsx
             saNumber: null,     // SA-Nummer.xlsx (valgfri)
-            artikkelstatus: null // artikkelstatus.xlsx (valgfri)
+            artikkelstatus: null, // artikkelstatus.xlsx (valgfri)
+            alternativArtikkel: null // Alternativ_artikkel_Jeeves.xlsx (valgfri)
         };
 
         // Samlet datastruktur
@@ -128,7 +129,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null, artikkelstatus: null };
+        const routed = { inventory: null, ordersIn: null, ordersOut: null, saNumber: null, artikkelstatus: null, alternativArtikkel: null };
         const ignored = [];
 
         for (const file of files) {
@@ -158,6 +159,7 @@ class DashboardApp {
         this.setFileInput('ordersOutFile', routed.ordersOut);
         this.setFileInput('saNumberFile', routed.saNumber);
         this.setFileInput('artikkelStatusFile', routed.artikkelstatus);
+        this.setFileInput('alternativArtikkelFile', routed.alternativArtikkel);
 
         // Add missing file warnings
         if (!routed.inventory) results.push({ status: 'warning', message: 'Lagerbeholdning mangler (påkrevd)' });
@@ -165,6 +167,7 @@ class DashboardApp {
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer mangler (påkrevd)' });
         if (!routed.saNumber) results.push({ status: 'info', message: 'SA-nummer mangler (valgfri)' });
         if (!routed.artikkelstatus) results.push({ status: 'info', message: 'Varestatus mangler (valgfri)' });
+        if (!routed.alternativArtikkel) results.push({ status: 'info', message: 'Alternativ artikkel mangler (valgfri)' });
 
         this.updateDropStatus(results);
 
@@ -195,7 +198,10 @@ class DashboardApp {
             { match: 'sa-nummer',       type: 'saNumber' },
             { match: 'sa_nummer',       type: 'saNumber' },
             { match: 'sanummer',        type: 'saNumber' },
-            { match: 'artikkelstatus',  type: 'artikkelstatus' }
+            { match: 'artikkelstatus',  type: 'artikkelstatus' },
+            { match: 'alternativ_artikkel', type: 'alternativArtikkel' },
+            { match: 'alternativ artikkel', type: 'alternativArtikkel' },
+            { match: 'alternativartikkel',  type: 'alternativArtikkel' }
         ];
 
         for (const rule of filenameRules) {
@@ -327,7 +333,8 @@ class DashboardApp {
             ordersIn: 'Bestillinger',
             ordersOut: 'Ordrer',
             saNumber: 'SA-nummer',
-            artikkelstatus: 'Varestatus'
+            artikkelstatus: 'Varestatus',
+            alternativArtikkel: 'Alternativ artikkel'
         };
         return labels[type] || type;
     }
@@ -342,6 +349,7 @@ class DashboardApp {
         const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
         const saNumberFile = document.getElementById('saNumberFile')?.files[0];
         const artikkelStatusFile = document.getElementById('artikkelStatusFile')?.files[0];
+        const alternativArtikkelFile = document.getElementById('alternativArtikkelFile')?.files[0];
 
         // Valider påkrevde filer
         if (!inventoryFile || !ordersInFile || !ordersOutFile) {
@@ -359,7 +367,8 @@ class DashboardApp {
                 ordersIn: ordersInFile,
                 ordersOut: ordersOutFile,
                 saNumber: saNumberFile,
-                artikkelstatus: artikkelStatusFile
+                artikkelstatus: artikkelStatusFile,
+                alternativArtikkel: alternativArtikkelFile
             }, (status) => this.showStatus(status, 'info'));
 
             // Generer legacy processedData for bakoverkompatibilitet
@@ -524,6 +533,12 @@ class DashboardApp {
                 contentDiv.innerHTML = PlanningMode.render(this.dataStore);
                 break;
 
+            case 'alternatives':
+                if (typeof AlternativeAnalysisMode !== 'undefined') {
+                    contentDiv.innerHTML = AlternativeAnalysisMode.render(this.dataStore);
+                }
+                break;
+
             // Legacy-moduler (bakoverkompatibilitet)
             case 'topSellers':
                 if (typeof TopSellers !== 'undefined') {
@@ -643,6 +658,9 @@ class DashboardApp {
                 // Lagre som array av display-objekter
                 items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
                 saMapping: this.dataStore ? Array.from(this.dataStore.saMapping.entries()) : [],
+                alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
+                    ? Array.from(this.dataStore.alternativeArticles.entries())
+                    : [],
                 dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null
             };
 
@@ -699,6 +717,13 @@ class DashboardApp {
             });
         }
 
+        // Gjenoppbygg alternativ artikkel mapping
+        if (parsed.alternativeArticles) {
+            parsed.alternativeArticles.forEach(([key, value]) => {
+                store.alternativeArticles.set(key, value);
+            });
+        }
+
         // Gjenoppbygg items
         if (parsed.items) {
             parsed.items.forEach(itemData => {
@@ -745,7 +770,8 @@ class DashboardApp {
                 ordersIn: null,
                 ordersOut: null,
                 saNumber: null,
-                artikkelstatus: null
+                artikkelstatus: null,
+                alternativArtikkel: null
             };
             this.dataStore = null;
             this.processedData = [];

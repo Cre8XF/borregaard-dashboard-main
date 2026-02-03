@@ -239,7 +239,16 @@ class DataProcessor {
                 console.log('Artikkelstatus: prosessert');
             }
 
-            // 6. Beregn alle avledede verdier
+            // 6. Last og prosesser Alternativ artikkel (valgfri)
+            if (files.alternativArtikkel) {
+                statusCallback('Laster alternativ artikkel...');
+                const altData = await this.loadFile(files.alternativArtikkel);
+                console.log('Alternativ artikkel kolonner:', altData.columns);
+                this.processAlternativeArticleData(altData.data, store);
+                console.log('Alternativ artikkel: prosessert');
+            }
+
+            // 7. Beregn alle avledede verdier
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
@@ -655,6 +664,179 @@ class DataProcessor {
         });
 
         console.log(`Artikkelstatus: ${matchCount} artikler matchet`);
+    }
+
+    /**
+     * Prosesser alternativ artikkel data (Alternativ_artikkel_Jeeves.xlsx)
+     *
+     * Dynamisk kolonnedeteksjon – inspekterer header-raden for å finne:
+     * - Primær artikkelnummer-kolonne (kilde-artikkel)
+     * - Alternativ artikkelnummer-kolonne(r)
+     * - Eventuell beskrivelse
+     *
+     * Lagrer i store.alternativeArticles: Map<sourceArticle -> [{altArticle, ...}]>
+     */
+    static processAlternativeArticleData(data, store) {
+        if (!data || data.length === 0) {
+            console.warn('Alternativ artikkel: Ingen data');
+            return;
+        }
+
+        // Dynamisk kolonnedeteksjon basert på header-raden
+        const firstRow = data[0];
+        const columns = Object.keys(firstRow);
+
+        console.log('=== Alternativ artikkel: Dynamisk kolonnedeteksjon ===');
+        console.log('  Tilgjengelige kolonner:', columns);
+
+        // Detekter artikkelnummer-kolonne (kilde)
+        const articleColCandidates = [
+            'Artikelnr', 'artikelnr', 'Article No', 'ArticleNo',
+            'Artikkelnr', 'Item ID', 'ItemNo', 'Varenr',
+            'Artikelnummer', 'ArtNr', 'Art.nr', 'Art nr'
+        ];
+
+        // Detekter alternativ artikkelnummer-kolonne
+        const altArticleColCandidates = [
+            'Alternativ artikel', 'Alternativ artikkel', 'Alt artikel',
+            'Alt artikkel', 'Alt.artikel', 'Alt.artikkel',
+            'Alternativt artikelnr', 'Alt artikelnr', 'AltArtikelnr',
+            'Ersättningsartikel', 'Replacement', 'Replacement Article',
+            'Alternative Article', 'AltArticle', 'Ersättning',
+            'Alt art nr', 'Alternativ art', 'Alternativartikel'
+        ];
+
+        // Detekter beskrivelse for alternativ artikkel
+        const altDescColCandidates = [
+            'Alt artikelbeskrivning', 'Alt beskrivelse', 'Alt beskrivning',
+            'Alt artikelbeskr', 'Ersättning beskrivning',
+            'Alternativ beskrivelse', 'AltBeskrivelse',
+            'Alt Artikelbeskrivning'
+        ];
+
+        let sourceCol = null;
+        let altCol = null;
+        let altDescCol = null;
+
+        // Match source article column
+        for (const candidate of articleColCandidates) {
+            const match = columns.find(c =>
+                c.toLowerCase().trim() === candidate.toLowerCase().trim()
+            );
+            if (match) {
+                sourceCol = match;
+                break;
+            }
+        }
+        // Fallback: partial match for source
+        if (!sourceCol) {
+            for (const candidate of articleColCandidates) {
+                const match = columns.find(c =>
+                    c.toLowerCase().includes(candidate.toLowerCase()) ||
+                    candidate.toLowerCase().includes(c.toLowerCase())
+                );
+                if (match) {
+                    sourceCol = match;
+                    break;
+                }
+            }
+        }
+
+        // Match alternative article column
+        for (const candidate of altArticleColCandidates) {
+            const match = columns.find(c =>
+                c.toLowerCase().trim() === candidate.toLowerCase().trim()
+            );
+            if (match) {
+                altCol = match;
+                break;
+            }
+        }
+        // Fallback: partial match for alternative
+        if (!altCol) {
+            for (const candidate of altArticleColCandidates) {
+                const match = columns.find(c =>
+                    c.toLowerCase().includes(candidate.toLowerCase()) ||
+                    candidate.toLowerCase().includes(c.toLowerCase())
+                );
+                if (match) {
+                    altCol = match;
+                    break;
+                }
+            }
+        }
+        // Last resort: find any column containing "alternativ" or "ersättning" that isn't sourceCol
+        if (!altCol) {
+            altCol = columns.find(c =>
+                (c.toLowerCase().includes('alternativ') || c.toLowerCase().includes('ersättning') || c.toLowerCase().includes('replacement')) &&
+                c !== sourceCol
+            );
+        }
+
+        // Match alt description column (optional)
+        for (const candidate of altDescColCandidates) {
+            const match = columns.find(c =>
+                c.toLowerCase().trim() === candidate.toLowerCase().trim()
+            );
+            if (match) {
+                altDescCol = match;
+                break;
+            }
+        }
+        if (!altDescCol) {
+            // Fallback: any description-like column that isn't the first source desc
+            altDescCol = columns.find(c => {
+                const lc = c.toLowerCase();
+                return (lc.includes('beskrivning') || lc.includes('beskrivelse') || lc.includes('description')) &&
+                    c !== sourceCol;
+            });
+        }
+
+        // If we still can't find columns, try positional heuristic
+        // First column = source article, second column = alternative article
+        if (!sourceCol && columns.length >= 2) {
+            sourceCol = columns[0];
+            console.log(`  Heuristikk: Bruker første kolonne som kilde: "${sourceCol}"`);
+        }
+        if (!altCol && columns.length >= 2) {
+            altCol = columns.find(c => c !== sourceCol) || columns[1];
+            console.log(`  Heuristikk: Bruker andre kolonne som alternativ: "${altCol}"`);
+        }
+
+        console.log(`  Detektert kilde-kolonne: "${sourceCol}"`);
+        console.log(`  Detektert alternativ-kolonne: "${altCol}"`);
+        if (altDescCol) console.log(`  Detektert alt. beskrivelse-kolonne: "${altDescCol}"`);
+
+        if (!sourceCol || !altCol) {
+            console.error('Alternativ artikkel: Kunne ikke detektere nødvendige kolonner');
+            return;
+        }
+
+        // Build alternative articles mapping
+        if (!store.alternativeArticles) {
+            store.alternativeArticles = new Map();
+        }
+
+        let processedCount = 0;
+        data.forEach(row => {
+            const source = (row[sourceCol] || '').toString().trim();
+            const alt = (row[altCol] || '').toString().trim();
+
+            if (!source || !alt) return;
+
+            const entry = {
+                altArticle: alt,
+                altDescription: altDescCol ? (row[altDescCol] || '').toString().trim() : ''
+            };
+
+            if (!store.alternativeArticles.has(source)) {
+                store.alternativeArticles.set(source, []);
+            }
+            store.alternativeArticles.get(source).push(entry);
+            processedCount++;
+        });
+
+        console.log(`Alternativ artikkel: ${processedCount} koblinger, ${store.alternativeArticles.size} unike kilde-artikler`);
     }
 
     /**

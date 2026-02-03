@@ -27,14 +27,14 @@
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
             <p class="drop-zone-text">Dra inn alle Excel-filer her</p>
-            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer, Varestatus)</p>
+            <p class="drop-zone-hint">(Lager, Bestillinger, Ordrer, SA-nummer, Varestatus, Alternativ artikkel)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
 
         <p class="upload-divider"><span>eller velg filer enkeltvis</span></p>
 
-        <div class="upload-grid five-columns">
+        <div class="upload-grid six-columns">
           <div class="upload-item">
             <label for="inventoryFile">
               <span class="file-label">Lagerbeholdning</span>
@@ -74,6 +74,14 @@
             </label>
             <input type="file" id="artikkelStatusFile" accept=".xlsx,.csv" />
             <span class="file-hint">artikkelstatus.xlsx</span>
+          </div>
+          <div class="upload-item optional">
+            <label for="alternativArtikkelFile">
+              <span class="file-label">Alternativ artikkel</span>
+              <span class="file-optional">(valgfri)</span>
+            </label>
+            <input type="file" id="alternativArtikkelFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Alternativ_artikkel_Jeeves.xlsx</span>
           </div>
         </div>
         <div class="upload-actions">
@@ -129,6 +137,11 @@
           <span class="tab-label">Planlegging</span>
           <span class="tab-desc">Forberedelser</span>
         </button>
+        <button class="tab" data-module="alternatives">
+          <span class="tab-icon">5</span>
+          <span class="tab-label">Alternativer</span>
+          <span class="tab-desc">Utgående analyse</span>
+        </button>
       </nav>
 
       <!-- MODULE CONTENT AREA -->
@@ -143,6 +156,7 @@
             <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut</li>
             <li class="optional"><strong>SA-Nummer.xlsx</strong> - Valgfri koblingsfil</li>
             <li class="optional"><strong>artikkelstatus.xlsx</strong> - Varestatus / Lifecycle (Qlik)</li>
+            <li class="optional"><strong>Alternativ_artikkel_Jeeves.xlsx</strong> - Alternativ artikkel-koblinger</li>
           </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>
@@ -168,6 +182,7 @@
     <script src="js/workModes/demand.js"></script>
     <script src="js/workModes/assortment.js"></script>
     <script src="js/workModes/planning.js"></script>
+    <script src="js/workModes/alternatives.js"></script>
 
     <!-- Legacy modules (for compatibility during transition) -->
     <script src="js/topSellers.js"></script>
