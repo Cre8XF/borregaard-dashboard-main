@@ -100,8 +100,15 @@ class InactiveItems {
         data = this.sortData(data);
 
         // Calculate totals
-        const totalValue = data.reduce((sum, item) => sum + this.estimateValue(item), 0);
-        const totalStock = data.reduce((sum, item) => sum + item.stock, 0);
+        const totalValue = data.reduce(
+            (sum, item) => sum + (item.estimertVerdi || 0),
+            0
+        );
+        const totalStock = data.reduce(
+            (sum, item) => sum + item.stock,
+            0
+        );
+
 
         // Group by status
         const byStatus = {};
@@ -154,7 +161,7 @@ class InactiveItems {
                                 <td><strong>${item.itemNo}</strong></td>
                                 <td>${this.truncate(item.description, 35)}</td>
                                 <td class="qty-cell">${this.formatNumber(item.stock)}</td>
-                                <td class="qty-cell">${this.formatNumber(this.estimateValue(item))} kr</td>
+                                <td class="qty-cell">${this.formatNumber(item.estimertVerdi || 0)} kr</td>
                                 <td>
                                     <span class="badge ${this.getStatusClass(item.status)}">
                                         ${this.translateStatus(item.status)}
@@ -227,14 +234,6 @@ class InactiveItems {
             default:
                 return '<span class="badge badge-info">Vurder handling</span>';
         }
-    }
-
-    /**
-     * Estimate item value
-     */
-    static estimateValue(item) {
-        const unitPrice = item.price || 50;
-        return item.stock * unitPrice;
     }
 
     /**
@@ -311,11 +310,12 @@ class InactiveItems {
                 item.itemNo,
                 `"${(item.description || '').replace(/"/g, '""')}"`,
                 item.stock,
-                this.estimateValue(item),
+                item.estimertVerdi || 0,
                 this.translateStatus(item.status),
                 `"${(item.supplier || '').replace(/"/g, '""')}"`,
                 rec
             ];
+
         });
 
         const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');

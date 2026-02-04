@@ -23,18 +23,22 @@ class DataProcessor {
 
     // ── Hard-bound Master.xlsx column names (NO autodetection) ──
     static MASTER_COLUMNS = {
-        articleNumber:    'Artikelnr',
-        description:      'Artikelbeskrivning',
-        articleStatus:    'Artikelstatus',
-        totalStock:       'TotLagSaldo',
-        availableStock:   'DispLagSaldo',
-        reserved:         'ReservAnt',
-        orderedQty:       'BestAntLev',
-        orderNumber:      'Beställningsnummer',
-        replacedBy:       'Ersätts av artikel',
-        replaces:         'Ersätter artikel',
-        location:         'Lokasjon'
+        articleNumber: 'Artikelnr',
+        description: 'Artikelbeskrivning',
+        articleStatus: 'Artikelstatus',
+        totalStock: 'TotLagSaldo',
+        availableStock: 'DispLagSaldo',
+        reserved: 'ReservAnt',
+
+        kalkylPris: 'Kalkylpris bas',
+
+        orderedQty: 'BestAntLev',
+        orderNumber: 'Beställningsnummer',
+        replacedBy: 'Ersätts av artikel',
+        replaces: 'Ersätter artikel',
+        location: 'Lokasjon'
     };
+
 
     // ── Column variants for Ordrer_Jeeves.xlsx (sales data) ──
     static ORDRER_COLUMN_VARIANTS = {
@@ -84,7 +88,7 @@ class DataProcessor {
      * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
-    static async processAllFiles(files, statusCallback = () => {}) {
+    static async processAllFiles(files, statusCallback = () => { }) {
         const store = new UnifiedDataStore();
 
         console.log('========================================');
@@ -236,6 +240,11 @@ class DataProcessor {
             item.stock = this.parseNumber(this.getMasterValue(row, colMap.totalStock));
             item.available = this.parseNumber(this.getMasterValue(row, colMap.availableStock));
             item.reserved = this.parseNumber(this.getMasterValue(row, colMap.reserved));
+            // ── Kalkylepris from Master ──
+            item.kalkylPris = this.parseNumber(
+                this.getMasterValue(row, colMap.kalkylPris)
+            );
+
 
             // ── Incoming orders from Master ──
             const bestAntLev = this.parseNumber(this.getMasterValue(row, colMap.orderedQty));
@@ -316,9 +325,9 @@ class DataProcessor {
 
         if (missing.length > 0) {
             const errorMsg = `Master.xlsx: Følgende påkrevde kolonner mangler!\n` +
-                             `  Mangler: ${missing.join(', ')}\n` +
-                             `  Tilgjengelige kolonner: ${columns.join(', ')}\n` +
-                             `  ALLE kolonner i Master.xlsx er påkrevd. Ingen fallback tillatt.`;
+                `  Mangler: ${missing.join(', ')}\n` +
+                `  Tilgjengelige kolonner: ${columns.join(', ')}\n` +
+                `  ALLE kolonner i Master.xlsx er påkrevd. Ingen fallback tillatt.`;
             console.error(errorMsg);
             throw new Error(errorMsg);
         }

@@ -87,7 +87,10 @@ class SlowMovers {
         }
 
         // Summary by value
-        const totalValue = filtered.reduce((sum, item) => sum + this.estimateValue(item), 0);
+        const totalValue = filtered.reduce(
+            (sum, item) => sum + (item.estimertVerdi || 0),
+            0
+        );
 
         return `
             <div class="summary-cards" style="margin-bottom: 20px;">
@@ -130,11 +133,11 @@ class SlowMovers {
                     </thead>
                     <tbody>
                         ${filtered.map(item => {
-                            const opportunities = this.findInternalOpportunities(item);
-                            const hasOpp = opportunities.some(o => o.sales > 50);
-                            const rowClass = hasOpp ? 'row-success' : 'row-warning';
+            const opportunities = this.findInternalOpportunities(item);
+            const hasOpp = opportunities.some(o => o.sales > 50);
+            const rowClass = hasOpp ? 'row-success' : 'row-warning';
 
-                            return `
+            return `
                                 <tr class="${rowClass}">
                                     <td><strong>${item.itemNo}</strong></td>
                                     <td>${this.truncate(item.description, 35)}</td>
@@ -143,16 +146,16 @@ class SlowMovers {
                                     <td class="qty-cell">${item.daysToEmpty > 9999 ? '∞' : this.formatNumber(item.daysToEmpty)}</td>
                                     <td>
                                         ${opportunities.length > 0 ?
-                                            opportunities.map(o =>
-                                                `<div>${o.department}: ${o.stock} stk (${o.sales}/år)</div>`
-                                            ).join('') :
-                                            '<em class="text-muted">Ingen data</em>'
-                                        }
+                    opportunities.map(o =>
+                        `<div>${o.department}: ${o.stock} stk (${o.sales}/år)</div>`
+                    ).join('') :
+                    '<em class="text-muted">Ingen data</em>'
+                }
                                     </td>
                                     <td>${this.getRecommendation(item, opportunities)}</td>
                                 </tr>
                             `;
-                        }).join('')}
+        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -236,15 +239,6 @@ class SlowMovers {
         }
 
         return `<span class="badge badge-warning">Retur leverandør</span>`;
-    }
-
-    /**
-     * Estimate item value (rough calculation)
-     */
-    static estimateValue(item) {
-        // Rough estimate: 50kr per unit if no price available
-        const unitPrice = item.price || 50;
-        return item.stock * unitPrice;
     }
 
     /**

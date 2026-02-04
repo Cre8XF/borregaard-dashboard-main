@@ -26,6 +26,8 @@ class UnifiedItem {
         this.stock = 0;           // TotLagSaldo
         this.reserved = 0;        // ReservAnt
         this.available = 0;       // DispLagSaldo
+        this.kalkylPris = 0;        // Kalkylepris per stk
+        this.estimertVerdi = 0;    // kalkylPris × saldo
         this.bp = 0;              // Bestillingspunkt (if present)
         this.max = 0;             // Maksimum lager (if present)
         this.status = '';         // Artikelstatus (raw value)
@@ -164,6 +166,8 @@ class UnifiedItem {
             this.hasIncomingOrders = true;
         }
 
+
+
         // Finn siste innkommende bestillingsdato
         let latestOrderDate = null;
         this.incomingOrders.forEach(order => {
@@ -184,6 +188,13 @@ class UnifiedItem {
         if (this.available === 0 && this.stock > 0) {
             this.available = this.stock - this.reserved;
         }
+        // ── Beregn estimert verdi (kalkylepris × saldo) ──
+        if (this.kalkylPris > 0 && this.stock > 0) {
+            this.estimertVerdi = this.kalkylPris * this.stock;
+        } else {
+            this.estimertVerdi = 0;
+        }
+
     }
 
     /**
@@ -254,6 +265,7 @@ class UnifiedItem {
             description: this.description,
             location: this.location,
             stock: this.stock,
+            estimertVerdi: this.estimertVerdi,
             reserved: this.reserved,
             available: this.available,
             bp: this.bp,
