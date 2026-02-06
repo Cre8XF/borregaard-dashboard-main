@@ -91,7 +91,7 @@ class AlternativeAnalysisMode {
      *        → INGEN ALTERNATIV DEFINERT
      */
     static analyzeOutgoingArticles(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const results = [];
 
         let totalOutgoing = 0;

@@ -285,8 +285,10 @@ class UnifiedItem {
             issues.push({ type: 'info', code: 'EMPTY_WITH_INCOMING', message: `Tom, men ${this.bestAntLev} på vei` });
         }
 
-        // ── DATA: Mangler SA-nummer (kept for display, only if SA data was loaded) ──
-        if (!this.hasSANumber && this.hasSANumber !== undefined) {
+        // ── DATA: Mangler SA-nummer ──
+        // FASE 6: Artikler uten SA vises ikke i operative visninger (getActiveItems).
+        // Beholdt for diagnostikk dersom noen kaller getIssues() på ikke-SA-artikler.
+        if (!this.hasSANumber) {
             issues.push({ type: 'data', code: 'NO_SA_NUMBER', message: 'Mangler SA-nummer' });
         }
 
@@ -450,10 +452,26 @@ class UnifiedDataStore {
     }
 
     /**
-     * Hent alle artikler som array
+     * Hent ALLE artikler som array (hele Master-listen).
+     * Brukes kun internt for diagnostikk og dataprocessing.
+     * For operativt innhold, bruk getActiveItems().
      */
     getAllItems() {
         return Array.from(this.items.values());
+    }
+
+    /**
+     * Hent kun SA-artikler (det operative universet).
+     *
+     * FASE 6: SA-Nummer.xlsx definerer det operative universet.
+     * Alle KPI-er, lister og analyser skal bruke denne metoden.
+     * Artikler uten SA-nummer er fortsatt i minne (items), men
+     * påvirker ikke tall eller visninger.
+     *
+     * @returns {UnifiedItem[]} Kun artikler med hasSANumber === true
+     */
+    getActiveItems() {
+        return Array.from(this.items.values()).filter(item => item.hasSANumber);
     }
 
     /**
@@ -464,20 +482,35 @@ class UnifiedDataStore {
     }
 
     /**
-     * Hent artikler med spesifikke issues
+     * Hent artikler med spesifikke issues (kun SA-artikler)
      */
     getItemsWithIssue(issueCode) {
-        return this.getAllItems().filter(item =>
+        return this.getActiveItems().filter(item =>
             item.getIssues().some(issue => issue.code === issueCode)
         );
     }
 
     /**
      * Hent datakvalitetsrapport
+     *
+     * FASE 6: Inkluderer nå aktive (SA) artikkelstatistikk.
+     * activeArticles = antall SA-artikler (operativt univers)
+     * totalArticles = antall rader i Master (databank)
      */
     getDataQualityReport() {
+        const active = this.getActiveItems();
+        const activeWithIncoming = active.filter(i => i.bestAntLev > 0 || i.hasIncomingOrders).length;
+        const activeWithOutgoing = active.filter(i => i.hasOutgoingOrders).length;
+        const activeWithIssues = active.filter(i => i.getIssues().length > 0).length;
+
         return {
             ...this.dataQuality,
+            // Operativt univers (SA-artikler)
+            activeArticles: active.length,
+            activeWithIncoming,
+            activeWithOutgoing,
+            activeWithIssues,
+            // SA-dekning relativt til Master
             saNumberCoverage: this.dataQuality.totalArticles > 0
                 ? Math.round((this.dataQuality.withSANumber / this.dataQuality.totalArticles) * 100)
                 : 0

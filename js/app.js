@@ -1,5 +1,5 @@
 // ===================================
-// BORREGAARD DASHBOARD v4.0
+// BORREGAARD DASHBOARD v4.2
 // Master.xlsx er SINGLE SOURCE OF TRUTH
 // Ordrer_Jeeves.xlsx brukes KUN for salg/etterspørsel
 // ===================================
@@ -38,7 +38,7 @@ class DashboardApp {
      * Initialiser applikasjonen
      */
     init() {
-        console.log('Borregaard Dashboard v4.1 initializing...');
+        console.log('Borregaard Dashboard v4.2 initializing...');
         console.log('Master.xlsx is used as the single source of truth');
         this.setupEventListeners();
         this.setupDropZone();
@@ -382,7 +382,8 @@ class DashboardApp {
     generateLegacyData() {
         if (!this.dataStore) return [];
 
-        return this.dataStore.getAllItems().map(item => {
+        // FASE 6: Kun SA-artikler i legacy-formatet
+        return this.dataStore.getActiveItems().map(item => {
             const display = item.toDisplayObject();
             return {
                 itemNo: item.toolsArticleNumber,
@@ -409,20 +410,24 @@ class DashboardApp {
 
     /**
      * Oppdater sammendragskort
+     *
+     * FASE 6: Bruker getActiveItems() (SA-artikler) for alle KPI-er.
+     * Master-artikler uten SA påvirker ikke toppkortene.
      */
     updateSummaryCards() {
         if (!this.dataStore) return;
 
         const quality = this.dataStore.getDataQualityReport();
-        const items = this.dataStore.getAllItems();
+        // FASE 6: Kun SA-artikler i KPI-er
+        const items = this.dataStore.getActiveItems();
 
-        // Totalt artikler (= number of rows in Master.xlsx)
+        // Totalt SA-artikler (operativt univers)
         const totalEl = document.getElementById('totalItems');
         if (totalEl) {
-            totalEl.textContent = quality.totalArticles.toLocaleString('nb-NO');
+            totalEl.textContent = quality.activeArticles.toLocaleString('nb-NO');
         }
 
-        // Kritiske issues
+        // Kritiske issues (kun SA-artikler)
         let criticalCount = 0;
         let warningCount = 0;
         items.forEach(item => {
@@ -441,16 +446,16 @@ class DashboardApp {
             warningEl.textContent = warningCount.toLocaleString('nb-NO');
         }
 
-        // SA-nummer dekning
+        // SA-nummer dekning (relativt til hele Master)
         const saEl = document.getElementById('saNumberCoverage');
         if (saEl) {
             saEl.textContent = `${quality.saNumberCoverage}%`;
         }
 
-        // Innkommende bestillinger (BestAntLev > 0 from Master)
+        // Innkommende bestillinger (kun SA-artikler)
         const incomingEl = document.getElementById('incomingCount');
         if (incomingEl) {
-            incomingEl.textContent = quality.withIncoming.toLocaleString('nb-NO');
+            incomingEl.textContent = quality.activeWithIncoming.toLocaleString('nb-NO');
         }
     }
 
@@ -637,7 +642,7 @@ class DashboardApp {
     saveData() {
         try {
             const dataToSave = {
-                version: '4.1',
+                version: '4.2',
                 currentModule: this.currentModule,
                 timestamp: new Date().toISOString(),
                 items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
@@ -670,7 +675,7 @@ class DashboardApp {
             if (stored) {
                 const parsed = JSON.parse(stored);
 
-                if (parsed.version === '4.1' && parsed.items && parsed.items.length > 0) {
+                if (parsed.version === '4.2' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
                     this.processedData = this.generateLegacyData();
                     this.currentModule = parsed.currentModule || 'overview';
@@ -804,5 +809,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new DashboardApp();
 });
 
-console.log('Borregaard Dashboard v4.1 loaded');
+console.log('Borregaard Dashboard v4.2 loaded');
 console.log('Master.xlsx is used as the single source of truth');

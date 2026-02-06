@@ -102,12 +102,13 @@ class OverviewMode {
     }
 
     /**
-     * Samle alle issues fra alle artikler
+     * Samle alle issues fra SA-artikler (operativt univers)
      */
     static collectAllIssues(store) {
         const allIssues = [];
 
-        store.getAllItems().forEach(item => {
+        // FASE 6: Kun SA-artikler i issue-listen
+        store.getActiveItems().forEach(item => {
             const issues = item.getIssues();
             issues.forEach(issue => {
                 allIssues.push({
@@ -230,27 +231,27 @@ class OverviewMode {
     static renderDataQuality(report) {
         return `
             <div class="data-quality-section">
-                <h3>Datakvalitet</h3>
+                <h3>Datakvalitet (SA-artikler)</h3>
                 <div class="quality-grid">
                     <div class="quality-item">
-                        <span class="quality-label">Totalt artikler:</span>
+                        <span class="quality-label">SA-artikler (operativt univers):</span>
+                        <span class="quality-value">${this.formatNumber(report.activeArticles)}</span>
+                    </div>
+                    <div class="quality-item">
+                        <span class="quality-label">Totalt i Master:</span>
                         <span class="quality-value">${this.formatNumber(report.totalArticles)}</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med SA-nummer:</span>
-                        <span class="quality-value">${this.formatNumber(report.withSANumber)} (${report.saNumberCoverage}%)</span>
-                    </div>
-                    <div class="quality-item ${report.withoutSANumber > 0 ? 'warning' : ''}">
-                        <span class="quality-label">Uten SA-nummer:</span>
-                        <span class="quality-value">${this.formatNumber(report.withoutSANumber)}</span>
+                        <span class="quality-label">SA-dekning av Master:</span>
+                        <span class="quality-value">${report.saNumberCoverage}%</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med innkommende bestillinger:</span>
-                        <span class="quality-value">${this.formatNumber(report.withIncoming)}</span>
+                        <span class="quality-label">SA-artikler med innkommende:</span>
+                        <span class="quality-value">${this.formatNumber(report.activeWithIncoming)}</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med salgshistorikk:</span>
-                        <span class="quality-value">${this.formatNumber(report.withOutgoing)}</span>
+                        <span class="quality-label">SA-artikler med salgshistorikk:</span>
+                        <span class="quality-value">${this.formatNumber(report.activeWithOutgoing)}</span>
                     </div>
                 </div>
             </div>
@@ -258,10 +259,11 @@ class OverviewMode {
     }
 
     /**
-     * Render innkommende bestillinger
+     * Render innkommende bestillinger (kun SA-artikler)
      */
     static renderIncomingOrders(store) {
-        const itemsWithIncoming = store.getAllItems()
+        // FASE 6: Kun SA-artikler
+        const itemsWithIncoming = store.getActiveItems()
             .filter(item => item.hasIncomingOrders && item.incomingOrders.length > 0)
             .sort((a, b) => {
                 const aQty = a.incomingOrders.reduce((sum, o) => sum + o.quantity, 0);
@@ -318,20 +320,22 @@ class OverviewMode {
      * Vises kun dersom BP-data er lastet.
      */
     static renderBelowBPSection(store) {
-        const items = store.getAllItems().filter(item =>
+        // FASE 6: Kun SA-artikler
+        const activeItems = store.getActiveItems();
+        const items = activeItems.filter(item =>
             item.bestillingspunkt !== null &&
             item.bestillingspunkt > 0 &&
             item.stock < item.bestillingspunkt
         );
 
-        // Ikke vis seksjonen dersom ingen artikler har BP satt
-        const anyBP = store.getAllItems().some(i => i.bestillingspunkt !== null);
+        // Ikke vis seksjonen dersom ingen SA-artikler har BP satt
+        const anyBP = activeItems.some(i => i.bestillingspunkt !== null);
         if (!anyBP) return '';
 
         return `
             <div class="new-section below-bp-section">
                 <h3>Under bestillingspunkt (${items.length})</h3>
-                <p class="section-description">Artikler der lagersaldo er under BP fra Analyse_Lagerplan.xlsx. Bør bestilles.</p>
+                <p class="section-description">SA-artikler der lagersaldo er under BP fra Analyse_Lagerplan.xlsx. Bør bestilles.</p>
                 ${items.length === 0
                     ? '<div class="alert alert-success">Alle artikler er over bestillingspunkt.</div>'
                     : `
@@ -382,27 +386,27 @@ class OverviewMode {
      * Indikerer kritiske hull i planleggingsdata.
      */
     static renderMissingBPEOKSection(store) {
+        // FASE 6: Kun SA-artikler (alle i activeItems har allerede SA)
+        const activeItems = store.getActiveItems();
+
         // Kun relevant dersom Analyse_Lagerplan er lastet
-        const anyPlanningData = store.getAllItems().some(i =>
+        const anyPlanningData = activeItems.some(i =>
             i.bestillingspunkt !== null || i.ordrekvantitet !== null
         );
         if (!anyPlanningData) return '';
 
-        const itemsMissingBP = store.getAllItems().filter(item =>
-            item.hasSANumber &&
+        const itemsMissingBP = activeItems.filter(item =>
             item.bestillingspunkt === null &&
             item.sales12m > 0
         );
 
-        const itemsMissingEOK = store.getAllItems().filter(item =>
-            item.hasSANumber &&
+        const itemsMissingEOK = activeItems.filter(item =>
             item.ordrekvantitet === null &&
             item.sales12m > 0
         );
 
         // Unik kombinasjon: mangler begge
-        const missingBoth = store.getAllItems().filter(item =>
-            item.hasSANumber &&
+        const missingBoth = activeItems.filter(item =>
             item.bestillingspunkt === null &&
             item.ordrekvantitet === null &&
             item.sales12m > 0
@@ -411,7 +415,7 @@ class OverviewMode {
         return `
             <div class="new-section missing-planning-section">
                 <h3>Mangler planleggingsdata (BP / EOK)</h3>
-                <p class="section-description">SA-artikler med salg men uten BP og/eller EOK fra Analyse_Lagerplan.xlsx. Kritiske hull i planlegging.</p>
+                <p class="section-description">SA-artikler med salg men uten BP og/eller EOK fra Analyse_Lagerplan. Kritiske hull i planlegging.</p>
                 <div class="planning-gap-summary">
                     <div class="stat-card warning">
                         <div class="stat-value">${itemsMissingBP.length}</div>
@@ -472,7 +476,8 @@ class OverviewMode {
      * Disse binder kapital og bør selges ut eller avhendes.
      */
     static renderOutgoingWithStockSection(store) {
-        const items = store.getAllItems().filter(item =>
+        // FASE 6: Kun SA-artikler
+        const items = store.getActiveItems().filter(item =>
             (item._status === 'UTGAENDE' || item._status === 'UTGAATT') &&
             item.stock > 0
         );
@@ -485,7 +490,7 @@ class OverviewMode {
             <div class="new-section outgoing-stock-section">
                 <h3>Utgående artikler med saldo (${items.length})</h3>
                 <p class="section-description">
-                    Artikler under utfasing som fortsatt har lagersaldo. Binder kapital.
+                    SA-artikler under utfasing som fortsatt har lagersaldo. Binder kapital.
                     ${totalValue > 0 ? `Estimert bundet verdi: <strong>${this.formatNumber(totalValue)} kr</strong>` : ''}
                 </p>
                 <div class="table-wrapper">

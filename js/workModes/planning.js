@@ -83,7 +83,7 @@ class PlanningMode {
      * Analyser planleggingsbehov
      */
     static analyzePlanning(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const planning = {
             criticalItems: [],
             reorderSuggestions: [],
@@ -601,7 +601,7 @@ class PlanningMode {
         }
 
         // Get all items with incoming orders from the store
-        const allItems = this.dataStore.getAllItems().filter(
+        const allItems = this.dataStore.getActiveItems().filter(
             item => item.hasIncomingOrders && item.incomingOrders.length > 0
         );
 

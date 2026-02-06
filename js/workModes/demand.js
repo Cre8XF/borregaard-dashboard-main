@@ -176,7 +176,7 @@ class DemandMode {
      * Beregn statistikk
      */
     static calculateStats(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
 
         let totalSales = 0;
@@ -386,7 +386,7 @@ class DemandMode {
      * Render kundeavhengighetsanalyse
      */
     static renderCustomerDependency() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
 
         // Analyser kundefordeling per artikkel
         const articleCustomers = [];
@@ -489,7 +489,7 @@ class DemandMode {
      * Render trendanalyse
      */
     static renderTrends() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
 
         // Beregn trend (6m vs 12m sammenligning)
         const withTrend = items
@@ -649,7 +649,7 @@ class DemandMode {
      * Aggreger utgående ordrer per artikkel + leveringslager
      */
     static aggregateByWarehouse() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
@@ -749,7 +749,7 @@ class DemandMode {
      */
     static getDeliveryLocations(store) {
         const locations = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             item.outgoingOrders.forEach(order => {
                 if (order.deliveryLocation && order.deliveryLocation.trim() !== '') {
                     locations.add(order.deliveryLocation.trim());
@@ -764,7 +764,7 @@ class DemandMode {
      */
     static getCategories(store) {
         const categories = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.category && item.category.toString().trim() !== '') {
                 categories.add(item.category.toString().trim());
             }
@@ -786,7 +786,7 @@ class DemandMode {
      *   OK      – Aktiv artikkel + saldo > 0
      */
     static analyzeCriticalDemand() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodWeeks = 52; // alltid 12 mnd for denne visningen
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - 12);
@@ -1034,7 +1034,7 @@ class DemandMode {
      *   LAV     – Aktiv artikkel
      */
     static getCriticalSalesItems() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
@@ -1340,7 +1340,7 @@ class DemandMode {
      * Hent filtrerte items
      */
     static getFilteredItems() {
-        let items = this.dataStore.getAllItems();
+        let items = this.dataStore.getActiveItems();
 
         if (this.searchTerm) {
             const term = this.searchTerm.toLowerCase();
