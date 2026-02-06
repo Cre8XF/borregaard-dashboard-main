@@ -27,7 +27,7 @@
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
             <p class="drop-zone-text">Dra inn Excel-filer her</p>
-            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx)</p>
+            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx, SA-nummer.xlsx)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
@@ -50,6 +50,14 @@
             </label>
             <input type="file" id="ordersOutFile" accept=".xlsx,.csv" />
             <span class="file-hint">Ordrer_Jeeves – salgsordrer ut</span>
+          </div>
+          <div class="upload-item">
+            <label for="saFile">
+              <span class="file-label">SA-nummer</span>
+              <span class="file-optional">(valgfri)</span>
+            </label>
+            <input type="file" id="saFile" accept=".xlsx,.csv" />
+            <span class="file-hint">SA-nummer – avtalenummer per artikkel</span>
           </div>
         </div>
         <div class="upload-actions">
@@ -121,6 +129,7 @@
           <ul class="file-checklist">
             <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
             <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
+            <li><strong>SA-nummer.xlsx</strong> - SA-nummer per artikkel (valgfri)</li>
           </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>

@@ -453,7 +453,7 @@ class OverviewMode {
             <div class="modal-content modal-large">
                 <div class="modal-header">
                     <h3>${item.toolsArticleNumber}</h3>
-                    ${item.saNumber ? `<span class="sa-badge">SA: ${item.saNumber}</span>` : ''}
+                    ${item.saNumber ? `<span class="sa-badge">SA: ${item.saNumber}${item.saType ? ' (' + item.saType + ')' : ''}</span>` : ''}
                     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
                 </div>
                 <div class="modal-body">
@@ -478,6 +478,30 @@ class OverviewMode {
                             </div>
                         </div>
                     </div>
+
+                    ${item.saNumber ? `
+                    <div class="detail-section">
+                        <h4>SA-avtale</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <strong>SA-nummer</strong>
+                                ${item.saNumber}
+                            </div>
+                            <div class="detail-item">
+                                <strong>SA-type</strong>
+                                ${item.saType || '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Gyldig fra</strong>
+                                ${display.saGyldigFra ? this.formatDate(display.saGyldigFra) : '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Gyldig til</strong>
+                                ${display.saGyldigTil ? this.formatDate(display.saGyldigTil) : '-'}
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
 
                     <div class="detail-section">
                         <h4>Lagerstatus</h4>

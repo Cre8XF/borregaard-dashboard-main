@@ -12,11 +12,13 @@
  *                  incoming orders (BestAntLev), alternatives (Ersätts av artikel)
  *   Ordrer_Jeeves.xlsx → sales history, demand patterns, top sellers
  *
+ * OPTIONAL enrichment files:
+ *   SA-nummer.xlsx → SA-number enrichment (merged into UnifiedItem)
+ *
  * DEPRECATED files (NOT used):
  *   - Lagerbeholdning_Jeeves.xlsx
  *   - Bestillinger_Jeeves.xlsx
  *   - artikkelstatus.xlsx
- *   - SA-Nummer.xlsx
  *   - Alternativ_artikkel_Jeeves.xlsx
  */
 class DataProcessor {
@@ -77,14 +79,38 @@ class DataProcessor {
         ]
     };
 
+    // ── Column variants for SA-nummer file (optional enrichment) ──
+    static SA_COLUMN_VARIANTS = {
+        articleNumber: [
+            'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
+        ],
+        saNummer: [
+            'SA-nummer', 'SA nummer', 'SA Number', 'SA-nr', 'SAnummer',
+            'SA', 'SAnr', 'SA-Nummer'
+        ],
+        saType: [
+            'SA-type', 'SA type', 'SAtype', 'Type', 'Avtaletype'
+        ],
+        gyldigFra: [
+            'Gyldig fra', 'GyldigFra', 'Valid from', 'Fra dato', 'Startdato',
+            'Fra', 'Start'
+        ],
+        gyldigTil: [
+            'Gyldig til', 'GyldigTil', 'Valid to', 'Til dato', 'Sluttdato',
+            'Til', 'Slutt'
+        ]
+    };
+
     /**
      * Prosesser alle filer og bygg UnifiedDataStore
      *
      * Input:
      *   files.master    → Master.xlsx   (REQUIRED)
      *   files.ordersOut → Ordrer_Jeeves.xlsx (REQUIRED)
+     *   files.sa        → SA-nummer.xlsx (OPTIONAL)
      *
-     * @param {Object} files - { master: File, ordersOut: File }
+     * @param {Object} files - { master: File, ordersOut: File, sa?: File }
      * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
@@ -122,11 +148,27 @@ class DataProcessor {
             this.processOrdersOutData(ordersOutData.data, store);
             console.log('Ordrer_Jeeves.xlsx prosessert (sales/demand)');
 
-            // ── 3. Calculate derived values ──
+            // ── 3. Load and process SA-nummer file (OPTIONAL enrichment) ──
+            if (files.sa) {
+                statusCallback('Laster SA-nummer fil...');
+                try {
+                    const saData = await this.loadFile(files.sa);
+                    console.log('SA-nummer fil kolonner:', saData.columns);
+                    console.log(`SA-nummer fil rader: ${saData.rowCount}`);
+
+                    this.processSAData(saData.data, saData.columns, store);
+                    console.log('SA-nummer fil prosessert (enrichment)');
+                } catch (saError) {
+                    console.warn('SA-nummer fil kunne ikke prosesseres:', saError.message);
+                    // SA file is optional — do not throw
+                }
+            }
+
+            // ── 4. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
-            // ── 4. Log data quality ──
+            // ── 5. Log data quality ──
             const quality = store.getDataQualityReport();
             console.log('Datakvalitet:', quality);
             console.log(`  Artikler totalt: ${quality.totalArticles}`);
@@ -407,6 +449,102 @@ class DataProcessor {
         if (unmatchedCount > 0) {
             console.log(`  Ikke matchet mot Master: ${unmatchedCount}`);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  SA-NUMMER FILE PROCESSING — OPTIONAL ENRICHMENT
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser SA-nummer fil — ADDITIVE enrichment only
+     *
+     * Merges SA data INTO existing UnifiedItem instances.
+     * Does NOT create new items. Does NOT overwrite Master data.
+     *
+     * JOIN KEY: Artikelnr (toolsArticleNumber)
+     *
+     * @param {Array} data - Parsed rows from SA file
+     * @param {string[]} columns - Column headers from SA file
+     * @param {UnifiedDataStore} store - Data store with existing items
+     */
+    static processSAData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('SA-nummer fil er tom');
+            return;
+        }
+
+        let matchedCount = 0;
+        let unmatchedCount = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getSAColumnValue(row, columns, 'articleNumber');
+            if (!articleNo) return;
+
+            const key = articleNo.toString().trim();
+            const item = store.items.get(key);
+
+            if (!item) {
+                // Item does not exist in Master — ignore silently
+                unmatchedCount++;
+                return;
+            }
+
+            matchedCount++;
+
+            // Build SA data object
+            const saData = {
+                saNummer: this.getSAColumnValue(row, columns, 'saNummer'),
+                saType: this.getSAColumnValue(row, columns, 'saType'),
+                saGyldigFra: this.parseDate(this.getSAColumnValue(row, columns, 'gyldigFra')),
+                saGyldigTil: this.parseDate(this.getSAColumnValue(row, columns, 'gyldigTil'))
+            };
+
+            // Apply SA data to existing item (additive)
+            item.setSAData(saData);
+
+            // Also update the SA mapping in the store
+            if (saData.saNummer) {
+                store.setSAMapping(key, saData.saNummer);
+            }
+        });
+
+        console.log(`SA-nummer resultat:`);
+        console.log(`  Matchet mot Master: ${matchedCount}`);
+        if (unmatchedCount > 0) {
+            console.log(`  Ikke matchet (ignorert): ${unmatchedCount}`);
+        }
+    }
+
+    /**
+     * Get value from SA file row using flexible column matching
+     *
+     * @param {Object} row - Data row
+     * @param {string[]} columns - Available column headers
+     * @param {string} fieldName - Logical field name from SA_COLUMN_VARIANTS
+     * @returns {string} Value or empty string
+     */
+    static getSAColumnValue(row, columns, fieldName) {
+        const variants = this.SA_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Exact match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+
+            // Case-insensitive match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+
+        return '';
     }
 
     // ════════════════════════════════════════════════════

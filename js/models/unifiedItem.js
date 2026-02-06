@@ -63,6 +63,11 @@ class UnifiedItem {
         this.lastSaleDate = null;
         this.lastOrderDate = null;
 
+        // ── SA-nummer enrichment (from SA-nummer file, optional) ──
+        this.saType = null;           // SA-type (e.g. 'Rammeavtale')
+        this.saGyldigFra = null;      // Gyldig fra (valid from date)
+        this.saGyldigTil = null;      // Gyldig til (valid to date)
+
         // Metadata
         this.hasSANumber = false;
         this.hasIncomingOrders = false;
@@ -105,6 +110,27 @@ class UnifiedItem {
         if (saNumber && saNumber.toString().trim() !== '') {
             this.saNumber = saNumber.toString().trim();
             this.hasSANumber = true;
+        }
+    }
+
+    /**
+     * Sett SA-data (full enrichment from SA-nummer file)
+     * Additive only — never overwrites Master data
+     */
+    setSAData(saData) {
+        if (!saData) return;
+
+        if (saData.saNummer) {
+            this.setSANumber(saData.saNummer);
+        }
+        if (saData.saType != null && saData.saType !== '') {
+            this.saType = saData.saType.toString().trim();
+        }
+        if (saData.saGyldigFra != null) {
+            this.saGyldigFra = saData.saGyldigFra;
+        }
+        if (saData.saGyldigTil != null) {
+            this.saGyldigTil = saData.saGyldigTil;
         }
     }
 
@@ -290,6 +316,9 @@ class UnifiedItem {
             lastSaleDate: this.lastSaleDate,
             lastMovementDate: this.lastMovementDate,
             hasSANumber: this.hasSANumber,
+            saType: this.saType,
+            saGyldigFra: this.saGyldigFra,
+            saGyldigTil: this.saGyldigTil,
             incomingOrderCount: this.incomingOrders.length,
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             issues: this.getIssues()

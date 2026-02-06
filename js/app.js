@@ -14,10 +14,11 @@
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (kun 2 filer)
+        // Datakilder
         this.files = {
             master: null,       // Master.xlsx (REQUIRED)
-            ordersOut: null     // Ordrer_Jeeves.xlsx (REQUIRED)
+            ordersOut: null,    // Ordrer_Jeeves.xlsx (REQUIRED)
+            sa: null            // SA-nummer.xlsx (OPTIONAL)
         };
 
         // Samlet datastruktur
@@ -135,7 +136,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null };
+        const routed = { master: null, ordersOut: null, sa: null };
 
         for (const file of files) {
             try {
@@ -158,10 +159,12 @@ class DashboardApp {
         // Place files into input elements
         this.setFileInput('masterFile', routed.master);
         this.setFileInput('ordersOutFile', routed.ordersOut);
+        this.setFileInput('saFile', routed.sa);
 
         // Add missing file warnings
         if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
+        if (!routed.sa) results.push({ status: 'info', message: 'SA-nummer fil ikke funnet (valgfri)' });
 
         this.updateDropStatus(results);
 
@@ -174,20 +177,24 @@ class DashboardApp {
     /**
      * Detekter filtype basert på filnavn (primært) og kolonner (fallback)
      *
-     * Only recognizes:
+     * Recognizes:
      *   master    → filename contains 'master'
      *   ordersOut → filename contains 'ordrer'
+     *   sa        → filename contains 'sa-nummer' or 'sa_nummer' or 'sanummer'
      *
      * @param {File} file
-     * @returns {Promise<string|null>} 'master' | 'ordersOut' | null
+     * @returns {Promise<string|null>} 'master' | 'ordersOut' | 'sa' | null
      */
     async detectFileType(file) {
         const name = file.name.toLowerCase();
 
         // Primary: filename-based detection
         const filenameRules = [
-            { match: 'master',   type: 'master' },
-            { match: 'ordrer',   type: 'ordersOut' }
+            { match: 'master',    type: 'master' },
+            { match: 'ordrer',    type: 'ordersOut' },
+            { match: 'sa-nummer', type: 'sa' },
+            { match: 'sa_nummer', type: 'sa' },
+            { match: 'sanummer',  type: 'sa' }
         ];
 
         for (const rule of filenameRules) {
@@ -209,6 +216,14 @@ class DashboardApp {
             // Ordrer: Artikelnr + LevPlFtgKod or OrdRadAnt
             if (colSet.has('artikelnr') && (colSet.has('levplftgkod') || colSet.has('ordradant') || colSet.has('faktdat'))) {
                 return 'ordersOut';
+            }
+
+            // SA-nummer: Artikelnr + SA-nummer/SA nummer
+            const hasSAColumn = [...colSet].some(c =>
+                c.includes('sa-nummer') || c.includes('sa nummer') || c === 'sa' || c.includes('sanummer')
+            );
+            if (colSet.has('artikelnr') && hasSAColumn) {
+                return 'sa';
             }
         } catch (e) {
             console.warn('Column detection failed for', file.name, e);
@@ -287,7 +302,8 @@ class DashboardApp {
     getFileTypeLabel(type) {
         const labels = {
             master: 'Master',
-            ordersOut: 'Ordrer (salg ut)'
+            ordersOut: 'Ordrer (salg ut)',
+            sa: 'SA-nummer'
         };
         return labels[type] || type;
     }
@@ -299,6 +315,7 @@ class DashboardApp {
         // Hent filer fra input-elementer
         const masterFile = document.getElementById('masterFile')?.files[0];
         const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
+        const saFile = document.getElementById('saFile')?.files[0] || null;
 
         // Valider påkrevde filer
         if (!masterFile || !ordersOutFile) {
@@ -313,7 +330,8 @@ class DashboardApp {
             // Prosesser alle filer via DataProcessor
             this.dataStore = await DataProcessor.processAllFiles({
                 master: masterFile,
-                ordersOut: ordersOutFile
+                ordersOut: ordersOutFile,
+                sa: saFile
             }, (status) => this.showStatus(status, 'info'));
 
             // Generer legacy processedData for bakoverkompatibilitet
@@ -450,6 +468,7 @@ class DashboardApp {
                     <ul class="file-checklist">
                         <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
                         <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
+                        <li><strong>SA-nummer.xlsx</strong> - SA-nummer per artikkel (valgfri)</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
                 </div>
@@ -680,6 +699,9 @@ class DashboardApp {
                     item.supplier = itemData.supplier;
                     item.shelf = itemData.shelf;
                     item.hasSANumber = itemData.hasSANumber;
+                    item.saType = itemData.saType || null;
+                    item.saGyldigFra = itemData.saGyldigFra ? new Date(itemData.saGyldigFra) : null;
+                    item.saGyldigTil = itemData.saGyldigTil ? new Date(itemData.saGyldigTil) : null;
                     item._status = itemData._status || 'UKJENT';
                     item.bestAntLev = itemData.bestAntLev || 0;
                     item.bestillingsNummer = itemData.bestillingsNummer || '';
@@ -713,7 +735,8 @@ class DashboardApp {
         if (confirm('Er du sikker på at du vil slette all data? Dette kan ikke angres.')) {
             this.files = {
                 master: null,
-                ordersOut: null
+                ordersOut: null,
+                sa: null
             };
             this.dataStore = null;
             this.processedData = [];
