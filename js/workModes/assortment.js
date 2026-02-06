@@ -112,7 +112,7 @@ class AssortmentMode {
      * Analyser sortiment
      */
     static analyzeAssortment(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const analysis = {
             slowMovers: [],
             noSales: [],
@@ -716,7 +716,7 @@ class AssortmentMode {
      */
     static getCategories(store) {
         const categories = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.category) {
                 categories.add(item.category);
             }
@@ -731,7 +731,7 @@ class AssortmentMode {
      */
     static getSuppliers(store) {
         const suppliers = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.supplier) {
                 suppliers.add(item.supplier);
             }
@@ -1149,7 +1149,7 @@ class AssortmentMode {
     static getCategorySummary(categoryName) {
         if (!this.dataStore) return null;
 
-        const items = this.dataStore.getAllItems().filter(
+        const items = this.dataStore.getActiveItems().filter(
             item => item.category === categoryName
         );
 

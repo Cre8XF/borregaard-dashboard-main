@@ -226,6 +226,14 @@ class DataProcessor {
             console.log(`  Med estimert verdi > 0: ${store.getAllItems().filter(i => i.estimertVerdi > 0).length}`);
             console.log('  Datakilde: Master.xlsx er SINGLE SOURCE OF TRUTH');
 
+            // FASE 6: Rapporter operativt univers
+            const activeCount = store.getActiveItems().length;
+            console.log('────────────────────────────────────────');
+            console.log(`FASE 6: Operativt univers = ${activeCount} SA-artikler`);
+            console.log(`  Alle KPI-er og visninger bruker kun SA-artikler`);
+            console.log(`  Master-artikler uten SA (${quality.totalArticles - activeCount}) beholdes i minne men vises ikke`);
+            console.log('────────────────────────────────────────');
+
             return store;
 
         } catch (error) {
