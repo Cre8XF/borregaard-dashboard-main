@@ -106,11 +106,12 @@ class DataProcessor {
      * Prosesser alle filer og bygg UnifiedDataStore
      *
      * Input:
-     *   files.master    → Master.xlsx   (REQUIRED)
-     *   files.ordersOut → Ordrer_Jeeves.xlsx (REQUIRED)
-     *   files.sa        → SA-nummer.xlsx (OPTIONAL)
+     *   files.master    → Master.xlsx            (REQUIRED)
+     *   files.ordersOut → Ordrer_Jeeves.xlsx     (REQUIRED)
+     *   files.sa        → SA-nummer.xlsx         (OPTIONAL)
+     *   files.lagerplan → Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
      *
-     * @param {Object} files - { master: File, ordersOut: File, sa?: File }
+     * @param {Object} files - { master: File, ordersOut: File, sa?: File, lagerplan?: File }
      * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
@@ -122,6 +123,11 @@ class DataProcessor {
         console.log('========================================');
 
         try {
+            // ── FASE 1: Validering og logging ──
+            console.log('========================================');
+            console.log('FASE 1: Datavalidering starter');
+            console.log('========================================');
+
             // ── 1. Load and process Master.xlsx (REQUIRED) ──
             if (!files.master) {
                 throw new Error('Master.xlsx er påkrevd! Last opp Master.xlsx som inneholder all artikkelinformasjon.');
@@ -129,11 +135,14 @@ class DataProcessor {
 
             statusCallback('Laster Master.xlsx...');
             const masterData = await this.loadFile(files.master);
-            console.log('Master.xlsx kolonner:', masterData.columns);
-            console.log(`Master.xlsx rader: ${masterData.rowCount}`);
+            console.log(`[FASE 1] Master.xlsx lastet:`);
+            console.log(`  Filnavn: ${files.master.name}`);
+            console.log(`  Kolonner (${masterData.columns.length}): ${masterData.columns.join(', ')}`);
+            console.log(`  Rader: ${masterData.rowCount}`);
 
             this.processMasterData(masterData.data, masterData.columns, store);
-            console.log(`Master.xlsx prosessert: ${store.items.size} artikler`);
+            const masterArticleCount = store.items.size;
+            console.log(`[FASE 1] Master.xlsx prosessert: ${masterArticleCount} unike artikler`);
 
             // ── 2. Load and process Ordrer_Jeeves.xlsx (REQUIRED — sales only) ──
             if (!files.ordersOut) {
@@ -142,39 +151,80 @@ class DataProcessor {
 
             statusCallback('Laster Ordrer_Jeeves.xlsx (salgsdata)...');
             const ordersOutData = await this.loadFile(files.ordersOut);
-            console.log('Ordrer_Jeeves.xlsx kolonner:', ordersOutData.columns);
-            console.log(`Ordrer_Jeeves.xlsx rader: ${ordersOutData.rowCount}`);
+            console.log(`[FASE 1] Ordrer_Jeeves.xlsx lastet:`);
+            console.log(`  Filnavn: ${files.ordersOut.name}`);
+            console.log(`  Kolonner (${ordersOutData.columns.length}): ${ordersOutData.columns.join(', ')}`);
+            console.log(`  Rader: ${ordersOutData.rowCount}`);
 
             this.processOrdersOutData(ordersOutData.data, store);
-            console.log('Ordrer_Jeeves.xlsx prosessert (sales/demand)');
+            // Telle hvor mange Master-artikler som fikk salgsdata
+            const withSales = store.getAllItems().filter(i => i.outgoingOrders.length > 0).length;
+            console.log(`[FASE 1] Ordrer_Jeeves.xlsx prosessert:`);
+            console.log(`  Artikler med salgsdata: ${withSales} av ${masterArticleCount} (${Math.round(withSales/masterArticleCount*100)}%)`);
 
             // ── 3. Load and process SA-nummer file (OPTIONAL enrichment) ──
             if (files.sa) {
                 statusCallback('Laster SA-nummer fil...');
                 try {
                     const saData = await this.loadFile(files.sa);
-                    console.log('SA-nummer fil kolonner:', saData.columns);
-                    console.log(`SA-nummer fil rader: ${saData.rowCount}`);
+                    console.log(`[FASE 1] SA-nummer.xlsx lastet:`);
+                    console.log(`  Filnavn: ${files.sa.name}`);
+                    console.log(`  Kolonner (${saData.columns.length}): ${saData.columns.join(', ')}`);
+                    console.log(`  Rader: ${saData.rowCount}`);
 
                     this.processSAData(saData.data, saData.columns, store);
-                    console.log('SA-nummer fil prosessert (enrichment)');
+                    const withSA = store.getAllItems().filter(i => i.hasSANumber).length;
+                    console.log(`[FASE 1] SA-nummer prosessert:`);
+                    console.log(`  Artikler med SA-nummer: ${withSA} av ${masterArticleCount} (${Math.round(withSA/masterArticleCount*100)}%)`);
                 } catch (saError) {
-                    console.warn('SA-nummer fil kunne ikke prosesseres:', saError.message);
+                    console.warn('[FASE 1] SA-nummer fil kunne ikke prosesseres:', saError.message);
                     // SA file is optional — do not throw
                 }
+            } else {
+                console.log('[FASE 1] SA-nummer.xlsx: Ikke lastet (valgfri)');
             }
 
-            // ── 4. Calculate derived values ──
+            // ── 4. Load and process Analyse_Lagerplan.xlsx (OPTIONAL — planning params) ──
+            if (files.lagerplan) {
+                statusCallback('Laster Analyse_Lagerplan.xlsx (planlegging)...');
+                try {
+                    const lagerplanData = await this.loadFile(files.lagerplan);
+                    console.log(`[FASE 1] Analyse_Lagerplan.xlsx lastet:`);
+                    console.log(`  Filnavn: ${files.lagerplan.name}`);
+                    console.log(`  Kolonner (${lagerplanData.columns.length}): ${lagerplanData.columns.join(', ')}`);
+                    console.log(`  Rader: ${lagerplanData.rowCount}`);
+
+                    this.processLagerplanData(lagerplanData.data, lagerplanData.columns, store);
+                    const withBP = store.getAllItems().filter(i => i.bestillingspunkt !== null).length;
+                    const withEOK = store.getAllItems().filter(i => i.ordrekvantitet !== null).length;
+                    console.log(`[FASE 1] Analyse_Lagerplan.xlsx prosessert:`);
+                    console.log(`  Artikler med BP: ${withBP} av ${masterArticleCount}`);
+                    console.log(`  Artikler med EOK: ${withEOK} av ${masterArticleCount}`);
+                } catch (lpError) {
+                    console.warn('[FASE 1] Analyse_Lagerplan.xlsx kunne ikke prosesseres:', lpError.message);
+                    // Lagerplan is optional — do not throw
+                }
+            } else {
+                console.log('[FASE 1] Analyse_Lagerplan.xlsx: Ikke lastet (valgfri)');
+            }
+
+            // ── 5. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
-            // ── 5. Log data quality ──
+            // ── 6. FASE 1 sluttrapport ──
             const quality = store.getDataQualityReport();
-            console.log('Datakvalitet:', quality);
+            console.log('========================================');
+            console.log('FASE 1: Datavalidering fullført');
+            console.log('========================================');
             console.log(`  Artikler totalt: ${quality.totalArticles}`);
+            console.log(`  Med SA-nummer: ${quality.withSANumber} (${quality.saNumberCoverage}%)`);
             console.log(`  Med innkommende (BestAntLev > 0): ${quality.withIncoming}`);
             console.log(`  Med salgshistorikk: ${quality.withOutgoing}`);
-            console.log('Master.xlsx is used as the single source of truth');
+            console.log(`  Med bestillingspunkt (BP): ${store.getAllItems().filter(i => i.bestillingspunkt !== null).length}`);
+            console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
+            console.log(`  Med estimert verdi > 0: ${store.getAllItems().filter(i => i.estimertVerdi > 0).length}`);
+            console.log('  Datakilde: Master.xlsx er SINGLE SOURCE OF TRUTH');
 
             return store;
 
@@ -525,6 +575,121 @@ class DataProcessor {
      */
     static getSAColumnValue(row, columns, fieldName) {
         const variants = this.SA_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Exact match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+
+            // Case-insensitive match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    // ════════════════════════════════════════════════════
+    //  ANALYSE_LAGERPLAN.XLSX — PLANNING PARAMETERS (BP/EOK)
+    // ════════════════════════════════════════════════════
+
+    // ── Column variants for Analyse_Lagerplan.xlsx ──
+    static LAGERPLAN_COLUMN_VARIANTS = {
+        articleNumber: [
+            'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
+        ],
+        bp: [
+            'BP', 'Bestillingspunkt', 'Reorder Point', 'Bestillingspkt',
+            'Best.pkt', 'BestPkt', 'Reorder', 'Min', 'Minimum'
+        ],
+        eok: [
+            'EOK', 'Ordrekvantitet', 'Order Quantity', 'OrderQty',
+            'Bestillingskvantitet', 'Best.kvant', 'BestKvant', 'EOQ'
+        ]
+    };
+
+    /**
+     * Prosesser Analyse_Lagerplan.xlsx — planleggingsparametre
+     *
+     * Additive enrichment: setter bestillingspunkt (BP) og ordrekvantitet (EOK)
+     * på eksisterende UnifiedItem-instanser. Oppretter IKKE nye artikler.
+     *
+     * Verdiene skal IKKE beregnes og IKKE ha fallback.
+     * Manglende verdier → null
+     *
+     * JOIN KEY: Artikelnr (toolsArticleNumber)
+     */
+    static processLagerplanData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('Analyse_Lagerplan.xlsx er tom');
+            return;
+        }
+
+        let matchedCount = 0;
+        let unmatchedCount = 0;
+        let bpCount = 0;
+        let eokCount = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getLagerplanColumnValue(row, columns, 'articleNumber');
+            if (!articleNo) return;
+
+            const key = articleNo.toString().trim();
+            const item = store.items.get(key);
+
+            if (!item) {
+                // Artikkel finnes ikke i Master — ignorer
+                unmatchedCount++;
+                return;
+            }
+
+            matchedCount++;
+
+            // BP → bestillingspunkt (kun hvis verdi finnes)
+            const bpRaw = this.getLagerplanColumnValue(row, columns, 'bp');
+            if (bpRaw !== '' && bpRaw !== null && bpRaw !== undefined) {
+                const bpVal = this.parseNumber(bpRaw);
+                if (bpVal > 0) {
+                    item.bestillingspunkt = bpVal;
+                    item.bp = bpVal; // Bakoverkompatibilitet
+                    bpCount++;
+                }
+            }
+
+            // EOK → ordrekvantitet (kun hvis verdi finnes)
+            const eokRaw = this.getLagerplanColumnValue(row, columns, 'eok');
+            if (eokRaw !== '' && eokRaw !== null && eokRaw !== undefined) {
+                const eokVal = this.parseNumber(eokRaw);
+                if (eokVal > 0) {
+                    item.ordrekvantitet = eokVal;
+                    eokCount++;
+                }
+            }
+        });
+
+        console.log(`Analyse_Lagerplan.xlsx resultat:`);
+        console.log(`  Matchet mot Master: ${matchedCount}`);
+        console.log(`  Med BP-verdi: ${bpCount}`);
+        console.log(`  Med EOK-verdi: ${eokCount}`);
+        if (unmatchedCount > 0) {
+            console.log(`  Ikke matchet (ignorert): ${unmatchedCount}`);
+        }
+    }
+
+    /**
+     * Get value from Lagerplan file row using flexible column matching
+     */
+    static getLagerplanColumnValue(row, columns, fieldName) {
+        const variants = this.LAGERPLAN_COLUMN_VARIANTS[fieldName] || [fieldName];
         const keys = Object.keys(row);
 
         for (const variant of variants) {

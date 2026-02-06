@@ -14,11 +14,12 @@
  */
 class DashboardApp {
     constructor() {
-        // Datakilder
+        // Datakilder (4 filer)
         this.files = {
             master: null,       // Master.xlsx (REQUIRED)
             ordersOut: null,    // Ordrer_Jeeves.xlsx (REQUIRED)
-            sa: null            // SA-nummer.xlsx (OPTIONAL)
+            sa: null,           // SA-nummer.xlsx (OPTIONAL)
+            lagerplan: null     // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
         };
 
         // Samlet datastruktur
@@ -37,7 +38,7 @@ class DashboardApp {
      * Initialiser applikasjonen
      */
     init() {
-        console.log('Borregaard Dashboard v4.0 initializing...');
+        console.log('Borregaard Dashboard v4.1 initializing...');
         console.log('Master.xlsx is used as the single source of truth');
         this.setupEventListeners();
         this.setupDropZone();
@@ -136,7 +137,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null, sa: null };
+        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null };
 
         for (const file of files) {
             try {
@@ -160,11 +161,13 @@ class DashboardApp {
         this.setFileInput('masterFile', routed.master);
         this.setFileInput('ordersOutFile', routed.ordersOut);
         this.setFileInput('saFile', routed.sa);
+        this.setFileInput('lagerplanFile', routed.lagerplan);
 
         // Add missing file warnings
         if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
         if (!routed.sa) results.push({ status: 'info', message: 'SA-nummer fil ikke funnet (valgfri)' });
+        if (!routed.lagerplan) results.push({ status: 'info', message: 'Analyse_Lagerplan.xlsx ikke funnet (valgfri)' });
 
         this.updateDropStatus(results);
 
@@ -190,11 +193,15 @@ class DashboardApp {
 
         // Primary: filename-based detection
         const filenameRules = [
-            { match: 'master',    type: 'master' },
-            { match: 'ordrer',    type: 'ordersOut' },
-            { match: 'sa-nummer', type: 'sa' },
-            { match: 'sa_nummer', type: 'sa' },
-            { match: 'sanummer',  type: 'sa' }
+            { match: 'master',           type: 'master' },
+            { match: 'ordrer',           type: 'ordersOut' },
+            { match: 'sa-nummer',        type: 'sa' },
+            { match: 'sa_nummer',        type: 'sa' },
+            { match: 'sanummer',         type: 'sa' },
+            { match: 'analyse_lagerplan', type: 'lagerplan' },
+            { match: 'analyse-lagerplan', type: 'lagerplan' },
+            { match: 'analyselagerplan',  type: 'lagerplan' },
+            { match: 'lagerplan',         type: 'lagerplan' }
         ];
 
         for (const rule of filenameRules) {
@@ -224,6 +231,13 @@ class DashboardApp {
             );
             if (colSet.has('artikelnr') && hasSAColumn) {
                 return 'sa';
+            }
+
+            // Analyse_Lagerplan: har BP og/eller EOK kolonner
+            const hasBP = colSet.has('bp') || colSet.has('bestillingspunkt') || colSet.has('bestillingspkt');
+            const hasEOK = colSet.has('eok') || colSet.has('ordrekvantitet') || colSet.has('eoq');
+            if (colSet.has('artikelnr') && (hasBP || hasEOK)) {
+                return 'lagerplan';
             }
         } catch (e) {
             console.warn('Column detection failed for', file.name, e);
@@ -303,7 +317,8 @@ class DashboardApp {
         const labels = {
             master: 'Master',
             ordersOut: 'Ordrer (salg ut)',
-            sa: 'SA-nummer'
+            sa: 'SA-nummer',
+            lagerplan: 'Analyse Lagerplan'
         };
         return labels[type] || type;
     }
@@ -316,6 +331,7 @@ class DashboardApp {
         const masterFile = document.getElementById('masterFile')?.files[0];
         const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
         const saFile = document.getElementById('saFile')?.files[0] || null;
+        const lagerplanFile = document.getElementById('lagerplanFile')?.files[0] || null;
 
         // Valider påkrevde filer
         if (!masterFile || !ordersOutFile) {
@@ -331,7 +347,8 @@ class DashboardApp {
             this.dataStore = await DataProcessor.processAllFiles({
                 master: masterFile,
                 ordersOut: ordersOutFile,
-                sa: saFile
+                sa: saFile,
+                lagerplan: lagerplanFile
             }, (status) => this.showStatus(status, 'info'));
 
             // Generer legacy processedData for bakoverkompatibilitet
@@ -384,7 +401,8 @@ class DashboardApp {
                 daysToEmpty: display.daysToEmpty,
                 lastSaleDate: display.lastSaleDate,
                 r12: display.sales12m,
-                price: 50 // Default
+                price: item.kalkylPris || 0,  // Fra Master.xlsx Kalkylpris bas — ingen hardkodet fallback
+                estimertVerdi: item.estimertVerdi || 0
             };
         });
     }
@@ -469,6 +487,7 @@ class DashboardApp {
                         <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
                         <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
                         <li><strong>SA-nummer.xlsx</strong> - SA-nummer per artikkel (valgfri)</li>
+                        <li><strong>Analyse_Lagerplan.xlsx</strong> - BP og EOK per artikkel (valgfri)</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
                 </div>
@@ -500,7 +519,14 @@ class DashboardApp {
                 }
                 break;
 
-            // Legacy-moduler (bakoverkompatibilitet)
+            // ── FASE 5: Legacy-moduler (kandidater for fjerning) ──
+            // Disse modulene bruker legacy processedData-formatet i stedet for UnifiedDataStore.
+            // De overlapper delvis med funksjonalitet i de 5 arbeidsmodusene:
+            //   - topSellers → delvis dekket av DemandMode
+            //   - orderSuggestions → delvis dekket av PlanningMode
+            //   - slowMovers → delvis dekket av AssortmentMode
+            //   - inactiveItems → delvis dekket av AssortmentMode
+            // Bør fjernes når nye seksjoner er verifisert og godkjent.
             case 'topSellers':
                 if (typeof TopSellers !== 'undefined') {
                     contentDiv.innerHTML = TopSellers.render(this.processedData);
@@ -611,7 +637,7 @@ class DashboardApp {
     saveData() {
         try {
             const dataToSave = {
-                version: '4.0',
+                version: '4.1',
                 currentModule: this.currentModule,
                 timestamp: new Date().toISOString(),
                 items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
@@ -644,7 +670,7 @@ class DashboardApp {
             if (stored) {
                 const parsed = JSON.parse(stored);
 
-                if (parsed.version === '4.0' && parsed.items && parsed.items.length > 0) {
+                if (parsed.version === '4.1' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
                     this.processedData = this.generateLegacyData();
                     this.currentModule = parsed.currentModule || 'overview';
@@ -707,6 +733,12 @@ class DashboardApp {
                     item.bestillingsNummer = itemData.bestillingsNummer || '';
                     item.ersattAvArtikel = itemData.ersattAvArtikel || '';
                     item.ersatterArtikel = itemData.ersatterArtikel || '';
+                    item.bestillingspunkt = itemData.bestillingspunkt ?? null;
+                    item.ordrekvantitet = itemData.ordrekvantitet ?? null;
+                    // Synk bp med bestillingspunkt fra Analyse_Lagerplan
+                    if (item.bestillingspunkt !== null) {
+                        item.bp = item.bestillingspunkt;
+                    }
 
                     // Beregn verdier (simuler)
                     item.sales6m = itemData.sales6m || 0;
@@ -736,7 +768,8 @@ class DashboardApp {
             this.files = {
                 master: null,
                 ordersOut: null,
-                sa: null
+                sa: null,
+                lagerplan: null
             };
             this.dataStore = null;
             this.processedData = [];
@@ -771,5 +804,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new DashboardApp();
 });
 
-console.log('Borregaard Dashboard v4.0 loaded');
+console.log('Borregaard Dashboard v4.1 loaded');
 console.log('Master.xlsx is used as the single source of truth');
