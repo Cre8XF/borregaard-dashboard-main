@@ -9,10 +9,16 @@
  *
  * Primærnøkkel: toolsArticleNumber (Artikelnr fra Master.xlsx)
  *
- * Data sources:
- *   Master.xlsx → all article identity, status, stock, reserved, available,
- *                 incoming (BestAntLev), alternatives (Ersätts av artikel)
- *   Ordrer_Jeeves.xlsx → sales / demand analysis only
+ * FAST DATAANSVAR (4 kilder):
+ *   1. Master.xlsx (REQUIRED) → artikkelidentitet, status, lagersaldo,
+ *      disponibelt, reservert, BestAntLev, alternativer, kalkylpris, leverandør
+ *   2. SA-Nummer.xlsx (OPTIONAL) → SA-nummer mapping (kundens art.nr)
+ *   3. Ordrer_Jeeves.xlsx (REQUIRED) → salgshistorikk (KUN salg)
+ *   4. Analyse_Lagerplan.xlsx (OPTIONAL) → bestillingspunkt (BP), ordrekvantitet (EOK)
+ *
+ * AVLEDET VERDI:
+ *   estimertVerdi = kalkylPris * lagersaldo (beregnes KUN i modellen)
+ *   Ingen hardkodede priser. Ingen fallback-verdier.
  */
 class UnifiedItem {
     constructor(toolsArticleNumber) {
@@ -62,6 +68,12 @@ class UnifiedItem {
         this.lastMovementDate = null;
         this.lastSaleDate = null;
         this.lastOrderDate = null;
+
+        // ── Planlegging (fra Analyse_Lagerplan.xlsx, valgfri) ──
+        // Disse verdiene skal IKKE beregnes og IKKE ha fallback.
+        // null = ikke satt / mangler i kildedata
+        this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan (reorder point)
+        this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan (order quantity)
 
         // ── SA-nummer enrichment (from SA-nummer file, optional) ──
         this.saType = null;           // SA-type (e.g. 'Rammeavtale')
@@ -308,6 +320,8 @@ class UnifiedItem {
             bestillingsNummer: this.bestillingsNummer,
             ersattAvArtikel: this.ersattAvArtikel,
             ersatterArtikel: this.ersatterArtikel,
+            bestillingspunkt: this.bestillingspunkt,
+            ordrekvantitet: this.ordrekvantitet,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
             orderCount: this.orderCount,
