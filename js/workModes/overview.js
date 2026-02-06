@@ -210,7 +210,7 @@ class OverviewMode {
         const action = this.getSuggestedAction(issue);
 
         return `
-            <tr class="${severityClass}" onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+            <tr class="${severityClass}" onclick="OverviewMode.showDetails('${item.saNumber}')">
                 <td>
                     <span class="badge badge-${issue.type}">${this.getTypeLabel(issue.type)}</span>
                 </td>
@@ -294,7 +294,7 @@ class OverviewMode {
                             ${itemsWithIncoming.map(item => {
                                 const totalIncoming = item.incomingOrders.reduce((sum, o) => sum + o.quantity, 0);
                                 return `
-                                    <tr onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+                                    <tr onclick="OverviewMode.showDetails('${item.saNumber}')">
                                         <td><strong>${item.toolsArticleNumber}</strong></td>
                                         <td>${this.truncate(item.description, 30)}</td>
                                         <td class="qty-cell">${this.formatNumber(item.stock)}</td>
@@ -358,7 +358,7 @@ class OverviewMode {
                                     .sort((a, b) => (a.stock - a.bestillingspunkt) - (b.stock - b.bestillingspunkt))
                                     .slice(0, 50)
                                     .map(item => `
-                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
                                         <td><strong>${item.toolsArticleNumber}</strong></td>
                                         <td>${item.saNumber || '-'}</td>
                                         <td>${this.truncate(item.description, 30)}</td>
@@ -449,7 +449,7 @@ class OverviewMode {
                                     .sort((a, b) => b.sales12m - a.sales12m)
                                     .slice(0, 50)
                                     .map(item => `
-                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
                                         <td><strong>${item.toolsArticleNumber}</strong></td>
                                         <td>${item.saNumber || '-'}</td>
                                         <td>${this.truncate(item.description, 30)}</td>
@@ -512,7 +512,7 @@ class OverviewMode {
                                 .sort((a, b) => (b.estimertVerdi || 0) - (a.estimertVerdi || 0))
                                 .slice(0, 50)
                                 .map(item => `
-                                <tr class="severity-info clickable" onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+                                <tr class="severity-info clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
                                     <td><strong>${item.toolsArticleNumber}</strong></td>
                                     <td>${item.saNumber || '-'}</td>
                                     <td>${this.truncate(item.description, 30)}</td>

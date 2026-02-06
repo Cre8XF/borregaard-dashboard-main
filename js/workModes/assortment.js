@@ -240,12 +240,6 @@ class AssortmentMode {
             reasons.push('Lager for >2 års forbruk');
         }
 
-        // Ingen SA-nummer (mulig duplikat/uorganisert)
-        if (!item.hasSANumber) {
-            score += 0.5;
-            reasons.push('Mangler SA-nummer');
-        }
-
         // Kun én kunde og lavt salg
         if (item.orderCount <= 2 && (item.sales12m || 0) < 50) {
             score += 1;
@@ -424,7 +418,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -483,7 +477,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-warning clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-warning clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -542,7 +536,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -601,7 +595,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -637,7 +631,7 @@ class AssortmentMode {
         return `
             <div class="view-insight">
                 <p><strong>Utfasingskandidater</strong> er artikler som scorer høyt på flere risikofaktorer.</p>
-                <p class="text-muted">Faktorer: null-salg, lang omløpstid, høyt lager relativt til forbruk, manglende SA-nummer.</p>
+                <p class="text-muted">Faktorer: null-salg, lang omløpstid, høyt lager relativt til forbruk, få ordrer.</p>
             </div>
             <div class="table-wrapper">
                 <table class="data-table">
@@ -656,7 +650,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><span class="score-badge ${item.recommendation.class}">${item.score.toFixed(1)}</span></td>
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
@@ -1027,13 +1021,6 @@ class AssortmentMode {
             assessments.push({
                 type: 'info',
                 text: 'Over 1 års lager - følg med på utviklingen'
-            });
-        }
-
-        if (!item.hasSANumber) {
-            assessments.push({
-                type: 'info',
-                text: 'Mangler SA-nummer - sjekk om dette er korrekt artikkel'
             });
         }
 
