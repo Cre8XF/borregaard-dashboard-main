@@ -127,7 +127,7 @@ class AssortmentMode {
         const INACTIVE_STATUSES = ['9', '10', '3', 'Utgått', 'Inaktiv', 'Blokkert', 'utgått', 'inaktiv', 'blokkert'];
 
         items.forEach(item => {
-            const estimatedValue = (item.stock || 0) * 50; // Estimert verdi (default pris)
+            const estimatedValue = item.estimertVerdi || 0;
 
             // Sjekk om inaktiv
             const isInactive = INACTIVE_STATUSES.some(s =>
@@ -199,7 +199,7 @@ class AssortmentMode {
                     ...item,
                     score: score.total,
                     reasons: score.reasons,
-                    estimatedValue: (item.stock || 0) * 50,
+                    estimatedValue: item.estimertVerdi || 0,
                     recommendation: this.getRecommendation(score)
                 });
             }
@@ -962,7 +962,7 @@ class AssortmentMode {
                             </div>
                             <div class="detail-item">
                                 <strong>Est. verdi</strong>
-                                ${this.formatNumber((item.stock || 0) * 50)} kr
+                                ${this.formatNumber(item.estimertVerdi || 0)} kr
                             </div>
                         </div>
                     </div>
@@ -1166,7 +1166,7 @@ class AssortmentMode {
         };
 
         items.forEach(item => {
-            const estimatedValue = (item.stock || 0) * 50;
+            const estimatedValue = item.estimertVerdi || 0;
             summary.totalStock += item.stock || 0;
             summary.totalEstimatedValue += estimatedValue;
 
