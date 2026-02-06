@@ -1024,8 +1024,12 @@ class DemandMode {
      *   1. ≥ currentMinOrders ordrer i perioden
      *   2. Solgt til ≥ 2 ulike leveringslagre
      *
-     * Risikovurdering (status-basert):
-     *   HØY     – Utgående (isDiscontinued) + ≥ 2 lagre
+     * Risikovurdering – Utgående artikler (alternativ-basert):
+     *   LAV     – Gyldig alternativ finnes (aktiv, med saldo/bestilling)
+     *   MIDDELS  – Alternativ finnes men inaktiv/uten tilgjengelighet
+     *   HØY     – Ingen alternativ registrert
+     *
+     * Risikovurdering – Øvrige artikler (status-basert):
      *   MIDDELS  – Ukjent / manglende status + ≥ 2 lagre
      *   LAV     – Aktiv artikkel
      */
@@ -1091,15 +1095,31 @@ class DemandMode {
             const statusLabel = item.isDiscontinued ? 'Utgående' :
                 (statusText ? 'Aktiv' : 'Ukjent');
 
-            // Risk classification
-            const risk = this.getRiskLevel(item, warehouseCount);
-
-            // Recommendation text
+            // Risk classification – alternative-aware for discontinued items
+            let risk;
             let recommendation = '';
-            if (risk === 'high') {
-                recommendation = 'Sjekk BP / Status';
-            } else if (risk === 'medium') {
-                recommendation = 'Sjekk BP / Status';
+
+            if (item.isDiscontinued) {
+                const altArtNr = item.ersattAvArtikel;
+                const altItem = altArtNr ? this.dataStore.items.get(altArtNr) : null;
+
+                if (altArtNr && altItem && !altItem.isDiscontinued && (altItem.stock > 0 || altItem.bestAntLev > 0)) {
+                    risk = 'low';
+                    recommendation = `Bytt til alternativ (${altArtNr})`;
+                } else if (altArtNr && altItem) {
+                    risk = 'medium';
+                    recommendation = `Alternativ finnes (${altArtNr}) – sjekk status/saldo`;
+                } else {
+                    risk = 'high';
+                    recommendation = 'Ingen alternativ – finn/registrer';
+                }
+            } else {
+                risk = this.getRiskLevel(item, warehouseCount);
+                if (risk === 'high') {
+                    recommendation = 'Sjekk BP / Status';
+                } else if (risk === 'medium') {
+                    recommendation = 'Sjekk BP / Status';
+                }
             }
 
             results.push({
@@ -1121,19 +1141,17 @@ class DemandMode {
     }
 
     /**
-     * Bestem risikonivå basert på artikkelstatus
+     * Bestem risikonivå basert på artikkelstatus (ikke-utgående artikler).
+     * Utgående (discontinued) artikler håndteres direkte i getCriticalSalesItems()
+     * med alternativ-artikkel-logikk.
      *
-     * @param {Object} item - UnifiedItem
+     * @param {Object} item - UnifiedItem (non-discontinued)
      * @param {number} warehouseCount - Antall unike leveringslagre
      * @returns {'high'|'medium'|'low'}
      */
     static getRiskLevel(item, warehouseCount) {
-        if (item.isDiscontinued && warehouseCount >= 2) {
-            return 'high';
-        }
         // Ukjent status: statusText is null, undefined, or empty
-        const hasKnownStatus = item.isDiscontinued ||
-            (item.statusText && item.statusText.trim() !== '');
+        const hasKnownStatus = item.statusText && item.statusText.trim() !== '';
         if (!hasKnownStatus && warehouseCount >= 2) {
             return 'medium';
         }
@@ -1229,7 +1247,7 @@ class DemandMode {
                                 <td class="qty-cell">${this.formatNumber(row.totalSold)}</td>
                                 <td class="qty-cell ${row.stock3018 <= 0 ? 'negative' : ''}">${this.formatNumber(row.stock3018)}</td>
                                 <td>${this.getSalesRiskBadge(row.risk)}</td>
-                                <td>${row.recommendation ? `<span class="recommendation medium">${row.recommendation}</span>` : ''}</td>
+                                <td>${row.recommendation ? `<span class="recommendation ${row.risk === 'high' ? 'critical' : row.risk === 'medium' ? 'warning' : 'info'}">${row.recommendation}</span>` : ''}</td>
                             </tr>
                             `;
                         }).join('')}
