@@ -331,7 +331,7 @@ class InsightEngine {
                         stock: butlerItem._stockNum,
                         r12Sales: butlerItem._r12SalesNum || 0,
                         status: 'Ingen bevegelse siste 6 mnd',
-                        stockValue: butlerItem._stockNum * (butlerItem._priceNum || 0)
+                        stockValue: (window.app?.dataStore?.items?.get(itemNo)?.estimertVerdi) || 0
                     });
                 }
             }
