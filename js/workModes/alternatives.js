@@ -40,11 +40,12 @@ class AlternativeAnalysisMode {
 
         const analysis = this.analyzeOutgoingArticles(store);
 
-        console.log('=== Utgående artikler – alternativanalyse (Master.xlsx) ===');
-        console.log(`  Totalt utgående artikler: ${analysis.totalOutgoing}`);
-        console.log(`  Med gyldig alternativ: ${analysis.withValidAlternative}`);
-        console.log(`  Uten alternativ: ${analysis.missingAlternative}`);
-        console.log('  Data source: Master.xlsx (Ersätts av artikel)');
+        console.log('=== Utgående artikler – alternativanalyse (FASE 2) ===');
+        console.log(`  Totalt utgående SA-artikler: ${analysis.totalOutgoing}`);
+        console.log(`  Med gyldig alternativ (aktiv, på lager/vei): ${analysis.withValidAlternative}`);
+        console.log(`  Med alternativ men problem: ${analysis.withAlternative - analysis.withValidAlternative}`);
+        console.log(`  Uten alternativ definert: ${analysis.missingAlternative}`);
+        console.log('  Oppslag: ersattAvArtikel (Tools nr) → getByToolsArticleNumber()');
 
         return `
             <div class="module-header">
@@ -162,17 +163,30 @@ class AlternativeAnalysisMode {
 
                 if (altItem) {
                     const altOutgoing = this.isArticleOutgoing(altItem);
-                    if (!altOutgoing) {
-                        classification = 'Har alternativ – finnes og er aktiv';
+                    if (!altOutgoing && altItem.stock > 0) {
+                        // Aktiv alternativ med saldo — ideell situasjon
+                        classification = 'Har alternativ – aktiv, på lager';
                         classType = 'ok';
                         withValidAlternative++;
+                    } else if (!altOutgoing && altItem.stock <= 0 && altItem.bestAntLev > 0) {
+                        // Aktiv alternativ, tomt men bestilling på vei
+                        classification = 'Har alternativ – aktiv, bestilling på vei';
+                        classType = 'ok';
+                        withValidAlternative++;
+                    } else if (!altOutgoing && altItem.stock <= 0) {
+                        // Aktiv alternativ men ikke på lager
+                        classification = 'Har alternativ – aktiv, ikke på lager';
+                        classType = 'warning';
+                        criticalCount++;
                     } else {
-                        classification = 'Har alternativ – finnes men er ikke aktiv';
+                        // Alternativ er selv utgående
+                        classification = 'Har alternativ – alternativ også utgående';
                         classType = 'warning';
                         criticalCount++;
                     }
                 } else {
-                    classification = 'Har alternativ – finnes ikke i lager';
+                    // ersattAv er definert men finnes ikke i SA-universet
+                    classification = 'Har alternativ – finnes ikke i SA';
                     classType = 'warning';
                     criticalCount++;
                 }
@@ -276,12 +290,12 @@ class AlternativeAnalysisMode {
                 <div class="stat-card ok">
                     <div class="stat-value">${analysis.withValidAlternative}</div>
                     <div class="stat-label">Med gyldig alternativ</div>
-                    <div class="stat-sub">Finnes og er aktiv</div>
+                    <div class="stat-sub">Aktiv, på lager / på vei</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-value">${analysis.withAlternative - analysis.withValidAlternative}</div>
                     <div class="stat-label">Alternativ med problem</div>
-                    <div class="stat-sub">Finnes ikke / ikke aktiv</div>
+                    <div class="stat-sub">Ikke i SA / utgående / tomt</div>
                 </div>
                 <div class="stat-card critical">
                     <div class="stat-value">${analysis.missingAlternative}</div>
