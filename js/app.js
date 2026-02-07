@@ -653,6 +653,9 @@ class DashboardApp {
                 alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
                     ? Array.from(this.dataStore.alternativeArticles.entries())
                     : [],
+                masterOnlyArticles: this.dataStore && this.dataStore.masterOnlyArticles
+                    ? Array.from(this.dataStore.masterOnlyArticles.entries())
+                    : [],
                 dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null
             };
 
@@ -709,6 +712,13 @@ class DashboardApp {
         if (parsed.alternativeArticles) {
             parsed.alternativeArticles.forEach(([key, value]) => {
                 store.alternativeArticles.set(key, value);
+            });
+        }
+
+        // Gjenoppbygg masterOnlyArticles (FASE 2.2: for alt-oppslag utenfor SA)
+        if (parsed.masterOnlyArticles) {
+            parsed.masterOnlyArticles.forEach(([key, value]) => {
+                store.masterOnlyArticles.set(key, value);
             });
         }
 

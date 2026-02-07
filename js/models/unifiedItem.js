@@ -313,6 +313,9 @@ class UnifiedDataStore {
         this.toolsLookup = new Map();
         // Alternative articles mapping (toolsArticleNumber-based from Master)
         this.alternativeArticles = new Map();
+        // Master-only articles: Tools art.nr → basic Master data for articles NOT in SA
+        // Used for alternative article lookups when alt is not in SA universe
+        this.masterOnlyArticles = new Map();
         // Diagnostic counters (set during processing)
         this.masterRowCount = 0;
         this.masterUnmatchedCount = 0;
@@ -446,12 +449,230 @@ class UnifiedDataStore {
     }
 
     /**
+     * FASE 2.2: Sentral alternativ-resolver.
+     *
+     * Tar en utgående UnifiedItem og returnerer fullstendig alternativ-status.
+     * All alternativ-logikk samles her — UI skal ALDRI vurdere selv.
+     *
+     * Oppslag:
+     *   1. item.ersattAvArtikel (Tools art.nr fra Master "Ersätts av artikel")
+     *   2. getByToolsArticleNumber() — finnes alternativ i SA-universet?
+     *   3. Fallback: masterOnlyArticles — finnes alternativ i Master (utenfor SA)?
+     *
+     * Lagerstatus leses fra:
+     *   - SA-item: stock + bestAntLev (beriket fra Master.xlsx)
+     *   - Master-only: stock + bestAntLev (lagret direkte fra Master.xlsx)
+     *
+     * @param {UnifiedItem} item - Utgående artikkel
+     * @returns {Object} Komplett alternativ-status
+     */
+    resolveAlternativeStatus(item) {
+        const altToolsArtNr = (item.ersattAvArtikel || '').trim();
+
+        // ── Ingen alternativ definert ──
+        if (!altToolsArtNr) {
+            return {
+                classification: 'NO_ALTERNATIVE',
+                classType: 'critical',
+                label: 'INGEN ALTERNATIV DEFINERT',
+                altToolsArtNr: '',
+                altSaNumber: null,
+                altDescription: '',
+                altStock: 0,
+                altBestAntLev: 0,
+                altStatus: '-',
+                altIsDiscontinued: false,
+                altExistsInSA: false,
+                altExistsInMaster: false
+            };
+        }
+
+        // ── Selv-referanse ──
+        if (altToolsArtNr === item.toolsArticleNumber) {
+            return {
+                classification: 'NO_ALTERNATIVE',
+                classType: 'critical',
+                label: 'INGEN ALTERNATIV DEFINERT',
+                altToolsArtNr: altToolsArtNr,
+                altSaNumber: null,
+                altDescription: '(selv-referanse ignorert)',
+                altStock: 0,
+                altBestAntLev: 0,
+                altStatus: '-',
+                altIsDiscontinued: false,
+                altExistsInSA: false,
+                altExistsInMaster: false
+            };
+        }
+
+        // ── Forsøk oppslag i SA-universet ──
+        const altItem = this.getByToolsArticleNumber(altToolsArtNr);
+
+        if (altItem) {
+            // Alternativ finnes i SA — bruk SA-item data (beriket fra Master)
+            const altStock = altItem.stock || 0;
+            const altBestAntLev = altItem.bestAntLev || 0;
+            const altIsDiscontinued = altItem.isDiscontinued;
+
+            console.debug('[ALT-RESOLVE]',
+                item.saNumber, '→', altToolsArtNr,
+                'SA:', altItem.saNumber,
+                'saldo:', altStock,
+                'bestAntLev:', altBestAntLev,
+                'utgående:', altIsDiscontinued
+            );
+
+            if (altIsDiscontinued) {
+                return {
+                    classification: 'ALT_DISCONTINUED',
+                    classType: 'warning',
+                    label: 'Har alternativ – alternativ også utgående',
+                    altToolsArtNr, altSaNumber: altItem.saNumber,
+                    altDescription: altItem.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: altItem._status || 'UKJENT',
+                    altIsDiscontinued: true,
+                    altExistsInSA: true, altExistsInMaster: true
+                };
+            }
+
+            if (altStock > 0) {
+                return {
+                    classification: 'OK_ON_STOCK',
+                    classType: 'ok',
+                    label: 'Har alternativ – aktiv, på lager',
+                    altToolsArtNr, altSaNumber: altItem.saNumber,
+                    altDescription: altItem.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: altItem._status || 'AKTIV',
+                    altIsDiscontinued: false,
+                    altExistsInSA: true, altExistsInMaster: true
+                };
+            }
+
+            if (altBestAntLev > 0) {
+                return {
+                    classification: 'OK_INCOMING',
+                    classType: 'ok',
+                    label: 'Har alternativ – aktiv, bestilling på vei',
+                    altToolsArtNr, altSaNumber: altItem.saNumber,
+                    altDescription: altItem.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: altItem._status || 'AKTIV',
+                    altIsDiscontinued: false,
+                    altExistsInSA: true, altExistsInMaster: true
+                };
+            }
+
+            return {
+                classification: 'ACTIVE_NO_STOCK',
+                classType: 'warning',
+                label: 'Har alternativ – aktiv, ikke på lager',
+                altToolsArtNr, altSaNumber: altItem.saNumber,
+                altDescription: altItem.description || '',
+                altStock: 0, altBestAntLev: 0,
+                altStatus: altItem._status || 'AKTIV',
+                altIsDiscontinued: false,
+                altExistsInSA: true, altExistsInMaster: true
+            };
+        }
+
+        // ── Ikke i SA — sjekk masterOnlyArticles (fallback fra Master.xlsx) ──
+        const masterData = this.masterOnlyArticles.get(altToolsArtNr);
+
+        if (masterData) {
+            const altStock = masterData.stock || 0;
+            const altBestAntLev = masterData.bestAntLev || 0;
+
+            console.debug('[ALT-RESOLVE]',
+                item.saNumber, '→', altToolsArtNr,
+                'MASTER-ONLY saldo:', altStock,
+                'bestAntLev:', altBestAntLev,
+                'utgående:', masterData.isDiscontinued
+            );
+
+            if (masterData.isDiscontinued) {
+                return {
+                    classification: 'ALT_DISCONTINUED',
+                    classType: 'warning',
+                    label: 'Har alternativ – ikke i SA, også utgående',
+                    altToolsArtNr, altSaNumber: null,
+                    altDescription: masterData.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: masterData.statusText || 'Utgående',
+                    altIsDiscontinued: true,
+                    altExistsInSA: false, altExistsInMaster: true
+                };
+            }
+
+            if (altStock > 0) {
+                return {
+                    classification: 'OK_ON_STOCK',
+                    classType: 'ok',
+                    label: 'Har alternativ – ikke i SA, men på lager',
+                    altToolsArtNr, altSaNumber: null,
+                    altDescription: masterData.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: masterData.statusText || 'Aktiv',
+                    altIsDiscontinued: false,
+                    altExistsInSA: false, altExistsInMaster: true
+                };
+            }
+
+            if (altBestAntLev > 0) {
+                return {
+                    classification: 'OK_INCOMING',
+                    classType: 'ok',
+                    label: 'Har alternativ – ikke i SA, bestilling på vei',
+                    altToolsArtNr, altSaNumber: null,
+                    altDescription: masterData.description || '',
+                    altStock, altBestAntLev,
+                    altStatus: masterData.statusText || 'Aktiv',
+                    altIsDiscontinued: false,
+                    altExistsInSA: false, altExistsInMaster: true
+                };
+            }
+
+            return {
+                classification: 'ACTIVE_NO_STOCK',
+                classType: 'warning',
+                label: 'Har alternativ – ikke i SA, ikke på lager',
+                altToolsArtNr, altSaNumber: null,
+                altDescription: masterData.description || '',
+                altStock: 0, altBestAntLev: 0,
+                altStatus: masterData.statusText || 'Ukjent',
+                altIsDiscontinued: false,
+                altExistsInSA: false, altExistsInMaster: true
+            };
+        }
+
+        // ── Finnes verken i SA eller Master ──
+        console.debug('[ALT-RESOLVE]',
+            item.saNumber, '→', altToolsArtNr,
+            'IKKE FUNNET (verken SA eller Master)'
+        );
+
+        return {
+            classification: 'NOT_IN_SA',
+            classType: 'warning',
+            label: 'Har alternativ – finnes ikke i data',
+            altToolsArtNr, altSaNumber: null,
+            altDescription: '',
+            altStock: 0, altBestAntLev: 0,
+            altStatus: '-',
+            altIsDiscontinued: false,
+            altExistsInSA: false, altExistsInMaster: false
+        };
+    }
+
+    /**
      * Tøm alle data
      */
     clear() {
         this.items.clear();
         this.toolsLookup.clear();
         this.alternativeArticles.clear();
+        this.masterOnlyArticles.clear();
         this.masterRowCount = 0;
         this.masterUnmatchedCount = 0;
         this.ordersUnmatchedCount = 0;

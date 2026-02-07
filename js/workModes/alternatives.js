@@ -45,7 +45,7 @@ class AlternativeAnalysisMode {
         console.log(`  Med gyldig alternativ (aktiv, på lager/vei): ${analysis.withValidAlternative}`);
         console.log(`  Med alternativ men problem: ${analysis.withAlternative - analysis.withValidAlternative}`);
         console.log(`  Uten alternativ definert: ${analysis.missingAlternative}`);
-        console.log('  Oppslag: ersattAvArtikel (Tools nr) → getByToolsArticleNumber()');
+        console.log('  Oppslag: resolveAlternativeStatus() (SA → Master fallback)');
 
         return `
             <div class="module-header">
@@ -108,107 +108,39 @@ class AlternativeAnalysisMode {
 
             totalOutgoing++;
 
-            // STRICT: use "Ersätts av artikel" from Master.xlsx ONLY
-            const ersattAv = (item.ersattAvArtikel || '').trim();
+            // FASE 2.2: Bruk sentral resolver — all logikk samlet i UnifiedDataStore
+            const alt = store.resolveAlternativeStatus(item);
 
-            if (!ersattAv) {
-                // No alternative defined
+            // Oppdater tellere basert på klassifisering
+            if (alt.classification === 'NO_ALTERNATIVE') {
                 missingAlternative++;
                 criticalCount++;
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: '-',
-                    altDescription: '',
-                    altExistsInInventory: false,
-                    altStatus: '-',
-                    altStock: 0,
-                    altAvailable: 0,
-                    altBestAntLev: 0,
-                    classification: 'INGEN ALTERNATIV DEFINERT',
-                    classType: 'critical',
-                    _item: item
-                });
-            } else if (ersattAv === item.toolsArticleNumber) {
-                // PROHIBITION: article references itself — treat as no alternative
-                missingAlternative++;
-                criticalCount++;
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: ersattAv,
-                    altDescription: '(selv-referanse ignorert)',
-                    altExistsInInventory: false,
-                    altStatus: '-',
-                    altStock: 0,
-                    altAvailable: 0,
-                    altBestAntLev: 0,
-                    classification: 'INGEN ALTERNATIV DEFINERT',
-                    classType: 'critical',
-                    _item: item
-                });
             } else {
-                // Alternative is defined — look it up in the SAME Master.xlsx dataset
                 withAlternative++;
-                const altItem = store.getByToolsArticleNumber(ersattAv);
-
-                let classification;
-                let classType;
-
-                if (altItem) {
-                    const altOutgoing = this.isArticleOutgoing(altItem);
-                    if (!altOutgoing && altItem.stock > 0) {
-                        // Aktiv alternativ med saldo — ideell situasjon
-                        classification = 'Har alternativ – aktiv, på lager';
-                        classType = 'ok';
-                        withValidAlternative++;
-                    } else if (!altOutgoing && altItem.stock <= 0 && altItem.bestAntLev > 0) {
-                        // Aktiv alternativ, tomt men bestilling på vei
-                        classification = 'Har alternativ – aktiv, bestilling på vei';
-                        classType = 'ok';
-                        withValidAlternative++;
-                    } else if (!altOutgoing && altItem.stock <= 0) {
-                        // Aktiv alternativ men ikke på lager
-                        classification = 'Har alternativ – aktiv, ikke på lager';
-                        classType = 'warning';
-                        criticalCount++;
-                    } else {
-                        // Alternativ er selv utgående
-                        classification = 'Har alternativ – alternativ også utgående';
-                        classType = 'warning';
-                        criticalCount++;
-                    }
+                if (alt.classType === 'ok') {
+                    withValidAlternative++;
                 } else {
-                    // ersattAv er definert men finnes ikke i SA-universet
-                    classification = 'Har alternativ – finnes ikke i SA';
-                    classType = 'warning';
                     criticalCount++;
                 }
-
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: ersattAv,
-                    altDescription: altItem ? (altItem.description || '') : '',
-                    altExistsInInventory: !!altItem,
-                    altStatus: altItem ? this.getStatusLabel(altItem) : '-',
-                    altStock: altItem ? altItem.stock : 0,
-                    altAvailable: altItem ? altItem.available : 0,
-                    altBestAntLev: altItem ? altItem.bestAntLev : 0,
-                    classification: classification,
-                    classType: classType,
-                    _item: item
-                });
             }
+
+            results.push({
+                sourceArticle: item.toolsArticleNumber,
+                sourceDescription: item.description || '',
+                sourceStatus: this.getStatusLabel(item),
+                sourceStock: item.stock || 0,
+                sourceAvailable: item.available || 0,
+                altArticle: alt.altToolsArtNr || '-',
+                altDescription: alt.altDescription,
+                altExistsInInventory: alt.altExistsInSA || alt.altExistsInMaster,
+                altStatus: alt.altStatus,
+                altStock: alt.altStock,
+                altAvailable: 0,
+                altBestAntLev: alt.altBestAntLev,
+                classification: alt.label,
+                classType: alt.classType,
+                _item: item
+            });
         });
 
         return {
