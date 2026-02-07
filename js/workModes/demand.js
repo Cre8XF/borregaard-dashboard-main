@@ -1105,13 +1105,28 @@ class DemandMode {
                 const altArtNr = item.ersattAvArtikel;
                 const altItem = altArtNr ? this.dataStore.getByToolsArticleNumber(altArtNr) : null;
 
-                if (altArtNr && altItem && !altItem.isDiscontinued && (altItem.stock > 0 || altItem.bestAntLev > 0)) {
+                if (altArtNr && altItem && !altItem.isDiscontinued && altItem.stock > 0) {
+                    // Aktiv alternativ med saldo — ideell
                     risk = 'low';
-                    recommendation = `Bytt til alternativ (${altArtNr})`;
-                } else if (altArtNr && altItem) {
+                    recommendation = `Bytt til alternativ (${altArtNr}) – på lager`;
+                } else if (altArtNr && altItem && !altItem.isDiscontinued && altItem.bestAntLev > 0) {
+                    // Aktiv alternativ, tomt men bestilling på vei
+                    risk = 'low';
+                    recommendation = `Bytt til alternativ (${altArtNr}) – bestilling på vei`;
+                } else if (altArtNr && altItem && !altItem.isDiscontinued) {
+                    // Aktiv alternativ men ikke på lager
                     risk = 'medium';
-                    recommendation = `Alternativ finnes (${altArtNr}) – sjekk status/saldo`;
+                    recommendation = `Alternativ (${altArtNr}) – aktiv, ikke på lager`;
+                } else if (altArtNr && altItem && altItem.isDiscontinued) {
+                    // Alternativ er selv utgående
+                    risk = 'high';
+                    recommendation = `Alternativ (${altArtNr}) også utgående`;
+                } else if (altArtNr && !altItem) {
+                    // Alternativ definert men finnes ikke i SA-universet
+                    risk = 'high';
+                    recommendation = `Alternativ (${altArtNr}) finnes ikke i SA`;
                 } else {
+                    // Ingen alternativ definert
                     risk = 'high';
                     recommendation = 'Ingen alternativ – finn/registrer';
                 }
