@@ -1102,31 +1102,27 @@ class DemandMode {
             let recommendation = '';
 
             if (item.isDiscontinued) {
-                const altArtNr = item.ersattAvArtikel;
-                const altItem = altArtNr ? this.dataStore.getByToolsArticleNumber(altArtNr) : null;
+                // FASE 2.2: Bruk sentral resolver
+                const alt = this.dataStore.resolveAlternativeStatus(item);
+                const altArtNr = alt.altToolsArtNr;
 
-                if (altArtNr && altItem && !altItem.isDiscontinued && altItem.stock > 0) {
-                    // Aktiv alternativ med saldo — ideell
+                if (alt.classification === 'OK_ON_STOCK') {
                     risk = 'low';
-                    recommendation = `Bytt til alternativ (${altArtNr}) – på lager`;
-                } else if (altArtNr && altItem && !altItem.isDiscontinued && altItem.bestAntLev > 0) {
-                    // Aktiv alternativ, tomt men bestilling på vei
+                    recommendation = `Bytt til alternativ (${altArtNr}) – på lager (${alt.altStock})`;
+                } else if (alt.classification === 'OK_INCOMING') {
                     risk = 'low';
-                    recommendation = `Bytt til alternativ (${altArtNr}) – bestilling på vei`;
-                } else if (altArtNr && altItem && !altItem.isDiscontinued) {
-                    // Aktiv alternativ men ikke på lager
+                    recommendation = `Bytt til alternativ (${altArtNr}) – bestilling på vei (${alt.altBestAntLev})`;
+                } else if (alt.classification === 'ACTIVE_NO_STOCK') {
                     risk = 'medium';
                     recommendation = `Alternativ (${altArtNr}) – aktiv, ikke på lager`;
-                } else if (altArtNr && altItem && altItem.isDiscontinued) {
-                    // Alternativ er selv utgående
+                } else if (alt.classification === 'ALT_DISCONTINUED') {
                     risk = 'high';
                     recommendation = `Alternativ (${altArtNr}) også utgående`;
-                } else if (altArtNr && !altItem) {
-                    // Alternativ definert men finnes ikke i SA-universet
+                } else if (alt.classification === 'NOT_IN_SA') {
                     risk = 'high';
-                    recommendation = `Alternativ (${altArtNr}) finnes ikke i SA`;
+                    recommendation = `Alternativ (${altArtNr}) finnes ikke i data`;
                 } else {
-                    // Ingen alternativ definert
+                    // NO_ALTERNATIVE
                     risk = 'high';
                     recommendation = 'Ingen alternativ – finn/registrer';
                 }

@@ -405,8 +405,24 @@ class DataProcessor {
             // FASE 6.1: Slå opp via toolsArticleNumber
             const item = store.getByToolsArticleNumber(articleNo);
             if (!item) {
-                // Master-rad uten SA-nummer — ignorert
+                // Master-rad uten SA-nummer — lagre i masterOnlyArticles for alt-oppslag
                 unmatchedCount++;
+
+                // FASE 2.2: Lagre basisdata for alternative-lookups
+                const rawStatus = this.getMasterValue(row, colMap.articleStatus) || '';
+                const normalizedStatus = normalizeItemStatus(rawStatus);
+                const isDisc = normalizedStatus === 'UTGAENDE' || normalizedStatus === 'UTGAATT' ||
+                    rawStatus.toLowerCase().includes('utgå') || rawStatus.toLowerCase().includes('discontinued');
+
+                store.masterOnlyArticles.set(articleNo, {
+                    toolsArticleNumber: articleNo,
+                    description: this.getMasterValue(row, colMap.description) || '',
+                    stock: this.parseNumber(this.getMasterValue(row, colMap.totalStock)),
+                    bestAntLev: this.parseNumber(this.getMasterValue(row, colMap.orderedQty)),
+                    statusText: rawStatus,
+                    _status: normalizedStatus,
+                    isDiscontinued: isDisc
+                });
                 return;
             }
 
@@ -496,7 +512,7 @@ class DataProcessor {
 
         console.log(`[FASE 6.1] Master.xlsx resultat:`);
         console.log(`  SA-artikler beriket: ${processedCount}`);
-        console.log(`  Master-rader uten SA-match (ignorert): ${unmatchedCount}`);
+        console.log(`  Master-rader uten SA-match: ${unmatchedCount} (lagret i masterOnlyArticles for alt-oppslag)`);
         console.log(`  Med innkommende (BestAntLev > 0): ${incomingCount}`);
         console.log(`  Med alternativ (Ersätts av artikel): ${alternativeCount}`);
         if (selfRefSkipped > 0) {
