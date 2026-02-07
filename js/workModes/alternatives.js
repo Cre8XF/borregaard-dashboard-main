@@ -155,7 +155,7 @@ class AlternativeAnalysisMode {
             } else {
                 // Alternative is defined — look it up in the SAME Master.xlsx dataset
                 withAlternative++;
-                const altItem = store.items.get(ersattAv);
+                const altItem = store.getByToolsArticleNumber(ersattAv);
 
                 let classification;
                 let classType;

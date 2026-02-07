@@ -1,30 +1,33 @@
 // ===================================
-// UNIFIED ITEM MODEL
-// Normalisert datamodell for Borregaard Dashboard
-// Master.xlsx er SINGLE SOURCE OF TRUTH
+// UNIFIED ITEM MODEL — FASE 6.1
+// SA-nummer (Kunds artikkelnummer) er primærnøkkel
+// Master.xlsx er datakilde for lager/status
 // ===================================
 
 /**
- * UnifiedItem - Normalisert datastruktur som samler data fra alle kilder
+ * UnifiedItem - Normalisert datastruktur for Borregaard Dashboard
  *
- * Primærnøkkel: toolsArticleNumber (Artikelnr fra Master.xlsx)
+ * FASE 6.1: Re-keyed til SA-nummer som primær identitet.
+ *
+ * Primærnøkkel: saNumber (Kunds artikkelnummer fra SA-Nummer.xlsx)
+ * Sekundær:     toolsArticleNumber (Artikelnr fra Master.xlsx)
  *
  * FAST DATAANSVAR (4 kilder):
- *   1. Master.xlsx (REQUIRED) → artikkelidentitet, status, lagersaldo,
- *      disponibelt, reservert, BestAntLev, alternativer, kalkylpris, leverandør
- *   2. SA-Nummer.xlsx (OPTIONAL) → SA-nummer mapping (kundens art.nr)
+ *   1. SA-Nummer.xlsx (REQUIRED) → oppretter items, definerer operativt univers
+ *   2. Master.xlsx (REQUIRED) → lagersaldo, status, kalkylpris, alternativer, leverandør
  *   3. Ordrer_Jeeves.xlsx (REQUIRED) → salgshistorikk (KUN salg)
  *   4. Analyse_Lagerplan.xlsx (OPTIONAL) → bestillingspunkt (BP), ordrekvantitet (EOK)
  *
  * AVLEDET VERDI:
  *   estimertVerdi = kalkylPris * lagersaldo (beregnes KUN i modellen)
- *   Ingen hardkodede priser. Ingen fallback-verdier.
  */
 class UnifiedItem {
-    constructor(toolsArticleNumber) {
-        // Identifikatorer
-        this.toolsArticleNumber = toolsArticleNumber;
-        this.saNumber = null;
+    constructor(saNumber, toolsArticleNumber) {
+        // ── Identitet (FASE 6.1) ──
+        // saNumber = primær ID (Kunds artikkelnummer)
+        // toolsArticleNumber = sekundær koblingsnøkkel (teknisk)
+        this.saNumber = saNumber;
+        this.toolsArticleNumber = toolsArticleNumber || '';
         this.description = '';
 
         // ── Master.xlsx: lagerbeholdning ──
@@ -32,10 +35,10 @@ class UnifiedItem {
         this.stock = 0;           // TotLagSaldo
         this.reserved = 0;        // ReservAnt
         this.available = 0;       // DispLagSaldo
-        this.kalkylPris = 0;        // Kalkylepris per stk
-        this.estimertVerdi = 0;    // kalkylPris × saldo
-        this.bp = 0;              // Bestillingspunkt (if present)
-        this.max = 0;             // Maksimum lager (if present)
+        this.kalkylPris = 0;      // Kalkylepris per stk
+        this.estimertVerdi = 0;   // kalkylPris × saldo
+        this.bp = 0;              // Bestillingspunkt (backward compat)
+        this.max = 0;             // Maksimum lager
         this.status = '';         // Artikelstatus (raw value)
         this.statusText = null;   // Readable status text
         this.isDiscontinued = false;
@@ -50,16 +53,16 @@ class UnifiedItem {
         this.bestillingsNummer = '';     // Beställningsnummer from Master
 
         // ── Master.xlsx: alternatives ──
-        this.ersattAvArtikel = '';       // Ersätts av artikel (replacement FOR this article)
-        this.ersatterArtikel = '';       // Ersätter artikel (this article REPLACES)
+        this.ersattAvArtikel = '';       // Ersätts av artikel
+        this.ersatterArtikel = '';       // Ersätter artikel
 
-        // ── Legacy incoming orders array (populated from Master BestAntLev) ──
+        // ── Incoming orders array (populated from Master BestAntLev) ──
         this.incomingOrders = [];
 
         // ── Ordrer_Jeeves.xlsx: ordrer UT ──
         this.outgoingOrders = [];
 
-        // Beregnede felt (populeres etter datasamling)
+        // ── Beregnede felt ──
         this.sales6m = 0;
         this.sales12m = 0;
         this.orderCount = 0;
@@ -70,18 +73,15 @@ class UnifiedItem {
         this.lastOrderDate = null;
 
         // ── Planlegging (fra Analyse_Lagerplan.xlsx, valgfri) ──
-        // Disse verdiene skal IKKE beregnes og IKKE ha fallback.
-        // null = ikke satt / mangler i kildedata
-        this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan (reorder point)
-        this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan (order quantity)
+        this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan
+        this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan
 
-        // ── SA-nummer enrichment (from SA-nummer file, optional) ──
-        this.saType = null;           // SA-type (e.g. 'Rammeavtale')
-        this.saGyldigFra = null;      // Gyldig fra (valid from date)
-        this.saGyldigTil = null;      // Gyldig til (valid to date)
+        // ── SA-avtaleinformasjon (from SA-nummer file) ──
+        this.saType = null;
+        this.saGyldigFra = null;
+        this.saGyldigTil = null;
 
-        // Metadata
-        this.hasSANumber = false;
+        // ── Metadata ──
         this.hasIncomingOrders = false;
         this.hasOutgoingOrders = false;
     }
@@ -116,25 +116,10 @@ class UnifiedItem {
     }
 
     /**
-     * Sett SA-nummer
-     */
-    setSANumber(saNumber) {
-        if (saNumber && saNumber.toString().trim() !== '') {
-            this.saNumber = saNumber.toString().trim();
-            this.hasSANumber = true;
-        }
-    }
-
-    /**
-     * Sett SA-data (full enrichment from SA-nummer file)
-     * Additive only — never overwrites Master data
+     * Sett SA-avtaleinformasjon (type, gyldighet)
      */
     setSAData(saData) {
         if (!saData) return;
-
-        if (saData.saNummer) {
-            this.setSANumber(saData.saNummer);
-        }
         if (saData.saType != null && saData.saType !== '') {
             this.saType = saData.saType.toString().trim();
         }
@@ -148,16 +133,13 @@ class UnifiedItem {
 
     /**
      * Beregn alle avledede verdier
-     * Skal kalles etter at all data er samlet
      */
     calculate() {
-        const now = new Date();
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
         const oneYearAgo = new Date();
         oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-        // Beregn salg siste 6 og 12 måneder (fra Ordrer_Jeeves.xlsx)
         this.sales6m = 0;
         this.sales12m = 0;
         this.orderCount = 0;
@@ -189,7 +171,6 @@ class UnifiedItem {
         this.orderCount = uniqueOrders.size;
         this.lastSaleDate = latestSaleDate;
 
-        // Beregn månedlig forbruk og dager til tomt
         this.monthlyConsumption = this.sales12m / 12;
 
         if (this.monthlyConsumption > 0) {
@@ -199,14 +180,10 @@ class UnifiedItem {
             this.daysToEmpty = 999999;
         }
 
-        // Incoming: basert på BestAntLev fra Master.xlsx
         if (this.bestAntLev > 0) {
             this.hasIncomingOrders = true;
         }
 
-
-
-        // Finn siste innkommende bestillingsdato
         let latestOrderDate = null;
         this.incomingOrders.forEach(order => {
             if (order.expectedDate && (!latestOrderDate || order.expectedDate > latestOrderDate)) {
@@ -215,64 +192,50 @@ class UnifiedItem {
         });
         this.lastOrderDate = latestOrderDate;
 
-        // Siste bevegelse (salg eller bestilling)
         if (latestSaleDate && latestOrderDate) {
             this.lastMovementDate = latestSaleDate > latestOrderDate ? latestSaleDate : latestOrderDate;
         } else {
             this.lastMovementDate = latestSaleDate || latestOrderDate;
         }
 
-        // Beregn tilgjengelig mengde hvis ikke satt
         if (this.available === 0 && this.stock > 0) {
             this.available = this.stock - this.reserved;
         }
-        // ── Beregn estimert verdi (kalkylepris × saldo) ──
+
         if (this.kalkylPris > 0 && this.stock > 0) {
             this.estimertVerdi = this.kalkylPris * this.stock;
         } else {
             this.estimertVerdi = 0;
         }
-
     }
 
     /**
-     * Sjekk om artikkelen har problemer (for Oversikt-modus)
-     *
-     * Classification rules (Master.xlsx as source):
-     *   CRITICAL: DispLagSaldo <= 0 AND BestAntLev == 0
-     *   WARNING:  DispLagSaldo > 0 AND DispLagSaldo < threshold
-     *   INCOMING: BestAntLev > 0
+     * Sjekk om artikkelen har problemer
      */
     getIssues() {
         const issues = [];
-        const WARNING_THRESHOLD = 5; // Configurable threshold for low available stock
+        const WARNING_THRESHOLD = 5;
 
-        // ── CRITICAL: Negativ saldo ──
         if (this.stock < 0) {
             issues.push({ type: 'critical', code: 'NEGATIVE_STOCK', message: 'Negativ saldo' });
         }
 
-        // ── CRITICAL: Reservert > saldo ──
         if (this.reserved > this.stock && this.stock >= 0) {
             issues.push({ type: 'critical', code: 'OVERRESERVED', message: 'Reservert overstiger saldo' });
         }
 
-        // ── CRITICAL: DispLagSaldo <= 0 AND BestAntLev == 0 ──
         if (this.available <= 0 && this.bestAntLev === 0 && this.stock >= 0 && this.sales12m > 0) {
             issues.push({ type: 'critical', code: 'NO_STOCK_NO_INCOMING', message: 'Ingen tilgjengelig og ingen på vei inn' });
         }
 
-        // ── WARNING: Under bestillingspunkt ──
         if (this.bp > 0 && this.stock < this.bp && this.stock >= 0) {
             issues.push({ type: 'warning', code: 'BELOW_BP', message: 'Under bestillingspunkt' });
         }
 
-        // ── WARNING: Lav disponibel beholdning ──
         if (this.available > 0 && this.available < WARNING_THRESHOLD && this.sales12m > 0) {
             issues.push({ type: 'warning', code: 'LOW_AVAILABLE', message: `Lav disponibel (${this.available})` });
         }
 
-        // ── INFO: Ingen bevegelse siste 90 dager ──
         if (this.lastMovementDate) {
             const daysSinceMovement = Math.floor((new Date() - this.lastMovementDate) / (1000 * 60 * 60 * 24));
             if (daysSinceMovement > 90) {
@@ -280,17 +243,11 @@ class UnifiedItem {
             }
         }
 
-        // ── INFO: Tom saldo men har bestillinger på vei (BestAntLev) ──
         if (this.stock === 0 && this.bestAntLev > 0) {
             issues.push({ type: 'info', code: 'EMPTY_WITH_INCOMING', message: `Tom, men ${this.bestAntLev} på vei` });
         }
 
-        // ── DATA: Mangler SA-nummer ──
-        // FASE 6: Artikler uten SA vises ikke i operative visninger (getActiveItems).
-        // Beholdt for diagnostikk dersom noen kaller getIssues() på ikke-SA-artikler.
-        if (!this.hasSANumber) {
-            issues.push({ type: 'data', code: 'NO_SA_NUMBER', message: 'Mangler SA-nummer' });
-        }
+        // FASE 6.1: Ikke lenger behov for NO_SA_NUMBER — alle items HAR SA-nummer
 
         return issues;
     }
@@ -300,8 +257,8 @@ class UnifiedItem {
      */
     toDisplayObject() {
         return {
-            toolsArticleNumber: this.toolsArticleNumber,
             saNumber: this.saNumber,
+            toolsArticleNumber: this.toolsArticleNumber,
             description: this.description,
             location: this.location,
             stock: this.stock,
@@ -331,7 +288,6 @@ class UnifiedItem {
             daysToEmpty: this.daysToEmpty,
             lastSaleDate: this.lastSaleDate,
             lastMovementDate: this.lastMovementDate,
-            hasSANumber: this.hasSANumber,
             saType: this.saType,
             saGyldigFra: this.saGyldigFra,
             saGyldigTil: this.saGyldigTil,
@@ -343,18 +299,26 @@ class UnifiedItem {
 }
 
 /**
- * UnifiedDataStore - Samler og håndterer alle UnifiedItem-objekter
+ * UnifiedDataStore - Samler alle UnifiedItem-objekter
+ *
+ * FASE 6.1: items er nå keyed på saNumber (Kunds artikkelnummer).
+ * toolsLookup gir reverse-oppslag fra toolsArticleNumber → saNumber.
+ * Alle items HAR SA-nummer — det finnes ingen items uten.
  */
 class UnifiedDataStore {
     constructor() {
-        this.items = new Map(); // toolsArticleNumber -> UnifiedItem
-        this.saMapping = new Map(); // toolsArticleNumber -> saNumber
-        this.placementMapping = new Map(); // toolsArticleNumber -> placementLocation
-        this.alternativeArticles = new Map(); // sourceArticle -> [{altArticle}]
+        // Primær map: saNumber → UnifiedItem
+        this.items = new Map();
+        // Reverse lookup: toolsArticleNumber → saNumber (for Master/Ordrer-enrichment)
+        this.toolsLookup = new Map();
+        // Alternative articles mapping (toolsArticleNumber-based from Master)
+        this.alternativeArticles = new Map();
+        // Diagnostic counters (set during processing)
+        this.masterRowCount = 0;
+        this.masterUnmatchedCount = 0;
+        this.ordersUnmatchedCount = 0;
         this.dataQuality = {
             totalArticles: 0,
-            withSANumber: 0,
-            withoutSANumber: 0,
             withIncoming: 0,
             withOutgoing: 0,
             withIssues: 0
@@ -362,56 +326,40 @@ class UnifiedDataStore {
     }
 
     /**
-     * Hent eller opprett artikkel
+     * Opprett SA-artikkel (kun fra SA-nummer.xlsx)
+     * @param {string} saNumber - Kunds artikkelnummer (primærnøkkel)
+     * @param {string} toolsArticleNumber - Tools Artikelnr (sekundær)
+     * @returns {UnifiedItem|null}
      */
-    getOrCreate(toolsArticleNumber) {
-        if (!toolsArticleNumber || toolsArticleNumber.toString().trim() === '') {
-            return null;
+    createFromSA(saNumber, toolsArticleNumber) {
+        if (!saNumber || saNumber.toString().trim() === '') return null;
+
+        const saKey = saNumber.toString().trim();
+        const toolsKey = toolsArticleNumber ? toolsArticleNumber.toString().trim() : '';
+
+        if (!this.items.has(saKey)) {
+            this.items.set(saKey, new UnifiedItem(saKey, toolsKey));
         }
 
-        const key = toolsArticleNumber.toString().trim();
-
-        if (!this.items.has(key)) {
-            this.items.set(key, new UnifiedItem(key));
+        // Registrer reverse lookup
+        if (toolsKey) {
+            this.toolsLookup.set(toolsKey, saKey);
         }
 
-        return this.items.get(key);
+        return this.items.get(saKey);
     }
 
     /**
-     * Sett SA-nummer mapping
+     * Slå opp item via toolsArticleNumber (for Master/Ordrer-enrichment)
+     * @param {string} toolsArticleNumber
+     * @returns {UnifiedItem|null}
      */
-    setSAMapping(toolsArticleNumber, saNumber) {
-        if (toolsArticleNumber && saNumber) {
-            this.saMapping.set(toolsArticleNumber.toString().trim(), saNumber.toString().trim());
-        }
-    }
-
-    /**
-     * Sett plasseringslokasjon mapping
-     */
-    setPlacementLocation(toolsArticleNumber, placementLocation) {
-        if (toolsArticleNumber && placementLocation) {
-            this.placementMapping.set(toolsArticleNumber.toString().trim(), placementLocation.toString().trim());
-        }
-    }
-
-    /**
-     * Apliser SA-nummer og plasseringslokasjon til alle artikler
-     */
-    applySANumbers() {
-        this.saMapping.forEach((saNumber, toolsArticleNumber) => {
-            const item = this.items.get(toolsArticleNumber);
-            if (item) {
-                item.setSANumber(saNumber);
-            }
-        });
-        this.placementMapping.forEach((placementLocation, toolsArticleNumber) => {
-            const item = this.items.get(toolsArticleNumber);
-            if (item) {
-                item.placementLocation = placementLocation;
-            }
-        });
+    getByToolsArticleNumber(toolsArticleNumber) {
+        if (!toolsArticleNumber) return null;
+        const toolsKey = toolsArticleNumber.toString().trim();
+        const saKey = this.toolsLookup.get(toolsKey);
+        if (!saKey) return null;
+        return this.items.get(saKey) || null;
     }
 
     /**
@@ -420,8 +368,6 @@ class UnifiedDataStore {
     calculateAll() {
         this.dataQuality = {
             totalArticles: this.items.size,
-            withSANumber: 0,
-            withoutSANumber: 0,
             withIncoming: 0,
             withOutgoing: 0,
             withIssues: 0
@@ -430,21 +376,12 @@ class UnifiedDataStore {
         this.items.forEach(item => {
             item.calculate();
 
-            if (item.hasSANumber) {
-                this.dataQuality.withSANumber++;
-            } else {
-                this.dataQuality.withoutSANumber++;
-            }
-
-            // Incoming: BestAntLev > 0 from Master.xlsx
             if (item.bestAntLev > 0 || item.hasIncomingOrders) {
                 this.dataQuality.withIncoming++;
             }
-
             if (item.hasOutgoingOrders) {
                 this.dataQuality.withOutgoing++;
             }
-
             if (item.getIssues().length > 0) {
                 this.dataQuality.withIssues++;
             }
@@ -452,26 +389,19 @@ class UnifiedDataStore {
     }
 
     /**
-     * Hent ALLE artikler som array (hele Master-listen).
-     * Brukes kun internt for diagnostikk og dataprocessing.
-     * For operativt innhold, bruk getActiveItems().
+     * Hent alle artikler som array.
+     * FASE 6.1: Alle items ER SA-artikler — ingen filtrering nødvendig.
      */
     getAllItems() {
         return Array.from(this.items.values());
     }
 
     /**
-     * Hent kun SA-artikler (det operative universet).
-     *
-     * FASE 6: SA-Nummer.xlsx definerer det operative universet.
-     * Alle KPI-er, lister og analyser skal bruke denne metoden.
-     * Artikler uten SA-nummer er fortsatt i minne (items), men
-     * påvirker ikke tall eller visninger.
-     *
-     * @returns {UnifiedItem[]} Kun artikler med hasSANumber === true
+     * Backward-compat alias: getActiveItems() = getAllItems()
+     * FASE 6.1: Alle items er SA-artikler, så aktiv = alle.
      */
     getActiveItems() {
-        return Array.from(this.items.values()).filter(item => item.hasSANumber);
+        return this.getAllItems();
     }
 
     /**
@@ -482,10 +412,10 @@ class UnifiedDataStore {
     }
 
     /**
-     * Hent artikler med spesifikke issues (kun SA-artikler)
+     * Hent artikler med spesifikke issues
      */
     getItemsWithIssue(issueCode) {
-        return this.getActiveItems().filter(item =>
+        return this.getAllItems().filter(item =>
             item.getIssues().some(issue => issue.code === issueCode)
         );
     }
@@ -493,27 +423,25 @@ class UnifiedDataStore {
     /**
      * Hent datakvalitetsrapport
      *
-     * FASE 6: Inkluderer nå aktive (SA) artikkelstatistikk.
-     * activeArticles = antall SA-artikler (operativt univers)
-     * totalArticles = antall rader i Master (databank)
+     * FASE 6.1: Alle items er SA-artikler.
+     * totalArticles = items.size = antall SA-artikler
+     * masterRowCount = antall rader i Master.xlsx
+     * masterUnmatchedCount = Master-rader uten SA
      */
     getDataQualityReport() {
-        const active = this.getActiveItems();
-        const activeWithIncoming = active.filter(i => i.bestAntLev > 0 || i.hasIncomingOrders).length;
-        const activeWithOutgoing = active.filter(i => i.hasOutgoingOrders).length;
-        const activeWithIssues = active.filter(i => i.getIssues().length > 0).length;
-
         return {
             ...this.dataQuality,
-            // Operativt univers (SA-artikler)
-            activeArticles: active.length,
-            activeWithIncoming,
-            activeWithOutgoing,
-            activeWithIssues,
-            // SA-dekning relativt til Master
-            saNumberCoverage: this.dataQuality.totalArticles > 0
-                ? Math.round((this.dataQuality.withSANumber / this.dataQuality.totalArticles) * 100)
-                : 0
+            // FASE 6.1: alle items er SA-artikler
+            activeArticles: this.items.size,
+            activeWithIncoming: this.dataQuality.withIncoming,
+            activeWithOutgoing: this.dataQuality.withOutgoing,
+            activeWithIssues: this.dataQuality.withIssues,
+            // Transparens: Master vs SA
+            masterRowCount: this.masterRowCount,
+            masterUnmatchedCount: this.masterUnmatchedCount,
+            ordersUnmatchedCount: this.ordersUnmatchedCount,
+            // SA-dekning = alltid 100% (alle items har SA)
+            saNumberCoverage: 100
         };
     }
 
@@ -522,13 +450,13 @@ class UnifiedDataStore {
      */
     clear() {
         this.items.clear();
-        this.saMapping.clear();
-        this.placementMapping.clear();
+        this.toolsLookup.clear();
         this.alternativeArticles.clear();
+        this.masterRowCount = 0;
+        this.masterUnmatchedCount = 0;
+        this.ordersUnmatchedCount = 0;
         this.dataQuality = {
             totalArticles: 0,
-            withSANumber: 0,
-            withoutSANumber: 0,
             withIncoming: 0,
             withOutgoing: 0,
             withIssues: 0

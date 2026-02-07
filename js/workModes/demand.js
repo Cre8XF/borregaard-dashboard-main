@@ -287,7 +287,7 @@ class DemandMode {
                             const sales = item[salesField] || 0;
                             const share = totalSales > 0 ? ((sales / totalSales) * 100).toFixed(1) : 0;
                             return `
-                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                     <td>${i + 1}</td>
                                     <td><strong>${item.toolsArticleNumber}</strong></td>
                                     <td>${item.saNumber || '-'}</td>
@@ -360,7 +360,7 @@ class DemandMode {
                         ${displayData.map((item, i) => {
                             const recommendation = this.getFrequencyRecommendation(item);
                             return `
-                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                     <td>${i + 1}</td>
                                     <td><strong>${item.toolsArticleNumber}</strong></td>
                                     <td>${item.saNumber || '-'}</td>
@@ -465,7 +465,7 @@ class DemandMode {
                     <tbody>
                         ${displayData.map(item => `
                             <tr class="${item.isConcentrated ? 'row-warning' : ''} clickable"
-                                onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                onclick="DemandMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -561,7 +561,7 @@ class DemandMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -627,7 +627,7 @@ class DemandMode {
                     </thead>
                     <tbody>
                         ${sorted.map(row => `
-                            <tr class="clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 35)}</td>
                                 <td>${row.deliveryLocation || '-'}</td>
@@ -688,6 +688,7 @@ class DemandMode {
                 if (!aggregation.has(key)) {
                     aggregation.set(key, {
                         toolsArticleNumber: item.toolsArticleNumber,
+                        saNumber: item.saNumber,
                         description: item.description,
                         deliveryLocation: loc,
                         totalQuantity: 0,
@@ -859,6 +860,7 @@ class DemandMode {
 
             results.push({
                 toolsArticleNumber: item.toolsArticleNumber,
+                saNumber: item.saNumber,
                 description: item.description,
                 warehouseCount,
                 orderCount,
@@ -937,7 +939,7 @@ class DemandMode {
                         ${sorted.map(row => {
                             const rowClass = row.risk === 'CRITICAL' ? 'row-critical' : row.risk === 'RISK' ? 'row-warning' : '';
                             return `
-                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 30)}</td>
                                 <td class="qty-cell">${row.warehouseCount}</td>
@@ -1101,7 +1103,7 @@ class DemandMode {
 
             if (item.isDiscontinued) {
                 const altArtNr = item.ersattAvArtikel;
-                const altItem = altArtNr ? this.dataStore.items.get(altArtNr) : null;
+                const altItem = altArtNr ? this.dataStore.getByToolsArticleNumber(altArtNr) : null;
 
                 if (altArtNr && altItem && !altItem.isDiscontinued && (altItem.stock > 0 || altItem.bestAntLev > 0)) {
                     risk = 'low';
@@ -1124,6 +1126,7 @@ class DemandMode {
 
             results.push({
                 toolsArticleNumber: item.toolsArticleNumber,
+                saNumber: item.saNumber,
                 description: item.description,
                 statusLabel,
                 warehouseList,
@@ -1236,7 +1239,7 @@ class DemandMode {
                         ${sorted.map(row => {
                             const rowClass = row.risk === 'high' ? 'row-critical' : row.risk === 'medium' ? 'row-warning' : '';
                             return `
-                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 30)}</td>
                                 <td>${this.getStatusBadge(row.statusLabel)}</td>

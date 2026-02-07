@@ -1,24 +1,26 @@
 // ===================================
-// BORREGAARD DASHBOARD v4.2
-// Master.xlsx er SINGLE SOURCE OF TRUTH
-// Ordrer_Jeeves.xlsx brukes KUN for salg/etterspørsel
+// BORREGAARD DASHBOARD v4.3
+// FASE 6.1: SA-nummer er primærnøkkel
+// SA-Nummer.xlsx → Master.xlsx → Ordrer → Lagerplan
 // ===================================
 
 /**
  * DashboardApp - Hovedkontroller for applikasjonen
  * Koordinerer dataflyt, filopplasting og modulvisning
  *
- * ARCHITECTURE:
- *   Master.xlsx → all article data (stock, status, incoming, alternatives)
- *   Ordrer_Jeeves.xlsx → sales / demand analysis only
+ * FASE 6.1 ARCHITECTURE:
+ *   SA-Nummer.xlsx → creates items (defines operative universe)
+ *   Master.xlsx → enriches: stock, status, incoming, alternatives, kalkylpris
+ *   Ordrer_Jeeves.xlsx → enriches: sales / demand analysis
+ *   Analyse_Lagerplan.xlsx → enriches: BP, EOK (optional)
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (4 filer)
+        // Datakilder (4 filer — 3 påkrevd, 1 valgfri)
         this.files = {
             master: null,       // Master.xlsx (REQUIRED)
             ordersOut: null,    // Ordrer_Jeeves.xlsx (REQUIRED)
-            sa: null,           // SA-nummer.xlsx (OPTIONAL)
+            sa: null,           // SA-nummer.xlsx (REQUIRED — FASE 6.1)
             lagerplan: null     // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
         };
 
@@ -38,8 +40,8 @@ class DashboardApp {
      * Initialiser applikasjonen
      */
     init() {
-        console.log('Borregaard Dashboard v4.2 initializing...');
-        console.log('Master.xlsx is used as the single source of truth');
+        console.log('Borregaard Dashboard v4.3 initializing...');
+        console.log('[FASE 6.1] SA-nummer er primærnøkkel');
         this.setupEventListeners();
         this.setupDropZone();
         this.loadStoredData();
@@ -129,7 +131,8 @@ class DashboardApp {
     /**
      * Håndter multi-file drop — detekter og ruter filer til riktig input
      *
-     * Only 2 file types are recognized:
+     * FASE 6.1: 3 file types are REQUIRED:
+     *   sa        → SA-nummer.xlsx
      *   master    → Master.xlsx
      *   ordersOut → Ordrer_Jeeves.xlsx
      */
@@ -163,16 +166,16 @@ class DashboardApp {
         this.setFileInput('saFile', routed.sa);
         this.setFileInput('lagerplanFile', routed.lagerplan);
 
-        // Add missing file warnings
+        // Add missing file warnings — FASE 6.1: SA is now required
         if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
-        if (!routed.sa) results.push({ status: 'info', message: 'SA-nummer fil ikke funnet (valgfri)' });
+        if (!routed.sa) results.push({ status: 'warning', message: 'SA-nummer.xlsx mangler (påkrevd)' });
         if (!routed.lagerplan) results.push({ status: 'info', message: 'Analyse_Lagerplan.xlsx ikke funnet (valgfri)' });
 
         this.updateDropStatus(results);
 
-        // Auto-trigger analysis if all required files are present
-        if (routed.master && routed.ordersOut) {
+        // Auto-trigger analysis if all required files are present (FASE 6.1: SA is required)
+        if (routed.master && routed.ordersOut && routed.sa) {
             this.handleFileUpload();
         }
     }
@@ -184,9 +187,10 @@ class DashboardApp {
      *   master    → filename contains 'master'
      *   ordersOut → filename contains 'ordrer'
      *   sa        → filename contains 'sa-nummer' or 'sa_nummer' or 'sanummer'
+     *   lagerplan → filename contains 'lagerplan'
      *
      * @param {File} file
-     * @returns {Promise<string|null>} 'master' | 'ordersOut' | 'sa' | null
+     * @returns {Promise<string|null>} 'master' | 'ordersOut' | 'sa' | 'lagerplan' | null
      */
     async detectFileType(file) {
         const name = file.name.toLowerCase();
@@ -215,7 +219,7 @@ class DashboardApp {
             const columns = await this.peekColumns(file);
             const colSet = new Set(columns.map(c => c.toLowerCase().trim()));
 
-            // Master.xlsx: must have TotLagSaldo and Artikelstatus and Ersätts av artikel
+            // Master.xlsx: must have TotLagSaldo and Artikelstatus
             if (colSet.has('totlagsaldo') && colSet.has('artikelstatus')) {
                 return 'master';
             }
@@ -225,9 +229,10 @@ class DashboardApp {
                 return 'ordersOut';
             }
 
-            // SA-nummer: Artikelnr + SA-nummer/SA nummer
+            // SA-nummer: Artikelnr + SA-nummer/SA nummer/Kunds artikkelnummer
             const hasSAColumn = [...colSet].some(c =>
-                c.includes('sa-nummer') || c.includes('sa nummer') || c === 'sa' || c.includes('sanummer')
+                c.includes('sa-nummer') || c.includes('sa nummer') || c === 'sa' ||
+                c.includes('sanummer') || c.includes('kunds artikkelnummer') || c.includes('kunds art.nr')
             );
             if (colSet.has('artikelnr') && hasSAColumn) {
                 return 'sa';
@@ -325,6 +330,8 @@ class DashboardApp {
 
     /**
      * Håndter filopplasting
+     *
+     * FASE 6.1: SA-Nummer.xlsx er nå PÅKREVD sammen med Master og Ordrer.
      */
     async handleFileUpload() {
         // Hent filer fra input-elementer
@@ -333,9 +340,14 @@ class DashboardApp {
         const saFile = document.getElementById('saFile')?.files[0] || null;
         const lagerplanFile = document.getElementById('lagerplanFile')?.files[0] || null;
 
-        // Valider påkrevde filer
-        if (!masterFile || !ordersOutFile) {
-            this.showStatus('Master.xlsx og Ordrer_Jeeves.xlsx er påkrevd!', 'error');
+        // FASE 6.1: Valider alle 3 påkrevde filer
+        const missing = [];
+        if (!masterFile) missing.push('Master.xlsx');
+        if (!ordersOutFile) missing.push('Ordrer_Jeeves.xlsx');
+        if (!saFile) missing.push('SA-nummer.xlsx');
+
+        if (missing.length > 0) {
+            this.showStatus(`Mangler påkrevde filer: ${missing.join(', ')}`, 'error');
             return;
         }
 
@@ -343,7 +355,7 @@ class DashboardApp {
         this.setLoadingState(true);
 
         try {
-            // Prosesser alle filer via DataProcessor
+            // Prosesser alle filer via DataProcessor (FASE 6.1 pipeline)
             this.dataStore = await DataProcessor.processAllFiles({
                 master: masterFile,
                 ordersOut: ordersOutFile,
@@ -354,8 +366,7 @@ class DashboardApp {
             // Generer legacy processedData for bakoverkompatibilitet
             this.processedData = this.generateLegacyData();
 
-            console.log(`Prosessert: ${this.dataStore.items.size} artikler`);
-            console.log('Master.xlsx is used as the single source of truth');
+            console.log(`[FASE 6.1] Prosessert: ${this.dataStore.items.size} SA-artikler`);
 
             // Oppdater UI
             this.updateSummaryCards();
@@ -364,7 +375,7 @@ class DashboardApp {
 
             const quality = this.dataStore.getDataQualityReport();
             this.showStatus(
-                `Ferdig! ${quality.totalArticles} artikler analysert fra Master.xlsx. Innkommende: ${quality.withIncoming}`,
+                `Ferdig! ${quality.totalArticles} SA-artikler analysert. Innkommende: ${quality.withIncoming}`,
                 'success'
             );
 
@@ -382,8 +393,7 @@ class DashboardApp {
     generateLegacyData() {
         if (!this.dataStore) return [];
 
-        // FASE 6: Kun SA-artikler i legacy-formatet
-        return this.dataStore.getActiveItems().map(item => {
+        return this.dataStore.getAllItems().map(item => {
             const display = item.toDisplayObject();
             return {
                 itemNo: item.toolsArticleNumber,
@@ -402,7 +412,7 @@ class DashboardApp {
                 daysToEmpty: display.daysToEmpty,
                 lastSaleDate: display.lastSaleDate,
                 r12: display.sales12m,
-                price: item.kalkylPris || 0,  // Fra Master.xlsx Kalkylpris bas — ingen hardkodet fallback
+                price: item.kalkylPris || 0,
                 estimertVerdi: item.estimertVerdi || 0
             };
         });
@@ -411,23 +421,21 @@ class DashboardApp {
     /**
      * Oppdater sammendragskort
      *
-     * FASE 6: Bruker getActiveItems() (SA-artikler) for alle KPI-er.
-     * Master-artikler uten SA påvirker ikke toppkortene.
+     * FASE 6.1: Alle items ER SA-artikler. getActiveItems() = getAllItems().
      */
     updateSummaryCards() {
         if (!this.dataStore) return;
 
         const quality = this.dataStore.getDataQualityReport();
-        // FASE 6: Kun SA-artikler i KPI-er
-        const items = this.dataStore.getActiveItems();
+        const items = this.dataStore.getAllItems();
 
         // Totalt SA-artikler (operativt univers)
         const totalEl = document.getElementById('totalItems');
         if (totalEl) {
-            totalEl.textContent = quality.activeArticles.toLocaleString('nb-NO');
+            totalEl.textContent = quality.totalArticles.toLocaleString('nb-NO');
         }
 
-        // Kritiske issues (kun SA-artikler)
+        // Kritiske issues
         let criticalCount = 0;
         let warningCount = 0;
         items.forEach(item => {
@@ -446,16 +454,16 @@ class DashboardApp {
             warningEl.textContent = warningCount.toLocaleString('nb-NO');
         }
 
-        // SA-nummer dekning (relativt til hele Master)
+        // SA-nummer dekning (alltid 100% i FASE 6.1)
         const saEl = document.getElementById('saNumberCoverage');
         if (saEl) {
             saEl.textContent = `${quality.saNumberCoverage}%`;
         }
 
-        // Innkommende bestillinger (kun SA-artikler)
+        // Innkommende bestillinger
         const incomingEl = document.getElementById('incomingCount');
         if (incomingEl) {
-            incomingEl.textContent = quality.activeWithIncoming.toLocaleString('nb-NO');
+            incomingEl.textContent = quality.withIncoming.toLocaleString('nb-NO');
         }
     }
 
@@ -487,11 +495,11 @@ class DashboardApp {
                 <div class="placeholder-content">
                     <div class="placeholder-icon">📊</div>
                     <h3>Last opp data for å starte</h3>
-                    <p>Last opp de 2 påkrevde filene for å begynne analysen.</p>
+                    <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
                     <ul class="file-checklist">
-                        <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
-                        <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
-                        <li><strong>SA-nummer.xlsx</strong> - SA-nummer per artikkel (valgfri)</li>
+                        <li><strong>SA-nummer.xlsx</strong> - Definerer det operative artikkeluniverset (påkrevd)</li>
+                        <li><strong>Master.xlsx</strong> - Artikkelmasterdata: saldo, status, bestillinger, alternativer (påkrevd)</li>
+                        <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut: etterspørselsanalyse (påkrevd)</li>
                         <li><strong>Analyse_Lagerplan.xlsx</strong> - BP og EOK per artikkel (valgfri)</li>
                     </ul>
                     <p class="text-muted">Støttede formater: .xlsx, .csv</p>
@@ -525,13 +533,6 @@ class DashboardApp {
                 break;
 
             // ── FASE 5: Legacy-moduler (kandidater for fjerning) ──
-            // Disse modulene bruker legacy processedData-formatet i stedet for UnifiedDataStore.
-            // De overlapper delvis med funksjonalitet i de 5 arbeidsmodusene:
-            //   - topSellers → delvis dekket av DemandMode
-            //   - orderSuggestions → delvis dekket av PlanningMode
-            //   - slowMovers → delvis dekket av AssortmentMode
-            //   - inactiveItems → delvis dekket av AssortmentMode
-            // Bør fjernes når nye seksjoner er verifisert og godkjent.
             case 'topSellers':
                 if (typeof TopSellers !== 'undefined') {
                     contentDiv.innerHTML = TopSellers.render(this.processedData);
@@ -638,15 +639,17 @@ class DashboardApp {
 
     /**
      * Lagre data til localStorage
+     *
+     * FASE 6.1: Items are keyed by saNumber. No separate saMapping needed.
      */
     saveData() {
         try {
             const dataToSave = {
-                version: '4.2',
+                version: '4.3',
                 currentModule: this.currentModule,
                 timestamp: new Date().toISOString(),
                 items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
-                saMapping: this.dataStore ? Array.from(this.dataStore.saMapping.entries()) : [],
+                toolsLookup: this.dataStore ? Array.from(this.dataStore.toolsLookup.entries()) : [],
                 alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
                     ? Array.from(this.dataStore.alternativeArticles.entries())
                     : [],
@@ -654,7 +657,7 @@ class DashboardApp {
             };
 
             localStorage.setItem('borregaardDashboardV4', JSON.stringify(dataToSave));
-            console.log('Data lagret til localStorage');
+            console.log('[FASE 6.1] Data lagret til localStorage');
             return true;
         } catch (error) {
             console.error('Kunne ikke lagre til localStorage:', error);
@@ -675,17 +678,18 @@ class DashboardApp {
             if (stored) {
                 const parsed = JSON.parse(stored);
 
-                if (parsed.version === '4.2' && parsed.items && parsed.items.length > 0) {
+                if (parsed.version === '4.3' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
                     this.processedData = this.generateLegacyData();
                     this.currentModule = parsed.currentModule || 'overview';
 
-                    console.log('Lastet lagret data fra:', parsed.timestamp);
-                    console.log('Master.xlsx is used as the single source of truth');
+                    console.log('[FASE 6.1] Lastet lagret data fra:', parsed.timestamp);
 
                     this.updateSummaryCards();
                     this.renderCurrentModule();
                     this.showToast('Data lastet fra forrige økt', 'success');
+                } else if (parsed.version && parsed.version !== '4.3') {
+                    console.log(`[FASE 6.1] Gammel versjon ${parsed.version} — krever ny opplasting`);
                 }
             }
         } catch (error) {
@@ -695,16 +699,11 @@ class DashboardApp {
 
     /**
      * Gjenoppbygg dataStore fra lagrede data
+     *
+     * FASE 6.1: Items keyed by saNumber, created via createFromSA()
      */
     rebuildDataStore(parsed) {
         const store = new UnifiedDataStore();
-
-        // Gjenoppbygg SA-mapping
-        if (parsed.saMapping) {
-            parsed.saMapping.forEach(([key, value]) => {
-                store.setSAMapping(key, value);
-            });
-        }
 
         // Gjenoppbygg alternativ artikkel mapping
         if (parsed.alternativeArticles) {
@@ -713,49 +712,52 @@ class DashboardApp {
             });
         }
 
-        // Gjenoppbygg items
+        // Gjenoppbygg items (FASE 6.1: keyed by saNumber)
         if (parsed.items) {
             parsed.items.forEach(itemData => {
-                const item = store.getOrCreate(itemData.toolsArticleNumber);
-                if (item) {
-                    item.saNumber = itemData.saNumber;
-                    item.description = itemData.description;
-                    item.location = itemData.location;
-                    item.stock = itemData.stock || 0;
-                    item.reserved = itemData.reserved || 0;
-                    item.available = itemData.available || 0;
-                    item.bp = itemData.bp || 0;
-                    item.max = itemData.max || 0;
-                    item.status = itemData.status;
-                    item.supplier = itemData.supplier;
-                    item.shelf = itemData.shelf;
-                    item.hasSANumber = itemData.hasSANumber;
-                    item.saType = itemData.saType || null;
-                    item.saGyldigFra = itemData.saGyldigFra ? new Date(itemData.saGyldigFra) : null;
-                    item.saGyldigTil = itemData.saGyldigTil ? new Date(itemData.saGyldigTil) : null;
-                    item._status = itemData._status || 'UKJENT';
-                    item.bestAntLev = itemData.bestAntLev || 0;
-                    item.bestillingsNummer = itemData.bestillingsNummer || '';
-                    item.ersattAvArtikel = itemData.ersattAvArtikel || '';
-                    item.ersatterArtikel = itemData.ersatterArtikel || '';
-                    item.bestillingspunkt = itemData.bestillingspunkt ?? null;
-                    item.ordrekvantitet = itemData.ordrekvantitet ?? null;
-                    // Synk bp med bestillingspunkt fra Analyse_Lagerplan
-                    if (item.bestillingspunkt !== null) {
-                        item.bp = item.bestillingspunkt;
-                    }
+                if (!itemData.saNumber) return;
 
-                    // Beregn verdier (simuler)
-                    item.sales6m = itemData.sales6m || 0;
-                    item.sales12m = itemData.sales12m || 0;
-                    item.orderCount = itemData.orderCount || 0;
-                    item.monthlyConsumption = itemData.monthlyConsumption || 0;
-                    item.daysToEmpty = itemData.daysToEmpty || 999999;
+                const item = store.createFromSA(itemData.saNumber, itemData.toolsArticleNumber);
+                if (!item) return;
 
-                    // Restore incoming flag
-                    if (item.bestAntLev > 0) {
-                        item.hasIncomingOrders = true;
-                    }
+                item.description = itemData.description;
+                item.location = itemData.location;
+                item.stock = itemData.stock || 0;
+                item.reserved = itemData.reserved || 0;
+                item.available = itemData.available || 0;
+                item.bp = itemData.bp || 0;
+                item.max = itemData.max || 0;
+                item.status = itemData.status;
+                item.supplier = itemData.supplier;
+                item.shelf = itemData.shelf;
+                item.saType = itemData.saType || null;
+                item.saGyldigFra = itemData.saGyldigFra ? new Date(itemData.saGyldigFra) : null;
+                item.saGyldigTil = itemData.saGyldigTil ? new Date(itemData.saGyldigTil) : null;
+                item._status = itemData._status || 'UKJENT';
+                item.bestAntLev = itemData.bestAntLev || 0;
+                item.bestillingsNummer = itemData.bestillingsNummer || '';
+                item.ersattAvArtikel = itemData.ersattAvArtikel || '';
+                item.ersatterArtikel = itemData.ersatterArtikel || '';
+                item.bestillingspunkt = itemData.bestillingspunkt ?? null;
+                item.ordrekvantitet = itemData.ordrekvantitet ?? null;
+                item.kalkylPris = itemData.kalkylPris || 0;
+                item.estimertVerdi = itemData.estimertVerdi || 0;
+
+                // Synk bp med bestillingspunkt fra Analyse_Lagerplan
+                if (item.bestillingspunkt !== null) {
+                    item.bp = item.bestillingspunkt;
+                }
+
+                // Beregn verdier (simuler)
+                item.sales6m = itemData.sales6m || 0;
+                item.sales12m = itemData.sales12m || 0;
+                item.orderCount = itemData.orderCount || 0;
+                item.monthlyConsumption = itemData.monthlyConsumption || 0;
+                item.daysToEmpty = itemData.daysToEmpty || 999999;
+
+                // Restore incoming flag
+                if (item.bestAntLev > 0) {
+                    item.hasIncomingOrders = true;
                 }
             });
         }
@@ -809,5 +811,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new DashboardApp();
 });
 
-console.log('Borregaard Dashboard v4.2 loaded');
-console.log('Master.xlsx is used as the single source of truth');
+console.log('Borregaard Dashboard v4.3 loaded');
+console.log('[FASE 6.1] SA-nummer er primærnøkkel');
