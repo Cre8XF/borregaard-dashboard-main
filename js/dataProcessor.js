@@ -33,17 +33,22 @@ class DataProcessor {
         orderNumber: 'Beställningsnummer',
         replacedBy: 'Ersätts av artikel',
         replaces: 'Ersätter artikel',
-        location: 'Lokasjon'
+        location: 'Lokasjon',
+
+        supplier: 'Företagsnamn',
+        category: 'Varugrupp'
     };
 
 
     // ── Column variants for Ordrer_Jeeves.xlsx (sales data) ──
     static ORDRER_COLUMN_VARIANTS = {
         articleNumber: [
+            'Item ID',
             'Artikelnr', 'Tools art.nr', 'Tools artnr',
             'Artikkelnr', 'Article No', 'ArticleNo', 'ItemNo', 'Varenr'
         ],
         description: [
+            'Item',
             'Artikelbeskrivning', 'Artikelbeskrivelse', 'Artikelbeskr',
             'Beskrivelse', 'Description', 'Varebeskrivelse', 'Namn'
         ],
@@ -51,7 +56,11 @@ class DataProcessor {
             'OrderNr', 'Ordrenr', 'Order number', 'OrderNo', 'Ordre'
         ],
         quantityOut: [
+            'Delivered quantity',
             'OrdRadAnt', 'Ordreantall', 'Order Qty', 'Quantity', 'Antall'
+        ],
+        deliveredValue: [
+            'Delivered value'
         ],
         invoiceDate: [
             'FaktDat', 'Fakturadato', 'Invoice date', 'Faktureringsdato'
@@ -60,6 +69,7 @@ class DataProcessor {
             'Företagsnamn', 'Kundenavn', 'Customer', 'Kunde', 'Customer Name'
         ],
         deliveryLocation: [
+            'Delivery location ID',
             'LevPlFtgKod', 'DH', 'Leveringslager', 'Delivery Warehouse',
             'Leveringssted', 'Del. Warehouse'
         ],
@@ -67,6 +77,7 @@ class DataProcessor {
             'Dato', 'Date', 'FaktDat', 'BerLevDat'
         ],
         quantity: [
+            'Delivered quantity',
             'Antall', 'Quantity', 'Qty', 'OrdRadAnt'
         ],
         orderNo: [
@@ -432,6 +443,8 @@ class DataProcessor {
             item.description = this.getMasterValue(row, colMap.description) || item.description;
             item.location = this.getMasterValue(row, colMap.location) || '';
             item.shelf = item.location;
+            item.supplier = this.getMasterValue(row, colMap.supplier) || item.supplier || '';
+            item.category = this.getMasterValue(row, colMap.category) || item.category || '';
 
             // ── Artikelstatus → status + _status + isDiscontinued ──
             const rawStatus = this.getMasterValue(row, colMap.articleStatus) || '';
@@ -520,9 +533,13 @@ class DataProcessor {
         }
     }
 
+    // Columns that are enrichment-only and should not block processing if missing
+    static MASTER_OPTIONAL_COLUMNS = new Set(['supplier', 'category']);
+
     /**
      * Resolve Master.xlsx column names with case-insensitive matching.
      * Fails loudly if any required column is missing.
+     * Optional columns (supplier, category) log a warning instead.
      */
     static resolveMasterColumns(columns) {
         const result = {};
@@ -536,6 +553,9 @@ class DataProcessor {
 
             if (actual) {
                 result[logical] = actual;
+            } else if (this.MASTER_OPTIONAL_COLUMNS.has(logical)) {
+                console.warn(`Master.xlsx: Valgfri kolonne "${expected}" (${logical}) ikke funnet — hopper over`);
+                result[logical] = null;
             } else {
                 missing.push(`"${expected}" (${logical})`);
             }
@@ -545,7 +565,7 @@ class DataProcessor {
             const errorMsg = `Master.xlsx: Følgende påkrevde kolonner mangler!\n` +
                 `  Mangler: ${missing.join(', ')}\n` +
                 `  Tilgjengelige kolonner: ${columns.join(', ')}\n` +
-                `  ALLE kolonner i Master.xlsx er påkrevd. Ingen fallback tillatt.`;
+                `  ALLE påkrevde kolonner i Master.xlsx mangler. Ingen fallback tillatt.`;
             console.error(errorMsg);
             throw new Error(errorMsg);
         }
@@ -607,6 +627,7 @@ class DataProcessor {
             item.addOutgoingOrder({
                 orderNo: this.getColumnValue(row, 'orderNoOut') || this.getColumnValue(row, 'orderNo'),
                 quantity: quantity,
+                deliveredValue: this.parseNumber(this.getColumnValue(row, 'deliveredValue')),
                 deliveryDate: this.parseDate(
                     this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
                 ),
@@ -747,10 +768,12 @@ class DataProcessor {
                     }
                 }
 
-                // Delvis match
+                // Delvis match (krev minst 4 tegn for å unngå falske treff
+                // som "Item" → "ItemNo" → ville returnert beskrivelse som artikkelnr)
                 for (const key of keys) {
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey.includes(lowerVariant) || lowerVariant.includes(lowerKey)) {
+                    if (lowerKey.length >= 4 && lowerVariant.length >= 4 &&
+                        (lowerKey.includes(lowerVariant) || lowerVariant.includes(lowerKey))) {
                         if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
                             return row[key];
                         }
