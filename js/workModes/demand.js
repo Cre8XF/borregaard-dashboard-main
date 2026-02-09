@@ -176,7 +176,7 @@ class DemandMode {
      * Beregn statistikk
      */
     static calculateStats(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const salesField = this.currentPeriod === '6m' ? 'sales6m' : 'sales12m';
 
         let totalSales = 0;
@@ -287,7 +287,7 @@ class DemandMode {
                             const sales = item[salesField] || 0;
                             const share = totalSales > 0 ? ((sales / totalSales) * 100).toFixed(1) : 0;
                             return `
-                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                     <td>${i + 1}</td>
                                     <td><strong>${item.toolsArticleNumber}</strong></td>
                                     <td>${item.saNumber || '-'}</td>
@@ -360,7 +360,7 @@ class DemandMode {
                         ${displayData.map((item, i) => {
                             const recommendation = this.getFrequencyRecommendation(item);
                             return `
-                                <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                     <td>${i + 1}</td>
                                     <td><strong>${item.toolsArticleNumber}</strong></td>
                                     <td>${item.saNumber || '-'}</td>
@@ -386,7 +386,7 @@ class DemandMode {
      * Render kundeavhengighetsanalyse
      */
     static renderCustomerDependency() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
 
         // Analyser kundefordeling per artikkel
         const articleCustomers = [];
@@ -465,7 +465,7 @@ class DemandMode {
                     <tbody>
                         ${displayData.map(item => `
                             <tr class="${item.isConcentrated ? 'row-warning' : ''} clickable"
-                                onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                                onclick="DemandMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -489,7 +489,7 @@ class DemandMode {
      * Render trendanalyse
      */
     static renderTrends() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
 
         // Beregn trend (6m vs 12m sammenligning)
         const withTrend = items
@@ -561,7 +561,7 @@ class DemandMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="DemandMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="DemandMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -627,7 +627,7 @@ class DemandMode {
                     </thead>
                     <tbody>
                         ${sorted.map(row => `
-                            <tr class="clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 35)}</td>
                                 <td>${row.deliveryLocation || '-'}</td>
@@ -649,7 +649,7 @@ class DemandMode {
      * Aggreger utgående ordrer per artikkel + leveringslager
      */
     static aggregateByWarehouse() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
@@ -688,6 +688,7 @@ class DemandMode {
                 if (!aggregation.has(key)) {
                     aggregation.set(key, {
                         toolsArticleNumber: item.toolsArticleNumber,
+                        saNumber: item.saNumber,
                         description: item.description,
                         deliveryLocation: loc,
                         totalQuantity: 0,
@@ -749,7 +750,7 @@ class DemandMode {
      */
     static getDeliveryLocations(store) {
         const locations = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             item.outgoingOrders.forEach(order => {
                 if (order.deliveryLocation && order.deliveryLocation.trim() !== '') {
                     locations.add(order.deliveryLocation.trim());
@@ -764,7 +765,7 @@ class DemandMode {
      */
     static getCategories(store) {
         const categories = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.category && item.category.toString().trim() !== '') {
                 categories.add(item.category.toString().trim());
             }
@@ -786,7 +787,7 @@ class DemandMode {
      *   OK      – Aktiv artikkel + saldo > 0
      */
     static analyzeCriticalDemand() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodWeeks = 52; // alltid 12 mnd for denne visningen
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - 12);
@@ -859,6 +860,7 @@ class DemandMode {
 
             results.push({
                 toolsArticleNumber: item.toolsArticleNumber,
+                saNumber: item.saNumber,
                 description: item.description,
                 warehouseCount,
                 orderCount,
@@ -937,7 +939,7 @@ class DemandMode {
                         ${sorted.map(row => {
                             const rowClass = row.risk === 'CRITICAL' ? 'row-critical' : row.risk === 'RISK' ? 'row-warning' : '';
                             return `
-                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 30)}</td>
                                 <td class="qty-cell">${row.warehouseCount}</td>
@@ -1024,13 +1026,17 @@ class DemandMode {
      *   1. ≥ currentMinOrders ordrer i perioden
      *   2. Solgt til ≥ 2 ulike leveringslagre
      *
-     * Risikovurdering (status-basert):
-     *   HØY     – Utgående (isDiscontinued) + ≥ 2 lagre
+     * Risikovurdering – Utgående artikler (alternativ-basert):
+     *   LAV     – Gyldig alternativ finnes (aktiv, med saldo/bestilling)
+     *   MIDDELS  – Alternativ finnes men inaktiv/uten tilgjengelighet
+     *   HØY     – Ingen alternativ registrert
+     *
+     * Risikovurdering – Øvrige artikler (status-basert):
      *   MIDDELS  – Ukjent / manglende status + ≥ 2 lagre
      *   LAV     – Aktiv artikkel
      */
     static getCriticalSalesItems() {
-        const items = this.dataStore.getAllItems();
+        const items = this.dataStore.getActiveItems();
         const periodMonths = this.currentPeriod === '6m' ? 6 : 12;
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - periodMonths);
@@ -1091,19 +1097,47 @@ class DemandMode {
             const statusLabel = item.isDiscontinued ? 'Utgående' :
                 (statusText ? 'Aktiv' : 'Ukjent');
 
-            // Risk classification
-            const risk = this.getRiskLevel(item, warehouseCount);
-
-            // Recommendation text
+            // Risk classification – alternative-aware for discontinued items
+            let risk;
             let recommendation = '';
-            if (risk === 'high') {
-                recommendation = 'Sjekk BP / Status';
-            } else if (risk === 'medium') {
-                recommendation = 'Sjekk BP / Status';
+
+            if (item.isDiscontinued) {
+                // FASE 2.2: Bruk sentral resolver
+                const alt = this.dataStore.resolveAlternativeStatus(item);
+                const altArtNr = alt.altToolsArtNr;
+
+                if (alt.classification === 'OK_ON_STOCK') {
+                    risk = 'low';
+                    recommendation = `Bytt til alternativ (${altArtNr}) – på lager (${alt.altStock})`;
+                } else if (alt.classification === 'OK_INCOMING') {
+                    risk = 'low';
+                    recommendation = `Bytt til alternativ (${altArtNr}) – bestilling på vei (${alt.altBestAntLev})`;
+                } else if (alt.classification === 'ACTIVE_NO_STOCK') {
+                    risk = 'medium';
+                    recommendation = `Alternativ (${altArtNr}) – aktiv, ikke på lager`;
+                } else if (alt.classification === 'ALT_DISCONTINUED') {
+                    risk = 'high';
+                    recommendation = `Alternativ (${altArtNr}) også utgående`;
+                } else if (alt.classification === 'NOT_IN_SA') {
+                    risk = 'high';
+                    recommendation = `Alternativ (${altArtNr}) finnes ikke i data`;
+                } else {
+                    // NO_ALTERNATIVE
+                    risk = 'high';
+                    recommendation = 'Ingen alternativ – finn/registrer';
+                }
+            } else {
+                risk = this.getRiskLevel(item, warehouseCount);
+                if (risk === 'high') {
+                    recommendation = 'Sjekk BP / Status';
+                } else if (risk === 'medium') {
+                    recommendation = 'Sjekk BP / Status';
+                }
             }
 
             results.push({
                 toolsArticleNumber: item.toolsArticleNumber,
+                saNumber: item.saNumber,
                 description: item.description,
                 statusLabel,
                 warehouseList,
@@ -1121,19 +1155,17 @@ class DemandMode {
     }
 
     /**
-     * Bestem risikonivå basert på artikkelstatus
+     * Bestem risikonivå basert på artikkelstatus (ikke-utgående artikler).
+     * Utgående (discontinued) artikler håndteres direkte i getCriticalSalesItems()
+     * med alternativ-artikkel-logikk.
      *
-     * @param {Object} item - UnifiedItem
+     * @param {Object} item - UnifiedItem (non-discontinued)
      * @param {number} warehouseCount - Antall unike leveringslagre
      * @returns {'high'|'medium'|'low'}
      */
     static getRiskLevel(item, warehouseCount) {
-        if (item.isDiscontinued && warehouseCount >= 2) {
-            return 'high';
-        }
         // Ukjent status: statusText is null, undefined, or empty
-        const hasKnownStatus = item.isDiscontinued ||
-            (item.statusText && item.statusText.trim() !== '');
+        const hasKnownStatus = item.statusText && item.statusText.trim() !== '';
         if (!hasKnownStatus && warehouseCount >= 2) {
             return 'medium';
         }
@@ -1218,7 +1250,7 @@ class DemandMode {
                         ${sorted.map(row => {
                             const rowClass = row.risk === 'high' ? 'row-critical' : row.risk === 'medium' ? 'row-warning' : '';
                             return `
-                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.toolsArticleNumber}')">
+                            <tr class="${rowClass} clickable" onclick="DemandMode.showDetails('${row.saNumber}')">
                                 <td><strong>${row.toolsArticleNumber}</strong></td>
                                 <td>${this.truncate(row.description, 30)}</td>
                                 <td>${this.getStatusBadge(row.statusLabel)}</td>
@@ -1229,7 +1261,7 @@ class DemandMode {
                                 <td class="qty-cell">${this.formatNumber(row.totalSold)}</td>
                                 <td class="qty-cell ${row.stock3018 <= 0 ? 'negative' : ''}">${this.formatNumber(row.stock3018)}</td>
                                 <td>${this.getSalesRiskBadge(row.risk)}</td>
-                                <td>${row.recommendation ? `<span class="recommendation medium">${row.recommendation}</span>` : ''}</td>
+                                <td>${row.recommendation ? `<span class="recommendation ${row.risk === 'high' ? 'critical' : row.risk === 'medium' ? 'warning' : 'info'}">${row.recommendation}</span>` : ''}</td>
                             </tr>
                             `;
                         }).join('')}
@@ -1322,7 +1354,7 @@ class DemandMode {
      * Hent filtrerte items
      */
     static getFilteredItems() {
-        let items = this.dataStore.getAllItems();
+        let items = this.dataStore.getActiveItems();
 
         if (this.searchTerm) {
             const term = this.searchTerm.toLowerCase();

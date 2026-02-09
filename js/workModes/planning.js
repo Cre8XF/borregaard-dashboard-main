@@ -83,7 +83,7 @@ class PlanningMode {
      * Analyser planleggingsbehov
      */
     static analyzePlanning(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const planning = {
             criticalItems: [],
             reorderSuggestions: [],
@@ -386,7 +386,7 @@ class PlanningMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-critical clickable" onclick="PlanningMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-critical clickable" onclick="PlanningMode.showDetails('${item.saNumber}')">
                                 <td>${this.getPriorityBadge(item.urgency)}</td>
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
@@ -443,7 +443,7 @@ class PlanningMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="PlanningMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="PlanningMode.showDetails('${item.saNumber}')">
                                 <td>${this.getPriorityBadge(item.priority)}</td>
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
@@ -601,7 +601,7 @@ class PlanningMode {
         }
 
         // Get all items with incoming orders from the store
-        const allItems = this.dataStore.getAllItems().filter(
+        const allItems = this.dataStore.getActiveItems().filter(
             item => item.hasIncomingOrders && item.incomingOrders.length > 0
         );
 
@@ -701,7 +701,7 @@ class PlanningMode {
                         ${group.lines.map(line => {
                             const lineEta = line.eta ? this.formatDate(line.eta) : '-';
                             return `
-                                <tr class="clickable" onclick="PlanningMode.showDetails('${line.articleNumber}')">
+                                <tr class="clickable" onclick="PlanningMode.showDetails('${line.saNumber}')">
                                     <td><strong>${line.articleNumber}</strong></td>
                                     <td>${line.saNumber || '-'}</td>
                                     <td>${this.truncate(line.description, 30)}</td>
@@ -750,7 +750,7 @@ class PlanningMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="PlanningMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="PlanningMode.showDetails('${item.saNumber}')">
                                 <td>${this.getRiskBadge(item.riskScore)}</td>
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>

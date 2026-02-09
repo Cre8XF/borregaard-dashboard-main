@@ -2598,6 +2598,59 @@ select:focus-visible {
   color: var(--dark);
 }
 
+/* ── FASE 4: Nye seksjoner ── */
+.new-section {
+  margin-top: 30px;
+  padding: 20px;
+  background: var(--white);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
+.new-section h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: var(--dark);
+}
+
+.new-section .section-description {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 15px;
+}
+
+.planning-gap-summary {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.planning-gap-summary .stat-card {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+.planning-gap-summary .stat-card.warning {
+  border-left: 3px solid #f59e0b;
+}
+
+.planning-gap-summary .stat-card.critical {
+  border-left: 3px solid #ef4444;
+}
+
+.planning-gap-summary .stat-value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.planning-gap-summary .stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* Compact Table */
 .data-table.compact {
   font-size: 13px;

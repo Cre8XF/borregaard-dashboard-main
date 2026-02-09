@@ -1,23 +1,20 @@
 // ===================================
-// DATA PROCESSOR
-// Master.xlsx er SINGLE SOURCE OF TRUTH
-// Ordrer_Jeeves.xlsx brukes KUN for salg/etterspørsel
+// DATA PROCESSOR — FASE 6.1
+// SA-Nummer.xlsx OPPRETTER items
+// Master.xlsx BERIKER items
+// Ordrer_Jeeves.xlsx aggregerer salg
 // ===================================
 
 /**
  * DataProcessor - Koordinerer dataflyt fra filer til UnifiedDataStore
  *
- * ARCHITECTURE DECISION (LOCKED):
- *   Master.xlsx  → article identity, status, stock, reserved, available,
- *                  incoming orders (BestAntLev), alternatives (Ersätts av artikel)
- *   Ordrer_Jeeves.xlsx → sales history, demand patterns, top sellers
+ * FASE 6.1 PIPELINE ORDER:
+ *   1. SA-Nummer.xlsx  → OPPRETTER items (definerer operativt univers)
+ *   2. Master.xlsx     → BERIKER: stock, status, incoming, alternatives, kalkylpris
+ *   3. Ordrer_Jeeves.xlsx → BERIKER: salgshistorikk, ordredata
+ *   4. Analyse_Lagerplan.xlsx → BERIKER: BP, EOK (valgfri)
  *
- * DEPRECATED files (NOT used):
- *   - Lagerbeholdning_Jeeves.xlsx
- *   - Bestillinger_Jeeves.xlsx
- *   - artikkelstatus.xlsx
- *   - SA-Nummer.xlsx
- *   - Alternativ_artikkel_Jeeves.xlsx
+ * Items som ikke finnes i SA-Nummer.xlsx eksisterer IKKE i dashboardet.
  */
 class DataProcessor {
 
@@ -77,14 +74,56 @@ class DataProcessor {
         ]
     };
 
+    // ── Column variants for SA-nummer file (REQUIRED — creates items) ──
+    static SA_COLUMN_VARIANTS = {
+        articleNumber: [
+            'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
+        ],
+        saNummer: [
+            'Kunds artikkelnummer', 'Kunds art.nr', 'Kunds artnr',
+            'SA-nummer', 'SA nummer', 'SA Number', 'SA-nr', 'SAnummer',
+            'SA', 'SAnr', 'SA-Nummer'
+        ],
+        saType: [
+            'SA-type', 'SA type', 'SAtype', 'Type', 'Avtaletype'
+        ],
+        gyldigFra: [
+            'Gyldig fra', 'GyldigFra', 'Valid from', 'Fra dato', 'Startdato',
+            'Fra', 'Start'
+        ],
+        gyldigTil: [
+            'Gyldig til', 'GyldigTil', 'Valid to', 'Til dato', 'Sluttdato',
+            'Til', 'Slutt'
+        ]
+    };
+
+    // ── Column variants for Analyse_Lagerplan.xlsx ──
+    static LAGERPLAN_COLUMN_VARIANTS = {
+        articleNumber: [
+            'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
+        ],
+        bp: [
+            'BP', 'Bestillingspunkt', 'Reorder Point', 'Bestillingspkt',
+            'Best.pkt', 'BestPkt', 'Reorder', 'Min', 'Minimum'
+        ],
+        eok: [
+            'EOK', 'Ordrekvantitet', 'Order Quantity', 'OrderQty',
+            'Bestillingskvantitet', 'Best.kvant', 'BestKvant', 'EOQ'
+        ]
+    };
+
     /**
      * Prosesser alle filer og bygg UnifiedDataStore
      *
-     * Input:
-     *   files.master    → Master.xlsx   (REQUIRED)
-     *   files.ordersOut → Ordrer_Jeeves.xlsx (REQUIRED)
+     * FASE 6.1 PIPELINE:
+     *   1. SA-Nummer.xlsx (REQUIRED) → oppretter items
+     *   2. Master.xlsx (REQUIRED)    → beriker items
+     *   3. Ordrer_Jeeves.xlsx (REQUIRED) → salgsdata
+     *   4. Analyse_Lagerplan.xlsx (OPTIONAL) → BP/EOK
      *
-     * @param {Object} files - { master: File, ordersOut: File }
+     * @param {Object} files - { master: File, ordersOut: File, sa: File, lagerplan?: File }
      * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
@@ -92,47 +131,120 @@ class DataProcessor {
         const store = new UnifiedDataStore();
 
         console.log('========================================');
-        console.log('Master.xlsx is used as the single source of truth');
+        console.log('[FASE 6.1] SA-nummer er primærnøkkel');
+        console.log('[FASE 6.1] Pipeline: SA → Master → Ordrer → Lagerplan');
         console.log('========================================');
 
         try {
-            // ── 1. Load and process Master.xlsx (REQUIRED) ──
+            // ── FASE 6.1: Validering ──
+            console.log('========================================');
+            console.log('FASE 6.1: Datavalidering starter');
+            console.log('========================================');
+
+            // ── 1. Load and process SA-Nummer.xlsx (REQUIRED — creates items) ──
+            if (!files.sa) {
+                throw new Error('SA-Nummer.xlsx er påkrevd! Denne filen definerer det operative universet av artikler.');
+            }
+
+            statusCallback('Laster SA-Nummer.xlsx (oppretter artikler)...');
+            const saData = await this.loadFile(files.sa);
+            console.log(`[FASE 6.1] SA-Nummer.xlsx lastet:`);
+            console.log(`  Filnavn: ${files.sa.name}`);
+            console.log(`  Kolonner (${saData.columns.length}): ${saData.columns.join(', ')}`);
+            console.log(`  Rader: ${saData.rowCount}`);
+
+            this.processSAData(saData.data, saData.columns, store);
+            const saArticleCount = store.items.size;
+            console.log(`[FASE 6.1] SA-Nummer.xlsx prosessert: ${saArticleCount} SA-artikler opprettet`);
+
+            if (saArticleCount === 0) {
+                throw new Error('SA-Nummer.xlsx inneholdt ingen gyldige artikler. Sjekk kolonnenavn (trenger "Kunds artikkelnummer" og "Artikelnr").');
+            }
+
+            // ── 2. Load and process Master.xlsx (REQUIRED — enrichment) ──
             if (!files.master) {
                 throw new Error('Master.xlsx er påkrevd! Last opp Master.xlsx som inneholder all artikkelinformasjon.');
             }
 
-            statusCallback('Laster Master.xlsx...');
+            statusCallback('Laster Master.xlsx (beriker artikler)...');
             const masterData = await this.loadFile(files.master);
-            console.log('Master.xlsx kolonner:', masterData.columns);
-            console.log(`Master.xlsx rader: ${masterData.rowCount}`);
+            console.log(`[FASE 6.1] Master.xlsx lastet:`);
+            console.log(`  Filnavn: ${files.master.name}`);
+            console.log(`  Kolonner (${masterData.columns.length}): ${masterData.columns.join(', ')}`);
+            console.log(`  Rader: ${masterData.rowCount}`);
 
             this.processMasterData(masterData.data, masterData.columns, store);
-            console.log(`Master.xlsx prosessert: ${store.items.size} artikler`);
+            store.masterRowCount = masterData.rowCount;
+            const enrichedFromMaster = store.items.size - store.masterUnmatchedCount;
+            console.log(`[FASE 6.1] Master.xlsx prosessert:`);
+            console.log(`  Master-rader totalt: ${masterData.rowCount}`);
+            console.log(`  Beriket SA-artikler: ${saArticleCount - store.masterUnmatchedCount}`);
+            console.log(`  Master-rader uten SA-match (ignorert): ${store.masterUnmatchedCount}`);
 
-            // ── 2. Load and process Ordrer_Jeeves.xlsx (REQUIRED — sales only) ──
+            // ── 3. Load and process Ordrer_Jeeves.xlsx (REQUIRED — sales only) ──
             if (!files.ordersOut) {
                 throw new Error('Ordrer_Jeeves.xlsx er påkrevd for salgsanalyse.');
             }
 
             statusCallback('Laster Ordrer_Jeeves.xlsx (salgsdata)...');
             const ordersOutData = await this.loadFile(files.ordersOut);
-            console.log('Ordrer_Jeeves.xlsx kolonner:', ordersOutData.columns);
-            console.log(`Ordrer_Jeeves.xlsx rader: ${ordersOutData.rowCount}`);
+            console.log(`[FASE 6.1] Ordrer_Jeeves.xlsx lastet:`);
+            console.log(`  Filnavn: ${files.ordersOut.name}`);
+            console.log(`  Kolonner (${ordersOutData.columns.length}): ${ordersOutData.columns.join(', ')}`);
+            console.log(`  Rader: ${ordersOutData.rowCount}`);
 
             this.processOrdersOutData(ordersOutData.data, store);
-            console.log('Ordrer_Jeeves.xlsx prosessert (sales/demand)');
+            const withSales = store.getAllItems().filter(i => i.outgoingOrders.length > 0).length;
+            console.log(`[FASE 6.1] Ordrer_Jeeves.xlsx prosessert:`);
+            console.log(`  SA-artikler med salgsdata: ${withSales} av ${saArticleCount} (${Math.round(withSales/saArticleCount*100)}%)`);
+            console.log(`  Ordrelinjer uten SA-match (ignorert): ${store.ordersUnmatchedCount}`);
 
-            // ── 3. Calculate derived values ──
+            // ── 4. Load and process Analyse_Lagerplan.xlsx (OPTIONAL — planning params) ──
+            if (files.lagerplan) {
+                statusCallback('Laster Analyse_Lagerplan.xlsx (planlegging)...');
+                try {
+                    const lagerplanData = await this.loadFile(files.lagerplan);
+                    console.log(`[FASE 6.1] Analyse_Lagerplan.xlsx lastet:`);
+                    console.log(`  Filnavn: ${files.lagerplan.name}`);
+                    console.log(`  Kolonner (${lagerplanData.columns.length}): ${lagerplanData.columns.join(', ')}`);
+                    console.log(`  Rader: ${lagerplanData.rowCount}`);
+
+                    this.processLagerplanData(lagerplanData.data, lagerplanData.columns, store);
+                    const withBP = store.getAllItems().filter(i => i.bestillingspunkt !== null).length;
+                    const withEOK = store.getAllItems().filter(i => i.ordrekvantitet !== null).length;
+                    console.log(`[FASE 6.1] Analyse_Lagerplan.xlsx prosessert:`);
+                    console.log(`  SA-artikler med BP: ${withBP} av ${saArticleCount}`);
+                    console.log(`  SA-artikler med EOK: ${withEOK} av ${saArticleCount}`);
+                } catch (lpError) {
+                    console.warn('[FASE 6.1] Analyse_Lagerplan.xlsx kunne ikke prosesseres:', lpError.message);
+                    // Lagerplan is optional — do not throw
+                }
+            } else {
+                console.log('[FASE 6.1] Analyse_Lagerplan.xlsx: Ikke lastet (valgfri)');
+            }
+
+            // ── 5. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
-            // ── 4. Log data quality ──
+            // ── 6. FASE 6.1 sluttrapport ──
             const quality = store.getDataQualityReport();
-            console.log('Datakvalitet:', quality);
-            console.log(`  Artikler totalt: ${quality.totalArticles}`);
+            console.log('========================================');
+            console.log('FASE 6.1: Datavalidering fullført');
+            console.log('========================================');
+            console.log(`  SA-artikler (operativt univers): ${quality.totalArticles}`);
+            console.log(`  Master-rader totalt: ${store.masterRowCount}`);
+            console.log(`  Master-rader uten SA (ignorert): ${store.masterUnmatchedCount}`);
+            console.log(`  Ordrelinjer uten SA (ignorert): ${store.ordersUnmatchedCount}`);
             console.log(`  Med innkommende (BestAntLev > 0): ${quality.withIncoming}`);
             console.log(`  Med salgshistorikk: ${quality.withOutgoing}`);
-            console.log('Master.xlsx is used as the single source of truth');
+            console.log(`  Med bestillingspunkt (BP): ${store.getAllItems().filter(i => i.bestillingspunkt !== null).length}`);
+            console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
+            console.log(`  Med estimert verdi > 0: ${store.getAllItems().filter(i => i.estimertVerdi > 0).length}`);
+            console.log('────────────────────────────────────────');
+            console.log(`  FASE 6.1: Alle ${quality.totalArticles} items ER SA-artikler`);
+            console.log(`  Ingen items uten SA-nummer eksisterer`);
+            console.log('────────────────────────────────────────');
 
             return store;
 
@@ -158,26 +270,109 @@ class DataProcessor {
     }
 
     // ════════════════════════════════════════════════════
-    //  MASTER.XLSX PROCESSING — HARD-BOUND COLUMNS
+    //  SA-NUMMER.XLSX PROCESSING — CREATES ITEMS (FASE 6.1)
     // ════════════════════════════════════════════════════
 
     /**
-     * Prosesser Master.xlsx — SINGLE SOURCE OF TRUTH
+     * Prosesser SA-nummer fil — OPPRETTER items i store
      *
-     * Hard-bound columns (NO autodetection):
-     *   Artikelnr           → toolsArticleNumber (primary key)
-     *   Artikelbeskrivning  → description
-     *   Artikelstatus       → status / _status / isDiscontinued
-     *   TotLagSaldo         → stock
-     *   DispLagSaldo        → available
-     *   ReservAnt           → reserved
-     *   BestAntLev          → bestAntLev (incoming orders)
-     *   Beställningsnummer  → bestillingsNummer
-     *   Ersätts av artikel  → ersattAvArtikel (alternative/replacement)
-     *   Ersätter artikel    → ersatterArtikel
-     *   Lokasjon            → location
+     * FASE 6.1: SA-Nummer.xlsx definerer det operative universet.
+     * Hver rad oppretter en UnifiedItem med saNumber som primærnøkkel
+     * og toolsArticleNumber som sekundær koblingsnøkkel.
      *
-     * If a column is missing → FAIL LOUDLY with clear error.
+     * @param {Array} data - Parsed rows from SA file
+     * @param {string[]} columns - Column headers from SA file
+     * @param {UnifiedDataStore} store - Data store (initially empty)
+     */
+    static processSAData(data, columns, store) {
+        if (!data || data.length === 0) {
+            throw new Error('SA-Nummer.xlsx er tom — ingen artikler kan opprettes.');
+        }
+
+        let createdCount = 0;
+        let skippedCount = 0;
+        let duplicateCount = 0;
+
+        data.forEach(row => {
+            const toolsArticleNo = this.getSAColumnValue(row, columns, 'articleNumber');
+            const saNumber = this.getSAColumnValue(row, columns, 'saNummer');
+
+            if (!saNumber) {
+                skippedCount++;
+                return;
+            }
+
+            // Opprett item via store (handles dedup)
+            const existedBefore = store.items.has(saNumber.toString().trim());
+            const item = store.createFromSA(saNumber, toolsArticleNo);
+
+            if (!item) {
+                skippedCount++;
+                return;
+            }
+
+            if (existedBefore) {
+                duplicateCount++;
+            } else {
+                createdCount++;
+            }
+
+            // Apply SA agreement data
+            const saData = {
+                saType: this.getSAColumnValue(row, columns, 'saType'),
+                saGyldigFra: this.parseDate(this.getSAColumnValue(row, columns, 'gyldigFra')),
+                saGyldigTil: this.parseDate(this.getSAColumnValue(row, columns, 'gyldigTil'))
+            };
+            item.setSAData(saData);
+        });
+
+        console.log(`[FASE 6.1] SA-nummer resultat:`);
+        console.log(`  Opprettet: ${createdCount} SA-artikler`);
+        if (duplicateCount > 0) {
+            console.log(`  Duplikater (sammenslått): ${duplicateCount}`);
+        }
+        if (skippedCount > 0) {
+            console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
+        }
+    }
+
+    /**
+     * Get value from SA file row using flexible column matching
+     */
+    static getSAColumnValue(row, columns, fieldName) {
+        const variants = this.SA_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Exact match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+
+            // Case-insensitive match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    // ════════════════════════════════════════════════════
+    //  MASTER.XLSX PROCESSING — ENRICHMENT ONLY (FASE 6.1)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser Master.xlsx — BERIKER eksisterende SA-artikler
+     *
+     * FASE 6.1: Master.xlsx oppretter IKKE nye items.
+     * Slår opp via toolsArticleNumber → saNumber (reverse lookup).
+     * Rader uten SA-match logges og ignoreres.
      */
     static processMasterData(data, columns, store) {
         if (!data || data.length === 0) {
@@ -198,6 +393,7 @@ class DataProcessor {
         }
 
         let processedCount = 0;
+        let unmatchedCount = 0;
         let incomingCount = 0;
         let alternativeCount = 0;
         let selfRefSkipped = 0;
@@ -206,8 +402,29 @@ class DataProcessor {
             const articleNo = this.getMasterValue(row, colMap.articleNumber);
             if (!articleNo) return;
 
-            const item = store.getOrCreate(articleNo);
-            if (!item) return;
+            // FASE 6.1: Slå opp via toolsArticleNumber
+            const item = store.getByToolsArticleNumber(articleNo);
+            if (!item) {
+                // Master-rad uten SA-nummer — lagre i masterOnlyArticles for alt-oppslag
+                unmatchedCount++;
+
+                // FASE 2.2: Lagre basisdata for alternative-lookups
+                const rawStatus = this.getMasterValue(row, colMap.articleStatus) || '';
+                const normalizedStatus = normalizeItemStatus(rawStatus);
+                const isDisc = normalizedStatus === 'UTGAENDE' || normalizedStatus === 'UTGAATT' ||
+                    rawStatus.toLowerCase().includes('utgå') || rawStatus.toLowerCase().includes('discontinued');
+
+                store.masterOnlyArticles.set(articleNo, {
+                    toolsArticleNumber: articleNo,
+                    description: this.getMasterValue(row, colMap.description) || '',
+                    stock: this.parseNumber(this.getMasterValue(row, colMap.totalStock)),
+                    bestAntLev: this.parseNumber(this.getMasterValue(row, colMap.orderedQty)),
+                    statusText: rawStatus,
+                    _status: normalizedStatus,
+                    isDiscontinued: isDisc
+                });
+                return;
+            }
 
             processedCount++;
 
@@ -290,8 +507,12 @@ class DataProcessor {
             }
         });
 
-        console.log(`Master.xlsx resultat:`);
-        console.log(`  Artikler prosessert: ${processedCount}`);
+        // Record unmatched count for diagnostics
+        store.masterUnmatchedCount = unmatchedCount;
+
+        console.log(`[FASE 6.1] Master.xlsx resultat:`);
+        console.log(`  SA-artikler beriket: ${processedCount}`);
+        console.log(`  Master-rader uten SA-match: ${unmatchedCount} (lagret i masterOnlyArticles for alt-oppslag)`);
         console.log(`  Med innkommende (BestAntLev > 0): ${incomingCount}`);
         console.log(`  Med alternativ (Ersätts av artikel): ${alternativeCount}`);
         if (selfRefSkipped > 0) {
@@ -302,9 +523,6 @@ class DataProcessor {
     /**
      * Resolve Master.xlsx column names with case-insensitive matching.
      * Fails loudly if any required column is missing.
-     *
-     * @param {string[]} columns - Actual column headers from file
-     * @returns {Object} Map of logical name → actual column name
      */
     static resolveMasterColumns(columns) {
         const result = {};
@@ -346,23 +564,14 @@ class DataProcessor {
     }
 
     // ════════════════════════════════════════════════════
-    //  ORDRER_JEEVES.XLSX PROCESSING — SALES / DEMAND ONLY
+    //  ORDRER_JEEVES.XLSX PROCESSING — ENRICHMENT ONLY (FASE 6.1)
     // ════════════════════════════════════════════════════
 
     /**
      * Prosesser fakturert UT / Ordrer (Ordrer_Jeeves.xlsx)
      *
-     * Used ONLY for: sales history, demand patterns, top sellers, frequency analysis
-     *
-     * JOIN RULE: Ordrer_Jeeves.Artikelnr === Master.Artikelnr
-     *
-     * Jeeves-kolonner:
-     *   Artikelnr      → toolsArticleNumber (join key)
-     *   OrderNr        → orderNo
-     *   OrdRadAnt      → quantity
-     *   FaktDat        → deliveryDate
-     *   Företagsnamn   → customer
-     *   LevPlFtgKod    → deliveryLocation
+     * FASE 6.1: Slår opp via toolsArticleNumber → saNumber.
+     * Ordrelinjer uten SA-match ignoreres (logges som info).
      */
     static processOrdersOutData(data, store) {
         let joinedCount = 0;
@@ -372,8 +581,12 @@ class DataProcessor {
             const articleNo = this.getColumnValue(row, 'articleNumber');
             if (!articleNo) return;
 
-            const item = store.getOrCreate(articleNo);
-            if (!item) return;
+            // FASE 6.1: Slå opp via toolsArticleNumber
+            const item = store.getByToolsArticleNumber(articleNo);
+            if (!item) {
+                unmatchedCount++;
+                return;
+            }
 
             // Oppdater beskrivelse hvis tom
             if (!item.description) {
@@ -403,10 +616,106 @@ class DataProcessor {
             });
         });
 
-        console.log(`Ordrer_Jeeves.xlsx: ${joinedCount} salgslinjer prosessert`);
+        // Record unmatched count for diagnostics
+        store.ordersUnmatchedCount = unmatchedCount;
+
+        console.log(`[FASE 6.1] Ordrer_Jeeves.xlsx: ${joinedCount} salgslinjer koblet til SA-artikler`);
         if (unmatchedCount > 0) {
-            console.log(`  Ikke matchet mot Master: ${unmatchedCount}`);
+            console.log(`  Ordrelinjer uten SA-match (ignorert): ${unmatchedCount}`);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  ANALYSE_LAGERPLAN.XLSX — ENRICHMENT ONLY (FASE 6.1)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser Analyse_Lagerplan.xlsx — planleggingsparametre
+     *
+     * FASE 6.1: Slår opp via toolsArticleNumber → saNumber.
+     * Rader uten SA-match ignoreres.
+     */
+    static processLagerplanData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('Analyse_Lagerplan.xlsx er tom');
+            return;
+        }
+
+        let matchedCount = 0;
+        let unmatchedCount = 0;
+        let bpCount = 0;
+        let eokCount = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getLagerplanColumnValue(row, columns, 'articleNumber');
+            if (!articleNo) return;
+
+            // FASE 6.1: Slå opp via toolsArticleNumber
+            const item = store.getByToolsArticleNumber(articleNo.toString().trim());
+
+            if (!item) {
+                unmatchedCount++;
+                return;
+            }
+
+            matchedCount++;
+
+            // BP → bestillingspunkt (kun hvis verdi finnes)
+            const bpRaw = this.getLagerplanColumnValue(row, columns, 'bp');
+            if (bpRaw !== '' && bpRaw !== null && bpRaw !== undefined) {
+                const bpVal = this.parseNumber(bpRaw);
+                if (bpVal > 0) {
+                    item.bestillingspunkt = bpVal;
+                    item.bp = bpVal; // Bakoverkompatibilitet
+                    bpCount++;
+                }
+            }
+
+            // EOK → ordrekvantitet (kun hvis verdi finnes)
+            const eokRaw = this.getLagerplanColumnValue(row, columns, 'eok');
+            if (eokRaw !== '' && eokRaw !== null && eokRaw !== undefined) {
+                const eokVal = this.parseNumber(eokRaw);
+                if (eokVal > 0) {
+                    item.ordrekvantitet = eokVal;
+                    eokCount++;
+                }
+            }
+        });
+
+        console.log(`[FASE 6.1] Analyse_Lagerplan.xlsx resultat:`);
+        console.log(`  Matchet mot SA-artikler: ${matchedCount}`);
+        console.log(`  Med BP-verdi: ${bpCount}`);
+        console.log(`  Med EOK-verdi: ${eokCount}`);
+        if (unmatchedCount > 0) {
+            console.log(`  Ikke matchet (ignorert): ${unmatchedCount}`);
+        }
+    }
+
+    /**
+     * Get value from Lagerplan file row using flexible column matching
+     */
+    static getLagerplanColumnValue(row, columns, fieldName) {
+        const variants = this.LAGERPLAN_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Exact match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+
+            // Case-insensitive match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+
+        return '';
     }
 
     // ════════════════════════════════════════════════════

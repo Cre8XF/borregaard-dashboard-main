@@ -27,7 +27,7 @@
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
             <p class="drop-zone-text">Dra inn Excel-filer her</p>
-            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx)</p>
+            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx, SA-nummer.xlsx, Analyse_Lagerplan.xlsx)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
@@ -51,6 +51,22 @@
             <input type="file" id="ordersOutFile" accept=".xlsx,.csv" />
             <span class="file-hint">Ordrer_Jeeves – salgsordrer ut</span>
           </div>
+          <div class="upload-item">
+            <label for="saFile">
+              <span class="file-label">SA-nummer</span>
+              <span class="file-required">(påkrevd)</span>
+            </label>
+            <input type="file" id="saFile" accept=".xlsx,.csv" />
+            <span class="file-hint">SA-nummer – definerer det operative artikkeluniverset</span>
+          </div>
+          <div class="upload-item">
+            <label for="lagerplanFile">
+              <span class="file-label">Analyse Lagerplan</span>
+              <span class="file-optional">(valgfri)</span>
+            </label>
+            <input type="file" id="lagerplanFile" accept=".xlsx,.csv" />
+            <span class="file-hint">Analyse_Lagerplan – BP (bestillingspunkt) og EOK (ordrekvantitet)</span>
+          </div>
         </div>
         <div class="upload-actions">
           <button id="uploadBtn" class="btn-primary">Analyser data</button>
@@ -63,7 +79,7 @@
       <section class="summary-cards">
         <div class="summary-card">
           <div class="card-value" id="totalItems">-</div>
-          <div class="card-label">Totalt artikler</div>
+          <div class="card-label">Totalt SA-artikler</div>
         </div>
         <div class="summary-card card-critical">
           <div class="card-value" id="criticalCount">-</div>
@@ -117,10 +133,12 @@
         <div class="placeholder-content">
           <div class="placeholder-icon">📊</div>
           <h3>Last opp data for å starte</h3>
-          <p>Last opp de 2 påkrevde filene for å begynne analysen.</p>
+          <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
           <ul class="file-checklist">
+            <li><strong>SA-nummer.xlsx</strong> - Definerer det operative artikkeluniverset (påkrevd)</li>
             <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
             <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
+            <li><strong>Analyse_Lagerplan.xlsx</strong> - BP og EOK per artikkel (valgfri)</li>
           </ul>
           <p class="text-muted">Støttede formater: .xlsx, .csv</p>
         </div>
@@ -128,7 +146,7 @@
 
       <!-- FOOTER -->
       <footer>
-        <p>Borregaard Dashboard v4.0 - Arbeidsrettet beslutningstøtte</p>
+        <p>Borregaard Dashboard v4.3 - Arbeidsrettet beslutningstøtte</p>
         <p class="text-muted">Master.xlsx som single source of truth - Lokal databehandling</p>
       </footer>
     </div>
@@ -148,7 +166,11 @@
     <script src="js/workModes/planning.js"></script>
     <script src="js/workModes/alternatives.js"></script>
 
-    <!-- Legacy modules (for compatibility during transition) -->
+    <!-- FASE 5: Legacy modules — kandidater for fjerning når nye seksjoner er verifisert -->
+    <!-- topSellers.js → overlapper med DemandMode -->
+    <!-- orderSuggestions.js → overlapper med PlanningMode -->
+    <!-- slowMovers.js → overlapper med AssortmentMode -->
+    <!-- inactiveItems.js → overlapper med AssortmentMode -->
     <script src="js/topSellers.js"></script>
     <script src="js/orderSuggestions.js"></script>
     <script src="js/slowMovers.js"></script>

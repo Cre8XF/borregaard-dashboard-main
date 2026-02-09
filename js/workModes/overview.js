@@ -65,6 +65,9 @@ class OverviewMode {
 
             ${this.renderDataQuality(store.getDataQualityReport())}
             ${this.renderIncomingOrders(store)}
+            ${this.renderBelowBPSection(store)}
+            ${this.renderMissingBPEOKSection(store)}
+            ${this.renderOutgoingWithStockSection(store)}
         `;
     }
 
@@ -99,12 +102,13 @@ class OverviewMode {
     }
 
     /**
-     * Samle alle issues fra alle artikler
+     * Samle alle issues fra SA-artikler (operativt univers)
      */
     static collectAllIssues(store) {
         const allIssues = [];
 
-        store.getAllItems().forEach(item => {
+        // FASE 6: Kun SA-artikler i issue-listen
+        store.getActiveItems().forEach(item => {
             const issues = item.getIssues();
             issues.forEach(issue => {
                 allIssues.push({
@@ -206,7 +210,7 @@ class OverviewMode {
         const action = this.getSuggestedAction(issue);
 
         return `
-            <tr class="${severityClass}" onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+            <tr class="${severityClass}" onclick="OverviewMode.showDetails('${item.saNumber}')">
                 <td>
                     <span class="badge badge-${issue.type}">${this.getTypeLabel(issue.type)}</span>
                 </td>
@@ -227,27 +231,27 @@ class OverviewMode {
     static renderDataQuality(report) {
         return `
             <div class="data-quality-section">
-                <h3>Datakvalitet</h3>
+                <h3>Datakvalitet (SA-artikler)</h3>
                 <div class="quality-grid">
                     <div class="quality-item">
-                        <span class="quality-label">Totalt artikler:</span>
+                        <span class="quality-label">SA-artikler (operativt univers):</span>
+                        <span class="quality-value">${this.formatNumber(report.activeArticles)}</span>
+                    </div>
+                    <div class="quality-item">
+                        <span class="quality-label">Totalt i Master:</span>
                         <span class="quality-value">${this.formatNumber(report.totalArticles)}</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med SA-nummer:</span>
-                        <span class="quality-value">${this.formatNumber(report.withSANumber)} (${report.saNumberCoverage}%)</span>
-                    </div>
-                    <div class="quality-item ${report.withoutSANumber > 0 ? 'warning' : ''}">
-                        <span class="quality-label">Uten SA-nummer:</span>
-                        <span class="quality-value">${this.formatNumber(report.withoutSANumber)}</span>
+                        <span class="quality-label">SA-dekning av Master:</span>
+                        <span class="quality-value">${report.saNumberCoverage}%</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med innkommende bestillinger:</span>
-                        <span class="quality-value">${this.formatNumber(report.withIncoming)}</span>
+                        <span class="quality-label">SA-artikler med innkommende:</span>
+                        <span class="quality-value">${this.formatNumber(report.activeWithIncoming)}</span>
                     </div>
                     <div class="quality-item">
-                        <span class="quality-label">Med salgshistorikk:</span>
-                        <span class="quality-value">${this.formatNumber(report.withOutgoing)}</span>
+                        <span class="quality-label">SA-artikler med salgshistorikk:</span>
+                        <span class="quality-value">${this.formatNumber(report.activeWithOutgoing)}</span>
                     </div>
                 </div>
             </div>
@@ -255,10 +259,11 @@ class OverviewMode {
     }
 
     /**
-     * Render innkommende bestillinger
+     * Render innkommende bestillinger (kun SA-artikler)
      */
     static renderIncomingOrders(store) {
-        const itemsWithIncoming = store.getAllItems()
+        // FASE 6: Kun SA-artikler
+        const itemsWithIncoming = store.getActiveItems()
             .filter(item => item.hasIncomingOrders && item.incomingOrders.length > 0)
             .sort((a, b) => {
                 const aQty = a.incomingOrders.reduce((sum, o) => sum + o.quantity, 0);
@@ -289,7 +294,7 @@ class OverviewMode {
                             ${itemsWithIncoming.map(item => {
                                 const totalIncoming = item.incomingOrders.reduce((sum, o) => sum + o.quantity, 0);
                                 return `
-                                    <tr onclick="OverviewMode.showDetails('${item.toolsArticleNumber}')">
+                                    <tr onclick="OverviewMode.showDetails('${item.saNumber}')">
                                         <td><strong>${item.toolsArticleNumber}</strong></td>
                                         <td>${this.truncate(item.description, 30)}</td>
                                         <td class="qty-cell">${this.formatNumber(item.stock)}</td>
@@ -300,6 +305,229 @@ class OverviewMode {
                             }).join('')}
                         </tbody>
                     </table>
+                </div>
+            </div>
+        `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  FASE 4: NYE SEKSJONER (uten å fjerne gamle)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Seksjon 1: Under bestillingspunkt
+     * Artikler der lagersaldo < bestillingspunkt (BP fra Analyse_Lagerplan.xlsx)
+     * Vises kun dersom BP-data er lastet.
+     */
+    static renderBelowBPSection(store) {
+        // FASE 6: Kun SA-artikler
+        const activeItems = store.getActiveItems();
+        const items = activeItems.filter(item =>
+            item.bestillingspunkt !== null &&
+            item.bestillingspunkt > 0 &&
+            item.stock < item.bestillingspunkt
+        );
+
+        // Ikke vis seksjonen dersom ingen SA-artikler har BP satt
+        const anyBP = activeItems.some(i => i.bestillingspunkt !== null);
+        if (!anyBP) return '';
+
+        return `
+            <div class="new-section below-bp-section">
+                <h3>Under bestillingspunkt (${items.length})</h3>
+                <p class="section-description">SA-artikler der lagersaldo er under BP fra Analyse_Lagerplan.xlsx. Bør bestilles.</p>
+                ${items.length === 0
+                    ? '<div class="alert alert-success">Alle artikler er over bestillingspunkt.</div>'
+                    : `
+                    <div class="table-wrapper">
+                        <table class="data-table compact">
+                            <thead>
+                                <tr>
+                                    <th>Artikelnr</th>
+                                    <th>SA-nr</th>
+                                    <th>Beskrivelse</th>
+                                    <th>Saldo</th>
+                                    <th>BP</th>
+                                    <th>Manko</th>
+                                    <th>EOK</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items
+                                    .sort((a, b) => (a.stock - a.bestillingspunkt) - (b.stock - b.bestillingspunkt))
+                                    .slice(0, 50)
+                                    .map(item => `
+                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
+                                        <td><strong>${item.toolsArticleNumber}</strong></td>
+                                        <td>${item.saNumber || '-'}</td>
+                                        <td>${this.truncate(item.description, 30)}</td>
+                                        <td class="qty-cell ${item.stock <= 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
+                                        <td class="qty-cell">${this.formatNumber(item.bestillingspunkt)}</td>
+                                        <td class="qty-cell negative">${this.formatNumber(item.stock - item.bestillingspunkt)}</td>
+                                        <td class="qty-cell">${item.ordrekvantitet !== null ? this.formatNumber(item.ordrekvantitet) : '-'}</td>
+                                        <td>${item._status}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <p class="text-muted">Viser ${Math.min(items.length, 50)} av ${items.length} artikler under BP</p>
+                    </div>
+                `}
+            </div>
+        `;
+    }
+
+    /**
+     * Seksjon 2: Mangler BP / EOK
+     * Artikler med SA-nummer men uten planleggingsparametre.
+     * Indikerer kritiske hull i planleggingsdata.
+     */
+    static renderMissingBPEOKSection(store) {
+        // FASE 6: Kun SA-artikler (alle i activeItems har allerede SA)
+        const activeItems = store.getActiveItems();
+
+        // Kun relevant dersom Analyse_Lagerplan er lastet
+        const anyPlanningData = activeItems.some(i =>
+            i.bestillingspunkt !== null || i.ordrekvantitet !== null
+        );
+        if (!anyPlanningData) return '';
+
+        const itemsMissingBP = activeItems.filter(item =>
+            item.bestillingspunkt === null &&
+            item.sales12m > 0
+        );
+
+        const itemsMissingEOK = activeItems.filter(item =>
+            item.ordrekvantitet === null &&
+            item.sales12m > 0
+        );
+
+        // Unik kombinasjon: mangler begge
+        const missingBoth = activeItems.filter(item =>
+            item.bestillingspunkt === null &&
+            item.ordrekvantitet === null &&
+            item.sales12m > 0
+        );
+
+        return `
+            <div class="new-section missing-planning-section">
+                <h3>Mangler planleggingsdata (BP / EOK)</h3>
+                <p class="section-description">SA-artikler med salg men uten BP og/eller EOK fra Analyse_Lagerplan. Kritiske hull i planlegging.</p>
+                <div class="planning-gap-summary">
+                    <div class="stat-card warning">
+                        <div class="stat-value">${itemsMissingBP.length}</div>
+                        <div class="stat-label">Mangler BP</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-value">${itemsMissingEOK.length}</div>
+                        <div class="stat-label">Mangler EOK</div>
+                    </div>
+                    <div class="stat-card critical">
+                        <div class="stat-value">${missingBoth.length}</div>
+                        <div class="stat-label">Mangler begge</div>
+                    </div>
+                </div>
+                ${missingBoth.length > 0 ? `
+                    <div class="table-wrapper">
+                        <table class="data-table compact">
+                            <thead>
+                                <tr>
+                                    <th>Artikelnr</th>
+                                    <th>SA-nr</th>
+                                    <th>Beskrivelse</th>
+                                    <th>Saldo</th>
+                                    <th>Solgt 12m</th>
+                                    <th>Mnd. forbr.</th>
+                                    <th>Mangler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${missingBoth
+                                    .sort((a, b) => b.sales12m - a.sales12m)
+                                    .slice(0, 50)
+                                    .map(item => `
+                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
+                                        <td><strong>${item.toolsArticleNumber}</strong></td>
+                                        <td>${item.saNumber || '-'}</td>
+                                        <td>${this.truncate(item.description, 30)}</td>
+                                        <td class="qty-cell">${this.formatNumber(item.stock)}</td>
+                                        <td class="qty-cell">${this.formatNumber(item.sales12m)}</td>
+                                        <td class="qty-cell">${Math.round(item.monthlyConsumption)}</td>
+                                        <td>BP + EOK</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <p class="text-muted">Viser ${Math.min(missingBoth.length, 50)} av ${missingBoth.length} artikler uten BP og EOK (sortert etter salg)</p>
+                    </div>
+                ` : '<div class="alert alert-success">Alle SA-artikler med salg har planleggingsdata.</div>'}
+            </div>
+        `;
+    }
+
+    /**
+     * Seksjon 3: Utgående med saldo
+     * Artikler med status UTGAENDE eller UTGAATT som fortsatt har lagersaldo > 0.
+     * Disse binder kapital og bør selges ut eller avhendes.
+     */
+    static renderOutgoingWithStockSection(store) {
+        // FASE 6: Kun SA-artikler
+        const items = store.getActiveItems().filter(item =>
+            (item._status === 'UTGAENDE' || item._status === 'UTGAATT') &&
+            item.stock > 0
+        );
+
+        if (items.length === 0) return '';
+
+        const totalValue = items.reduce((sum, i) => sum + (i.estimertVerdi || 0), 0);
+
+        return `
+            <div class="new-section outgoing-stock-section">
+                <h3>Utgående artikler med saldo (${items.length})</h3>
+                <p class="section-description">
+                    SA-artikler under utfasing som fortsatt har lagersaldo. Binder kapital.
+                    ${totalValue > 0 ? `Estimert bundet verdi: <strong>${this.formatNumber(totalValue)} kr</strong>` : ''}
+                </p>
+                <div class="table-wrapper">
+                    <table class="data-table compact">
+                        <thead>
+                            <tr>
+                                <th>Artikelnr</th>
+                                <th>SA-nr</th>
+                                <th>Beskrivelse</th>
+                                <th>Status</th>
+                                <th>Saldo</th>
+                                <th>Estimert verdi</th>
+                                <th>Erstatter</th>
+                                <th>Solgt 12m</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items
+                                .sort((a, b) => (b.estimertVerdi || 0) - (a.estimertVerdi || 0))
+                                .slice(0, 50)
+                                .map(item => `
+                                <tr class="severity-info clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
+                                    <td><strong>${item.toolsArticleNumber}</strong></td>
+                                    <td>${item.saNumber || '-'}</td>
+                                    <td>${this.truncate(item.description, 30)}</td>
+                                    <td><span class="badge badge-warning">${item._status}</span></td>
+                                    <td class="qty-cell">${this.formatNumber(item.stock)}</td>
+                                    <td class="qty-cell">${this.formatNumber(item.estimertVerdi || 0)} kr</td>
+                                    <td>${item.ersattAvArtikel || '-'}</td>
+                                    <td class="qty-cell">${this.formatNumber(item.sales12m)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <p class="text-muted">Viser ${Math.min(items.length, 50)} av ${items.length} utgående artikler med saldo</p>
                 </div>
             </div>
         `;
@@ -453,7 +681,7 @@ class OverviewMode {
             <div class="modal-content modal-large">
                 <div class="modal-header">
                     <h3>${item.toolsArticleNumber}</h3>
-                    ${item.saNumber ? `<span class="sa-badge">SA: ${item.saNumber}</span>` : ''}
+                    ${item.saNumber ? `<span class="sa-badge">SA: ${item.saNumber}${item.saType ? ' (' + item.saType + ')' : ''}</span>` : ''}
                     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
                 </div>
                 <div class="modal-body">
@@ -478,6 +706,30 @@ class OverviewMode {
                             </div>
                         </div>
                     </div>
+
+                    ${item.saNumber ? `
+                    <div class="detail-section">
+                        <h4>SA-avtale</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <strong>SA-nummer</strong>
+                                ${item.saNumber}
+                            </div>
+                            <div class="detail-item">
+                                <strong>SA-type</strong>
+                                ${item.saType || '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Gyldig fra</strong>
+                                ${display.saGyldigFra ? this.formatDate(display.saGyldigFra) : '-'}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Gyldig til</strong>
+                                ${display.saGyldigTil ? this.formatDate(display.saGyldigTil) : '-'}
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
 
                     <div class="detail-section">
                         <h4>Lagerstatus</h4>

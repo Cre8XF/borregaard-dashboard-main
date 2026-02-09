@@ -112,7 +112,7 @@ class AssortmentMode {
      * Analyser sortiment
      */
     static analyzeAssortment(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const analysis = {
             slowMovers: [],
             noSales: [],
@@ -127,7 +127,7 @@ class AssortmentMode {
         const INACTIVE_STATUSES = ['9', '10', '3', 'Utgått', 'Inaktiv', 'Blokkert', 'utgått', 'inaktiv', 'blokkert'];
 
         items.forEach(item => {
-            const estimatedValue = (item.stock || 0) * 50; // Estimert verdi (default pris)
+            const estimatedValue = item.estimertVerdi || 0;
 
             // Sjekk om inaktiv
             const isInactive = INACTIVE_STATUSES.some(s =>
@@ -199,7 +199,7 @@ class AssortmentMode {
                     ...item,
                     score: score.total,
                     reasons: score.reasons,
-                    estimatedValue: (item.stock || 0) * 50,
+                    estimatedValue: item.estimertVerdi || 0,
                     recommendation: this.getRecommendation(score)
                 });
             }
@@ -238,12 +238,6 @@ class AssortmentMode {
         if (monthlyConsumption > 0 && item.stock > monthlyConsumption * 24) {
             score += 2;
             reasons.push('Lager for >2 års forbruk');
-        }
-
-        // Ingen SA-nummer (mulig duplikat/uorganisert)
-        if (!item.hasSANumber) {
-            score += 0.5;
-            reasons.push('Mangler SA-nummer');
         }
 
         // Kun én kunde og lavt salg
@@ -424,7 +418,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -483,7 +477,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-warning clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-warning clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -542,7 +536,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -601,7 +595,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="row-critical clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
@@ -637,7 +631,7 @@ class AssortmentMode {
         return `
             <div class="view-insight">
                 <p><strong>Utfasingskandidater</strong> er artikler som scorer høyt på flere risikofaktorer.</p>
-                <p class="text-muted">Faktorer: null-salg, lang omløpstid, høyt lager relativt til forbruk, manglende SA-nummer.</p>
+                <p class="text-muted">Faktorer: null-salg, lang omløpstid, høyt lager relativt til forbruk, få ordrer.</p>
             </div>
             <div class="table-wrapper">
                 <table class="data-table">
@@ -656,7 +650,7 @@ class AssortmentMode {
                     </thead>
                     <tbody>
                         ${displayData.map(item => `
-                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.toolsArticleNumber}')">
+                            <tr class="clickable" onclick="AssortmentMode.showDetails('${item.saNumber}')">
                                 <td><span class="score-badge ${item.recommendation.class}">${item.score.toFixed(1)}</span></td>
                                 <td><strong>${item.toolsArticleNumber}</strong></td>
                                 <td>${item.saNumber || '-'}</td>
@@ -716,7 +710,7 @@ class AssortmentMode {
      */
     static getCategories(store) {
         const categories = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.category) {
                 categories.add(item.category);
             }
@@ -731,7 +725,7 @@ class AssortmentMode {
      */
     static getSuppliers(store) {
         const suppliers = new Set();
-        store.getAllItems().forEach(item => {
+        store.getActiveItems().forEach(item => {
             if (item.supplier) {
                 suppliers.add(item.supplier);
             }
@@ -962,7 +956,7 @@ class AssortmentMode {
                             </div>
                             <div class="detail-item">
                                 <strong>Est. verdi</strong>
-                                ${this.formatNumber((item.stock || 0) * 50)} kr
+                                ${this.formatNumber(item.estimertVerdi || 0)} kr
                             </div>
                         </div>
                     </div>
@@ -1027,13 +1021,6 @@ class AssortmentMode {
             assessments.push({
                 type: 'info',
                 text: 'Over 1 års lager - følg med på utviklingen'
-            });
-        }
-
-        if (!item.hasSANumber) {
-            assessments.push({
-                type: 'info',
-                text: 'Mangler SA-nummer - sjekk om dette er korrekt artikkel'
             });
         }
 
@@ -1149,7 +1136,7 @@ class AssortmentMode {
     static getCategorySummary(categoryName) {
         if (!this.dataStore) return null;
 
-        const items = this.dataStore.getAllItems().filter(
+        const items = this.dataStore.getActiveItems().filter(
             item => item.category === categoryName
         );
 
@@ -1166,7 +1153,7 @@ class AssortmentMode {
         };
 
         items.forEach(item => {
-            const estimatedValue = (item.stock || 0) * 50;
+            const estimatedValue = item.estimertVerdi || 0;
             summary.totalStock += item.stock || 0;
             summary.totalEstimatedValue += estimatedValue;
 

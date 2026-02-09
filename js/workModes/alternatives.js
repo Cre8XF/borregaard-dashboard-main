@@ -40,11 +40,12 @@ class AlternativeAnalysisMode {
 
         const analysis = this.analyzeOutgoingArticles(store);
 
-        console.log('=== Utgående artikler – alternativanalyse (Master.xlsx) ===');
-        console.log(`  Totalt utgående artikler: ${analysis.totalOutgoing}`);
-        console.log(`  Med gyldig alternativ: ${analysis.withValidAlternative}`);
-        console.log(`  Uten alternativ: ${analysis.missingAlternative}`);
-        console.log('  Data source: Master.xlsx (Ersätts av artikel)');
+        console.log('=== Utgående artikler – alternativanalyse (FASE 2) ===');
+        console.log(`  Totalt utgående SA-artikler: ${analysis.totalOutgoing}`);
+        console.log(`  Med gyldig alternativ (aktiv, på lager/vei): ${analysis.withValidAlternative}`);
+        console.log(`  Med alternativ men problem: ${analysis.withAlternative - analysis.withValidAlternative}`);
+        console.log(`  Uten alternativ definert: ${analysis.missingAlternative}`);
+        console.log('  Oppslag: resolveAlternativeStatus() (SA → Master fallback)');
 
         return `
             <div class="module-header">
@@ -91,7 +92,7 @@ class AlternativeAnalysisMode {
      *        → INGEN ALTERNATIV DEFINERT
      */
     static analyzeOutgoingArticles(store) {
-        const items = store.getAllItems();
+        const items = store.getActiveItems();
         const results = [];
 
         let totalOutgoing = 0;
@@ -107,94 +108,39 @@ class AlternativeAnalysisMode {
 
             totalOutgoing++;
 
-            // STRICT: use "Ersätts av artikel" from Master.xlsx ONLY
-            const ersattAv = (item.ersattAvArtikel || '').trim();
+            // FASE 2.2: Bruk sentral resolver — all logikk samlet i UnifiedDataStore
+            const alt = store.resolveAlternativeStatus(item);
 
-            if (!ersattAv) {
-                // No alternative defined
+            // Oppdater tellere basert på klassifisering
+            if (alt.classification === 'NO_ALTERNATIVE') {
                 missingAlternative++;
                 criticalCount++;
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: '-',
-                    altDescription: '',
-                    altExistsInInventory: false,
-                    altStatus: '-',
-                    altStock: 0,
-                    altAvailable: 0,
-                    altBestAntLev: 0,
-                    classification: 'INGEN ALTERNATIV DEFINERT',
-                    classType: 'critical',
-                    _item: item
-                });
-            } else if (ersattAv === item.toolsArticleNumber) {
-                // PROHIBITION: article references itself — treat as no alternative
-                missingAlternative++;
-                criticalCount++;
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: ersattAv,
-                    altDescription: '(selv-referanse ignorert)',
-                    altExistsInInventory: false,
-                    altStatus: '-',
-                    altStock: 0,
-                    altAvailable: 0,
-                    altBestAntLev: 0,
-                    classification: 'INGEN ALTERNATIV DEFINERT',
-                    classType: 'critical',
-                    _item: item
-                });
             } else {
-                // Alternative is defined — look it up in the SAME Master.xlsx dataset
                 withAlternative++;
-                const altItem = store.items.get(ersattAv);
-
-                let classification;
-                let classType;
-
-                if (altItem) {
-                    const altOutgoing = this.isArticleOutgoing(altItem);
-                    if (!altOutgoing) {
-                        classification = 'Har alternativ – finnes og er aktiv';
-                        classType = 'ok';
-                        withValidAlternative++;
-                    } else {
-                        classification = 'Har alternativ – finnes men er ikke aktiv';
-                        classType = 'warning';
-                        criticalCount++;
-                    }
+                if (alt.classType === 'ok') {
+                    withValidAlternative++;
                 } else {
-                    classification = 'Har alternativ – finnes ikke i lager';
-                    classType = 'warning';
                     criticalCount++;
                 }
-
-                results.push({
-                    sourceArticle: item.toolsArticleNumber,
-                    sourceDescription: item.description || '',
-                    sourceStatus: this.getStatusLabel(item),
-                    sourceStock: item.stock || 0,
-                    sourceAvailable: item.available || 0,
-                    altArticle: ersattAv,
-                    altDescription: altItem ? (altItem.description || '') : '',
-                    altExistsInInventory: !!altItem,
-                    altStatus: altItem ? this.getStatusLabel(altItem) : '-',
-                    altStock: altItem ? altItem.stock : 0,
-                    altAvailable: altItem ? altItem.available : 0,
-                    altBestAntLev: altItem ? altItem.bestAntLev : 0,
-                    classification: classification,
-                    classType: classType,
-                    _item: item
-                });
             }
+
+            results.push({
+                sourceArticle: item.toolsArticleNumber,
+                sourceDescription: item.description || '',
+                sourceStatus: this.getStatusLabel(item),
+                sourceStock: item.stock || 0,
+                sourceAvailable: item.available || 0,
+                altArticle: alt.altToolsArtNr || '-',
+                altDescription: alt.altDescription,
+                altExistsInInventory: alt.altExistsInSA || alt.altExistsInMaster,
+                altStatus: alt.altStatus,
+                altStock: alt.altStock,
+                altAvailable: 0,
+                altBestAntLev: alt.altBestAntLev,
+                classification: alt.label,
+                classType: alt.classType,
+                _item: item
+            });
         });
 
         return {
@@ -276,12 +222,12 @@ class AlternativeAnalysisMode {
                 <div class="stat-card ok">
                     <div class="stat-value">${analysis.withValidAlternative}</div>
                     <div class="stat-label">Med gyldig alternativ</div>
-                    <div class="stat-sub">Finnes og er aktiv</div>
+                    <div class="stat-sub">Aktiv, på lager / på vei</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-value">${analysis.withAlternative - analysis.withValidAlternative}</div>
                     <div class="stat-label">Alternativ med problem</div>
-                    <div class="stat-sub">Finnes ikke / ikke aktiv</div>
+                    <div class="stat-sub">Ikke i SA / utgående / tomt</div>
                 </div>
                 <div class="stat-card critical">
                     <div class="stat-value">${analysis.missingAlternative}</div>
