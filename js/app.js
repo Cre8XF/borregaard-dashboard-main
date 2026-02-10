@@ -532,6 +532,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'noSaArticles':
+                if (typeof NoSaArticlesMode !== 'undefined') {
+                    contentDiv.innerHTML = NoSaArticlesMode.render(this.dataStore);
+                }
+                break;
+
             // ── FASE 5: Legacy-moduler (kandidater for fjerning) ──
             case 'topSellers':
                 if (typeof TopSellers !== 'undefined') {
@@ -739,6 +745,8 @@ class DashboardApp {
                 item.max = itemData.max || 0;
                 item.status = itemData.status;
                 item.supplier = itemData.supplier;
+                item.supplierId = itemData.supplierId || null;
+                item.brand = itemData.brand || null;
                 item.shelf = itemData.shelf;
                 item.saType = itemData.saType || null;
                 item.saGyldigFra = itemData.saGyldigFra ? new Date(itemData.saGyldigFra) : null;

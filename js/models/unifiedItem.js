@@ -43,6 +43,8 @@ class UnifiedItem {
         this.statusText = null;   // Readable status text
         this.isDiscontinued = false;
         this.supplier = '';
+        this.supplierId = null;   // Supplier ID (from Ordrer_Jeeves.xlsx)
+        this.brand = null;        // Brand (from Ordrer_Jeeves.xlsx)
         this.shelf = '';
         this.placementLocation = '';
         this.category = null;
@@ -271,6 +273,8 @@ class UnifiedItem {
             statusText: this.statusText,
             isDiscontinued: this.isDiscontinued,
             supplier: this.supplier,
+            supplierId: this.supplierId,
+            brand: this.brand,
             shelf: this.shelf,
             placementLocation: this.placementLocation,
             category: this.category,
@@ -663,6 +667,62 @@ class UnifiedDataStore {
             altIsDiscontinued: false,
             altExistsInSA: false, altExistsInMaster: false
         };
+    }
+
+    /**
+     * Hent artikler uten SA-nummer (fra Master.xlsx, ikke i SA-universet).
+     *
+     * Returnerer to grupper:
+     *   withStock  — stock > 0 (KRITISK: binder kapital uten SA-avtale)
+     *   noStock    — stock == 0
+     *
+     * @returns {{ withStock: Object[], noStock: Object[], total: number }}
+     */
+    getArticlesWithoutSA() {
+        const withStock = [];
+        const noStock = [];
+
+        this.masterOnlyArticles.forEach((data, toolsArtNr) => {
+            const stock = data.stock || 0;
+            const kalkylPris = data.kalkylPris || 0;
+            const estimertVerdi = (kalkylPris > 0 && stock > 0) ? kalkylPris * stock : 0;
+
+            const statusText = data._status || 'UKJENT';
+            let artikkelstatus;
+            if (statusText === 'AKTIV') {
+                artikkelstatus = 'Aktiv';
+            } else if (statusText === 'UTGAENDE') {
+                artikkelstatus = 'Utgående';
+            } else if (statusText === 'UTGAATT') {
+                artikkelstatus = 'Utgått';
+            } else {
+                artikkelstatus = 'Ukjent';
+            }
+
+            const entry = {
+                toolsArticleNumber: toolsArtNr,
+                description: data.description || '',
+                stock: stock,
+                estimertVerdi: estimertVerdi,
+                artikkelstatus: artikkelstatus,
+                _status: data._status || 'UKJENT',
+                brand: data.brand || null,
+                supplier: data.supplier || null,
+                supplierId: data.supplierId || null
+            };
+
+            if (stock > 0) {
+                withStock.push(entry);
+            } else {
+                noStock.push(entry);
+            }
+        });
+
+        // Sorter etter estimert verdi (høyest først) for withStock
+        withStock.sort((a, b) => b.estimertVerdi - a.estimertVerdi);
+        noStock.sort((a, b) => a.toolsArticleNumber.localeCompare(b.toolsArticleNumber));
+
+        return { withStock, noStock, total: withStock.length + noStock.length };
     }
 
     /**
