@@ -672,19 +672,31 @@ class UnifiedDataStore {
     /**
      * Hent artikler uten SA-nummer (fra Master.xlsx, ikke i SA-universet).
      *
-     * Returnerer to grupper:
-     *   withStock  — stock > 0 (KRITISK: binder kapital uten SA-avtale)
-     *   noStock    — stock == 0
+     * Returnerer tre gjensidig eksklusive grupper:
      *
-     * @returns {{ withStock: Object[], noStock: Object[], total: number }}
+     *   A) withStock     — stock > 0
+     *      LAGER: Reell kapitalbinding uten SA-avtale. Høyest prioritet.
+     *
+     *   B) withIncoming  — stock == 0 OG bestAntLev > 0
+     *      BESTILLING: Planlagt bevegelse, ikke fysisk lager. Medium prioritet.
+     *
+     *   C) noActivity    — stock == 0 OG bestAntLev == 0
+     *      INGEN BEVEGELSE: Systemstøy / kandidater for avvikling. Lav prioritet.
+     *
+     * estimertVerdi beregnes KUN for gruppe A (stock > 0).
+     *
+     * @returns {{ withStock: Object[], withIncoming: Object[], noActivity: Object[], total: number }}
      */
     getArticlesWithoutSA() {
         const withStock = [];
-        const noStock = [];
+        const withIncoming = [];
+        const noActivity = [];
 
         this.masterOnlyArticles.forEach((data, toolsArtNr) => {
             const stock = data.stock || 0;
+            const bestAntLev = data.bestAntLev || 0;
             const kalkylPris = data.kalkylPris || 0;
+            // estimertVerdi KUN for fysisk lager (stock > 0)
             const estimertVerdi = (kalkylPris > 0 && stock > 0) ? kalkylPris * stock : 0;
 
             const statusText = data._status || 'UKJENT';
@@ -703,6 +715,7 @@ class UnifiedDataStore {
                 toolsArticleNumber: toolsArtNr,
                 description: data.description || '',
                 stock: stock,
+                bestAntLev: bestAntLev,
                 estimertVerdi: estimertVerdi,
                 artikkelstatus: artikkelstatus,
                 _status: data._status || 'UKJENT',
@@ -711,18 +724,32 @@ class UnifiedDataStore {
                 supplierId: data.supplierId || null
             };
 
+            // Gjensidig eksklusive grupper:
             if (stock > 0) {
+                // A: Fysisk lager — reell kapitalbinding
                 withStock.push(entry);
+            } else if (bestAntLev > 0) {
+                // B: Ingen lager, men bestilling på vei
+                withIncoming.push(entry);
             } else {
-                noStock.push(entry);
+                // C: Verken lager eller bestilling
+                noActivity.push(entry);
             }
         });
 
-        // Sorter etter estimert verdi (høyest først) for withStock
+        // A: Sorter etter estimert verdi (høyest først)
         withStock.sort((a, b) => b.estimertVerdi - a.estimertVerdi);
-        noStock.sort((a, b) => a.toolsArticleNumber.localeCompare(b.toolsArticleNumber));
+        // B: Sorter etter bestilt antall (høyest først)
+        withIncoming.sort((a, b) => b.bestAntLev - a.bestAntLev);
+        // C: Sorter alfabetisk
+        noActivity.sort((a, b) => a.toolsArticleNumber.localeCompare(b.toolsArticleNumber));
 
-        return { withStock, noStock, total: withStock.length + noStock.length };
+        return {
+            withStock,
+            withIncoming,
+            noActivity,
+            total: withStock.length + withIncoming.length + noActivity.length
+        };
     }
 
     /**

@@ -1,15 +1,15 @@
 // ===================================
 // MODUS 6: ARTIKLER UTEN SA-NUMMER
 // Viser: Master-artikler som ikke er i SA-universet
+//
+// Tre gjensidig eksklusive grupper:
+//   A) LAGER      — stock > 0 (reell kapitalbinding)
+//   B) BESTILLING — stock == 0, bestAntLev > 0 (planlagt bevegelse)
+//   C) INGEN      — stock == 0, bestAntLev == 0 (systemstøy)
 // ===================================
 
 /**
  * NoSaArticlesMode - Artikler uten SA-nummer
- *
- * Viser artikler fra Master.xlsx som ikke har tilknyttet SA-nummer.
- * Delt i to grupper:
- *   A) Med saldo (KRITISK) — binder kapital uten SA-avtale
- *   B) Uten saldo — informativt
  *
  * Datakilde: UnifiedDataStore.masterOnlyArticles (via getArticlesWithoutSA())
  */
@@ -20,6 +20,49 @@ class NoSaArticlesMode {
     static sortDirection = 'asc';
     static dataStore = null;
     static currentLimit = 50;
+
+    // ── Gruppedefinisjon ──
+    static GROUPS = {
+        withStock: {
+            key: 'withStock',
+            label: 'Lager',
+            badge: 'LAGER UTEN SA',
+            badgeClass: 'badge-critical',
+            rowClass: 'row-critical',
+            insightClass: 'critical',
+            priority: 'HØYEST',
+            emptyMsg: 'Ingen artikler uten SA-nummer med lagersaldo.',
+            showEstimertVerdi: true,
+            showBestAntLev: false,
+            sortDefault: 'estimertVerdi'
+        },
+        withIncoming: {
+            key: 'withIncoming',
+            label: 'Bestilling',
+            badge: 'BESTILLING UTEN SA',
+            badgeClass: 'badge-warning',
+            rowClass: 'row-warning',
+            insightClass: 'warning',
+            priority: 'MEDIUM',
+            emptyMsg: 'Ingen artikler uten SA-nummer med bestilling på vei.',
+            showEstimertVerdi: false,
+            showBestAntLev: true,
+            sortDefault: 'bestAntLev'
+        },
+        noActivity: {
+            key: 'noActivity',
+            label: 'Ingen bevegelse',
+            badge: '',
+            badgeClass: '',
+            rowClass: '',
+            insightClass: 'info',
+            priority: 'LAV',
+            emptyMsg: 'Ingen artikler uten SA-nummer uten lager eller bestilling.',
+            showEstimertVerdi: false,
+            showBestAntLev: false,
+            sortDefault: null
+        }
+    };
 
     /**
      * Render seksjonen
@@ -32,6 +75,7 @@ class NoSaArticlesMode {
         const data = store.getArticlesWithoutSA();
 
         const totalValueWithStock = data.withStock.reduce((sum, i) => sum + i.estimertVerdi, 0);
+        const totalBestilt = data.withIncoming.reduce((sum, i) => sum + i.bestAntLev, 0);
 
         return `
             <div class="module-header">
@@ -42,34 +86,38 @@ class NoSaArticlesMode {
             <div class="no-sa-summary">
                 <div class="stat-card ${data.withStock.length > 0 ? 'critical' : 'ok'}">
                     <div class="stat-value">${data.withStock.length}</div>
-                    <div class="stat-label">Med saldo</div>
-                    <div class="stat-sub">Binder kapital uten SA</div>
+                    <div class="stat-label">Lager</div>
+                    <div class="stat-sub">Fysisk kapitalbinding</div>
+                </div>
+                <div class="stat-card ${data.withIncoming.length > 0 ? 'warning' : ''}">
+                    <div class="stat-value">${data.withIncoming.length}</div>
+                    <div class="stat-label">Bestilling</div>
+                    <div class="stat-sub">${totalBestilt > 0 ? totalBestilt.toLocaleString('nb-NO') + ' stk på vei' : 'Ingen på vei'}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${data.noStock.length}</div>
-                    <div class="stat-label">Uten saldo</div>
-                    <div class="stat-sub">Ingen lagerbinding</div>
+                    <div class="stat-value">${data.noActivity.length}</div>
+                    <div class="stat-label">Ingen bevegelse</div>
+                    <div class="stat-sub">Kandidater for avvikling</div>
                 </div>
-                <div class="stat-card ${totalValueWithStock > 0 ? 'warning' : ''}">
+                <div class="stat-card ${totalValueWithStock > 0 ? 'critical' : ''}">
                     <div class="stat-value">${this.formatCurrency(totalValueWithStock)}</div>
-                    <div class="stat-label">Estimert verdi</div>
-                    <div class="stat-sub">Artikler med saldo</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${data.total}</div>
-                    <div class="stat-label">Totalt</div>
-                    <div class="stat-sub">Uten SA-nummer</div>
+                    <div class="stat-label">Bundet kapital</div>
+                    <div class="stat-sub">Kun fysisk lager</div>
                 </div>
             </div>
 
             <div class="view-tabs">
                 <button class="view-tab ${this.currentView === 'withStock' ? 'active' : ''}"
                         onclick="NoSaArticlesMode.switchView('withStock')">
-                    Med saldo (${data.withStock.length})
+                    Lager (${data.withStock.length})
                 </button>
-                <button class="view-tab ${this.currentView === 'noStock' ? 'active' : ''}"
-                        onclick="NoSaArticlesMode.switchView('noStock')">
-                    Uten saldo (${data.noStock.length})
+                <button class="view-tab ${this.currentView === 'withIncoming' ? 'active' : ''}"
+                        onclick="NoSaArticlesMode.switchView('withIncoming')">
+                    Bestilling (${data.withIncoming.length})
+                </button>
+                <button class="view-tab ${this.currentView === 'noActivity' ? 'active' : ''}"
+                        onclick="NoSaArticlesMode.switchView('noActivity')">
+                    Ingen bevegelse (${data.noActivity.length})
                 </button>
             </div>
 
@@ -102,8 +150,8 @@ class NoSaArticlesMode {
      * Render gjeldende visning
      */
     static renderCurrentView(data) {
-        const items = this.currentView === 'withStock' ? data.withStock : data.noStock;
-        const isWithStock = this.currentView === 'withStock';
+        const group = this.GROUPS[this.currentView];
+        const items = data[this.currentView];
 
         let filtered = this.applySearch(items);
         filtered = this.applySort(filtered);
@@ -113,42 +161,63 @@ class NoSaArticlesMode {
             : filtered.slice(0, this.currentLimit);
 
         if (displayItems.length === 0) {
-            const emptyMsg = isWithStock
-                ? 'Ingen artikler uten SA-nummer med lagersaldo.'
-                : 'Ingen artikler uten SA-nummer uten lagersaldo.';
             return `
                 <div class="view-insight ok">
-                    <p><strong>${emptyMsg}</strong></p>
+                    <p><strong>${group.emptyMsg}</strong></p>
                 </div>
             `;
         }
 
-        if (isWithStock) {
-            return `
-                <div class="view-insight critical">
-                    <p><strong>${displayItems.length} artikler har lagersaldo uten SA-avtale.</strong>
-                    Disse binder kapital (${this.formatCurrency(displayItems.reduce((s, i) => s + i.estimertVerdi, 0))})
-                    og bor vurderes for SA-tilknytning eller avvikling.</p>
-                </div>
-                ${this.renderTable(displayItems, true)}
-                ${filtered.length > displayItems.length ? `<div class="table-footer">Viser ${displayItems.length} av ${filtered.length}</div>` : ''}
-            `;
-        }
+        const insightHtml = this.renderGroupInsight(group, displayItems, data);
+        const tableHtml = this.renderTable(displayItems, group);
+        const footerHtml = filtered.length > displayItems.length
+            ? `<div class="table-footer">Viser ${displayItems.length} av ${filtered.length}</div>`
+            : '';
 
-        return `
-            <div class="view-insight info">
-                <p><strong>${displayItems.length} artikler uten SA-nummer og uten lagersaldo.</strong>
-                Disse binder ingen kapital, men kan indikere utdaterte artikler i Master.</p>
-            </div>
-            ${this.renderTable(displayItems, false)}
-            ${filtered.length > displayItems.length ? `<div class="table-footer">Viser ${displayItems.length} av ${filtered.length}</div>` : ''}
-        `;
+        return insightHtml + tableHtml + footerHtml;
     }
 
     /**
-     * Render tabell
+     * Render kontekstmelding for gruppen
      */
-    static renderTable(items, isWithStock) {
+    static renderGroupInsight(group, displayItems, data) {
+        switch (group.key) {
+            case 'withStock': {
+                const totalValue = displayItems.reduce((s, i) => s + i.estimertVerdi, 0);
+                return `
+                    <div class="view-insight critical">
+                        <p><strong>${displayItems.length} artikler har fysisk lagersaldo uten SA-avtale.</strong>
+                        Disse binder kapital (${this.formatCurrency(totalValue)})
+                        og bor vurderes for SA-tilknytning eller avvikling.</p>
+                    </div>
+                `;
+            }
+            case 'withIncoming': {
+                const totalQty = displayItems.reduce((s, i) => s + i.bestAntLev, 0);
+                return `
+                    <div class="view-insight warning">
+                        <p><strong>${displayItems.length} artikler har bestilling på vei uten SA-avtale</strong>
+                        (${totalQty.toLocaleString('nb-NO')} stk totalt bestilt).
+                        Ingen fysisk lager — men planlagt inngang uten SA-dekning.</p>
+                    </div>
+                `;
+            }
+            case 'noActivity':
+                return `
+                    <div class="view-insight info">
+                        <p><strong>${displayItems.length} artikler uten SA-nummer, uten lager og uten bestilling.</strong>
+                        Binder ingen kapital. Kandidater for opprydding i Master.</p>
+                    </div>
+                `;
+            default:
+                return '';
+        }
+    }
+
+    /**
+     * Render tabell — kolonnene tilpasses gruppen
+     */
+    static renderTable(items, group) {
         return `
             <div class="table-wrapper">
                 <table class="data-table compact">
@@ -160,12 +229,19 @@ class NoSaArticlesMode {
                             <th class="sortable-header" onclick="NoSaArticlesMode.handleSort('description')">
                                 Beskrivelse ${this.getSortIndicator('description')}
                             </th>
+                            ${group.showEstimertVerdi ? `
                             <th class="sortable-header" onclick="NoSaArticlesMode.handleSort('stock')">
                                 Lager ${this.getSortIndicator('stock')}
                             </th>
                             <th class="sortable-header" onclick="NoSaArticlesMode.handleSort('estimertVerdi')">
                                 Est. verdi ${this.getSortIndicator('estimertVerdi')}
                             </th>
+                            ` : ''}
+                            ${group.showBestAntLev ? `
+                            <th class="sortable-header" onclick="NoSaArticlesMode.handleSort('bestAntLev')">
+                                Bestilt ant. ${this.getSortIndicator('bestAntLev')}
+                            </th>
+                            ` : ''}
                             <th class="sortable-header" onclick="NoSaArticlesMode.handleSort('artikkelstatus')">
                                 Status ${this.getSortIndicator('artikkelstatus')}
                             </th>
@@ -181,7 +257,7 @@ class NoSaArticlesMode {
                         </tr>
                     </thead>
                     <tbody>
-                        ${items.map(item => this.renderRow(item, isWithStock)).join('')}
+                        ${items.map(item => this.renderRow(item, group)).join('')}
                     </tbody>
                 </table>
             </div>
@@ -191,23 +267,27 @@ class NoSaArticlesMode {
     /**
      * Render en rad
      */
-    static renderRow(item, isWithStock) {
-        const rowClass = isWithStock ? 'row-warning' : '';
-        const stockBadge = isWithStock
-            ? `<span class="badge badge-warning">SALDO UTEN SA</span>`
+    static renderRow(item, group) {
+        const badge = group.badge
+            ? `<span class="badge ${group.badgeClass}">${group.badge}</span>`
             : '';
 
         const statusClass = this.getStatusBadgeClass(item._status);
 
         return `
-            <tr class="${rowClass}">
+            <tr class="${group.rowClass}">
                 <td>
                     <strong>${this.escapeHtml(item.toolsArticleNumber)}</strong>
-                    ${stockBadge}
+                    ${badge}
                 </td>
                 <td>${this.escapeHtml(item.description)}</td>
-                <td class="qty-cell ${item.stock > 0 ? 'positive' : ''}">${item.stock.toLocaleString('nb-NO')}</td>
+                ${group.showEstimertVerdi ? `
+                <td class="qty-cell positive">${item.stock.toLocaleString('nb-NO')}</td>
                 <td class="qty-cell">${this.formatCurrency(item.estimertVerdi)}</td>
+                ` : ''}
+                ${group.showBestAntLev ? `
+                <td class="qty-cell">${item.bestAntLev.toLocaleString('nb-NO')}</td>
+                ` : ''}
                 <td><span class="badge ${statusClass}">${this.escapeHtml(item.artikkelstatus)}</span></td>
                 <td>${item.brand ? this.escapeHtml(item.brand) : '<span class="text-muted">-</span>'}</td>
                 <td>${item.supplier ? this.escapeHtml(item.supplier) : '<span class="text-muted">-</span>'}</td>
@@ -328,29 +408,30 @@ class NoSaArticlesMode {
     static exportCSV() {
         if (!this.dataStore) return;
         const data = this.dataStore.getArticlesWithoutSA();
-        const items = this.currentView === 'withStock' ? data.withStock : data.noStock;
+        const group = this.GROUPS[this.currentView];
+        const items = data[this.currentView];
         const filtered = this.applySearch(items);
 
-        const header = 'Artikkelnr;Beskrivelse;Lager;Est. verdi;Status;Brand;Leverandor;Lev. ID';
-        const rows = filtered.map(item =>
-            [
-                item.toolsArticleNumber,
-                item.description,
-                item.stock,
-                Math.round(item.estimertVerdi),
-                item.artikkelstatus,
-                item.brand || '',
-                item.supplier || '',
-                item.supplierId || ''
-            ].join(';')
-        );
+        const columns = ['Artikkelnr', 'Beskrivelse'];
+        if (group.showEstimertVerdi) columns.push('Lager', 'Est. verdi');
+        if (group.showBestAntLev) columns.push('Bestilt ant.');
+        columns.push('Status', 'Brand', 'Leverandor', 'Lev. ID');
+
+        const header = columns.join(';');
+        const rows = filtered.map(item => {
+            const vals = [item.toolsArticleNumber, item.description];
+            if (group.showEstimertVerdi) vals.push(item.stock, Math.round(item.estimertVerdi));
+            if (group.showBestAntLev) vals.push(item.bestAntLev);
+            vals.push(item.artikkelstatus, item.brand || '', item.supplier || '', item.supplierId || '');
+            return vals.join(';');
+        });
 
         const csv = [header, ...rows].join('\n');
         const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `artikler_uten_sa_${this.currentView}_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.download = `artikler_uten_sa_${group.label.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
         URL.revokeObjectURL(url);
     }
