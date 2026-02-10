@@ -73,6 +73,16 @@ class DataProcessor {
             'LevPlFtgKod', 'DH', 'Leveringslager', 'Delivery Warehouse',
             'Leveringssted', 'Del. Warehouse'
         ],
+        brand: [
+            'Brand', 'Merke', 'Varemerke', 'Merk'
+        ],
+        supplierId: [
+            'Supplier ID', 'SupplierID', 'Leverandør ID', 'LeverandørID',
+            'Supplier No', 'SupplierNo', 'Lev.nr', 'LevNr'
+        ],
+        supplierName: [
+            'Supplier', 'Leverandør', 'Leverandørnavn', 'Supplier Name'
+        ],
         date: [
             'Dato', 'Date', 'FaktDat', 'BerLevDat'
         ],
@@ -430,9 +440,13 @@ class DataProcessor {
                     description: this.getMasterValue(row, colMap.description) || '',
                     stock: this.parseNumber(this.getMasterValue(row, colMap.totalStock)),
                     bestAntLev: this.parseNumber(this.getMasterValue(row, colMap.orderedQty)),
+                    kalkylPris: this.parseNumber(this.getMasterValue(row, colMap.kalkylPris)),
+                    supplier: this.getMasterValue(row, colMap.supplier) || null,
                     statusText: rawStatus,
                     _status: normalizedStatus,
-                    isDiscontinued: isDisc
+                    isDiscontinued: isDisc,
+                    brand: null,
+                    supplierId: null
                 });
                 return;
             }
@@ -601,12 +615,29 @@ class DataProcessor {
             const articleNo = this.getColumnValue(row, 'articleNumber');
             if (!articleNo) return;
 
+            // Hent Brand/SupplierID fra ordrelinje (kan være tom)
+            const rowBrand = this.getColumnValue(row, 'brand') || null;
+            const rowSupplierId = this.getColumnValue(row, 'supplierId') || null;
+            const rowSupplierName = this.getColumnValue(row, 'supplierName') || null;
+
             // FASE 6.1: Slå opp via toolsArticleNumber
             const item = store.getByToolsArticleNumber(articleNo);
             if (!item) {
                 unmatchedCount++;
+
+                // Berik masterOnlyArticles med Brand/SupplierID fra ordrelinjer
+                const masterOnly = store.masterOnlyArticles.get(articleNo.toString().trim());
+                if (masterOnly) {
+                    if (rowBrand && !masterOnly.brand) masterOnly.brand = rowBrand.toString().trim();
+                    if (rowSupplierId && !masterOnly.supplierId) masterOnly.supplierId = rowSupplierId.toString().trim();
+                    if (rowSupplierName && !masterOnly.supplier) masterOnly.supplier = rowSupplierName.toString().trim();
+                }
                 return;
             }
+
+            // Oppdater Brand/SupplierID på UnifiedItem (første verdi vinner)
+            if (rowBrand && !item.brand) item.brand = rowBrand.toString().trim();
+            if (rowSupplierId && !item.supplierId) item.supplierId = rowSupplierId.toString().trim();
 
             // Oppdater beskrivelse hvis tom
             if (!item.description) {
