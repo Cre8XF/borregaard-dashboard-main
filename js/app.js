@@ -544,6 +544,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'reports':
+                if (typeof ReportsMode !== 'undefined') {
+                    contentDiv.innerHTML = ReportsMode.render(this.dataStore);
+                }
+                break;
+
             // ── FASE 5: Legacy-moduler (kandidater for fjerning) ──
             case 'topSellers':
                 if (typeof TopSellers !== 'undefined') {
