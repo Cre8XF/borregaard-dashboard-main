@@ -1,0 +1,617 @@
+// ===================================
+// MODUS 7: SA-MIGRERING – UTGÅENDE MED ERSTATNING
+// Operativ kontrollvisning for utgående artikler med
+// erstatningsartikkel og SA-migreringsstatus
+// ===================================
+
+/**
+ * SAMigrationMode - Discontinued items with replacement and SA-migration status
+ *
+ * Data sources (all already loaded in UnifiedDataStore):
+ *   - UnifiedItem: stock, bestAntLev, kalkylPris, estimertVerdi, outgoingOrders
+ *   - Master.xlsx (via enrichment): Artikelstatus, Ersätts av artikel
+ *   - SA-Nummer (via createFromSA): saNumber mapping
+ *   - Ordrer_Jeeves (via addOutgoingOrder): sales history with dates
+ *
+ * Logic:
+ *   1. Filter: items where isDiscontinued AND ersattAvArtikel is populated
+ *   2. Resolve replacement via store.getByToolsArticleNumber / masterOnlyArticles
+ *   3. Calculate quarterly sales from outgoingOrders deliveryDate
+ *   4. Derive saMigrationRequired and urgencyLevel
+ */
+class SAMigrationMode {
+    static dataStore = null;
+    static searchTerm = '';
+    static sortColumn = 'urgencySort';
+    static sortDirection = 'desc';
+    static currentFilter = 'all'; // all | highUrgency | migrationRequired | withStock
+
+    /**
+     * Render SA-migration view
+     * @param {UnifiedDataStore} store
+     * @returns {string} HTML
+     */
+    static render(store) {
+        this.dataStore = store;
+
+        const analysis = this.analyze(store);
+
+        console.log('=== SA-migrering – utgående med erstatning ===');
+        console.log(`  Totalt utgående med erstatning: ${analysis.totalItems}`);
+        console.log(`  SA-migrering påkrevd: ${analysis.migrationRequiredCount}`);
+        console.log(`  Hastegrad HØY: ${analysis.highCount}`);
+        console.log(`  Hastegrad MEDIUM: ${analysis.mediumCount}`);
+        console.log(`  Hastegrad LAV: ${analysis.lowCount}`);
+
+        return `
+            <div class="module-header">
+                <h2>SA-migrering – Utgående med erstatning</h2>
+                <p class="module-description">Operativ kontroll: Utgående artikler med erstatningsartikkel og SA-migreringsstatus</p>
+            </div>
+
+            ${this.renderSummaryCards(analysis)}
+
+            <div class="module-controls">
+                <div class="filter-group">
+                    <label>Filter:</label>
+                    <select class="filter-select" onchange="SAMigrationMode.handleFilterChange(this.value)">
+                        <option value="all" ${this.currentFilter === 'all' ? 'selected' : ''}>Alle (${analysis.totalItems})</option>
+                        <option value="highUrgency" ${this.currentFilter === 'highUrgency' ? 'selected' : ''}>Hastegrad HØY (${analysis.highCount})</option>
+                        <option value="migrationRequired" ${this.currentFilter === 'migrationRequired' ? 'selected' : ''}>SA-migrering påkrevd (${analysis.migrationRequiredCount})</option>
+                        <option value="withStock" ${this.currentFilter === 'withStock' ? 'selected' : ''}>Med lagersaldo (${analysis.withStockCount})</option>
+                    </select>
+                </div>
+                <div class="search-group">
+                    <input type="text" class="search-input" placeholder="Søk artikkel..."
+                           value="${this.searchTerm}"
+                           onkeyup="SAMigrationMode.handleSearch(this.value)">
+                </div>
+                <button onclick="SAMigrationMode.exportCSV()" class="btn-export">Eksporter CSV</button>
+            </div>
+
+            <div id="saMigrationContent">
+                ${this.renderTable(analysis)}
+            </div>
+        `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  ANALYSIS LOGIC
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Analyze all discontinued items that have a replacement defined
+     */
+    static analyze(store) {
+        const items = store.getAllItems();
+        const rows = [];
+
+        let migrationRequiredCount = 0;
+        let highCount = 0;
+        let mediumCount = 0;
+        let lowCount = 0;
+        let withStockCount = 0;
+        let totalEstimertVerdi = 0;
+
+        items.forEach(item => {
+            // Filter: only discontinued items
+            if (!this.isDiscontinued(item)) return;
+
+            // Filter: must have a replacement article defined (and not self-reference)
+            const replacementNr = (item.ersattAvArtikel || '').trim();
+            if (!replacementNr || replacementNr === item.toolsArticleNumber) return;
+
+            // Resolve replacement article data
+            const replacement = this.resolveReplacement(store, replacementNr);
+
+            // Calculate quarterly sales from outgoing orders
+            const salesData = this.calculateSales(item);
+
+            // Derive: SA migration required
+            const saMigrationRequired = !!(item.saNumber && !replacement.saNumber);
+
+            // Derive: urgency level
+            const urgencyLevel = this.calculateUrgency(item, salesData);
+
+            const row = {
+                toolsNr: item.toolsArticleNumber,
+                saNumber: item.saNumber || '',
+                description: item.description || '',
+                stock: item.stock || 0,
+                bestAntLev: item.bestAntLev || 0,
+                status: this.getStatusLabel(item),
+                estimertVerdi: item.estimertVerdi || 0,
+                replacementNr: replacementNr,
+                replacementDescription: replacement.description || '',
+                replacementStock: replacement.stock,
+                replacementBestAntLev: replacement.bestAntLev,
+                replacementSaNumber: replacement.saNumber || '',
+                replacementStatus: replacement.statusLabel || '',
+                salesLast12m: salesData.salesLast12m,
+                salesLast3m: salesData.salesLast3m,
+                quarterlySales: salesData.quarterlySales,
+                saMigrationRequired: saMigrationRequired,
+                urgencyLevel: urgencyLevel,
+                // Sort helper: HIGH=3, MEDIUM=2, LOW=1
+                urgencySort: urgencyLevel === 'HIGH' ? 3 : urgencyLevel === 'MEDIUM' ? 2 : 1,
+                _item: item
+            };
+
+            rows.push(row);
+
+            if (saMigrationRequired) migrationRequiredCount++;
+            if (urgencyLevel === 'HIGH') highCount++;
+            else if (urgencyLevel === 'MEDIUM') mediumCount++;
+            else lowCount++;
+            if (item.stock > 0) withStockCount++;
+            totalEstimertVerdi += item.estimertVerdi || 0;
+        });
+
+        // Default sort: urgency desc, then stock desc
+        rows.sort((a, b) => b.urgencySort - a.urgencySort || b.stock - a.stock);
+
+        return {
+            rows,
+            totalItems: rows.length,
+            migrationRequiredCount,
+            highCount,
+            mediumCount,
+            lowCount,
+            withStockCount,
+            totalEstimertVerdi
+        };
+    }
+
+    /**
+     * Check if item is discontinued (UTGAENDE or UTGAATT)
+     */
+    static isDiscontinued(item) {
+        if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') return true;
+        if (item.isDiscontinued) return true;
+        const raw = (item.status || '').toString().toLowerCase();
+        if (raw.includes('utgå') || raw.includes('discontinued') || raw.includes('avvikle')) return true;
+        if (raw === '3' || raw === '4' || raw.startsWith('3 -') || raw.startsWith('4 -')) return true;
+        return false;
+    }
+
+    /**
+     * Resolve replacement article data from store
+     * Uses existing SA lookup + masterOnlyArticles fallback
+     */
+    static resolveReplacement(store, replacementToolsNr) {
+        // Try SA universe first
+        const saItem = store.getByToolsArticleNumber(replacementToolsNr);
+        if (saItem) {
+            return {
+                description: saItem.description || '',
+                stock: saItem.stock || 0,
+                bestAntLev: saItem.bestAntLev || 0,
+                saNumber: saItem.saNumber || '',
+                statusLabel: this.getStatusLabel(saItem),
+                isDiscontinued: saItem.isDiscontinued || false
+            };
+        }
+
+        // Fallback: masterOnlyArticles
+        const masterData = store.masterOnlyArticles.get(replacementToolsNr);
+        if (masterData) {
+            return {
+                description: masterData.description || '',
+                stock: masterData.stock || 0,
+                bestAntLev: masterData.bestAntLev || 0,
+                saNumber: '',
+                statusLabel: masterData.statusText || 'Ukjent',
+                isDiscontinued: masterData.isDiscontinued || false
+            };
+        }
+
+        // Not found anywhere
+        return {
+            description: '',
+            stock: 0,
+            bestAntLev: 0,
+            saNumber: '',
+            statusLabel: 'Ikke funnet',
+            isDiscontinued: false
+        };
+    }
+
+    /**
+     * Calculate rolling sales and quarterly breakdown from outgoing orders
+     */
+    static calculateSales(item) {
+        const now = new Date();
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+        let salesLast12m = 0;
+        let salesLast3m = 0;
+        const quarterlySales = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+
+        if (!item.outgoingOrders || item.outgoingOrders.length === 0) {
+            // Fallback to pre-calculated values if no raw orders available
+            return {
+                salesLast12m: item.sales12m || 0,
+                salesLast3m: item.sales6m ? Math.round(item.sales6m / 2) : 0,
+                quarterlySales
+            };
+        }
+
+        item.outgoingOrders.forEach(order => {
+            const qty = order.quantity || 0;
+            if (qty <= 0) return;
+
+            const orderDate = order.deliveryDate instanceof Date ? order.deliveryDate :
+                              order.deliveryDate ? new Date(order.deliveryDate) : null;
+
+            if (!orderDate || isNaN(orderDate.getTime())) {
+                // No valid date — count toward 12m total but not quarterly
+                salesLast12m += qty;
+                return;
+            }
+
+            // Rolling 12 month
+            if (orderDate >= oneYearAgo) {
+                salesLast12m += qty;
+            }
+
+            // Rolling 3 month
+            if (orderDate >= threeMonthsAgo) {
+                salesLast3m += qty;
+            }
+
+            // Quarterly breakdown (calendar quarter of the order date)
+            const month = orderDate.getMonth(); // 0-11
+            if (month <= 2) quarterlySales.Q1 += qty;
+            else if (month <= 5) quarterlySales.Q2 += qty;
+            else if (month <= 8) quarterlySales.Q3 += qty;
+            else quarterlySales.Q4 += qty;
+        });
+
+        return {
+            salesLast12m: Math.round(salesLast12m),
+            salesLast3m: Math.round(salesLast3m),
+            quarterlySales: {
+                Q1: Math.round(quarterlySales.Q1),
+                Q2: Math.round(quarterlySales.Q2),
+                Q3: Math.round(quarterlySales.Q3),
+                Q4: Math.round(quarterlySales.Q4)
+            }
+        };
+    }
+
+    /**
+     * Calculate urgency level
+     *   HIGH:   stock > 0 OR salesLast3m > 0
+     *   MEDIUM: no stock but salesLast12m > 0
+     *   LOW:    otherwise
+     */
+    static calculateUrgency(item, salesData) {
+        if ((item.stock || 0) > 0 || salesData.salesLast3m > 0) {
+            return 'HIGH';
+        }
+        if (salesData.salesLast12m > 0) {
+            return 'MEDIUM';
+        }
+        return 'LOW';
+    }
+
+    /**
+     * Get readable status label
+     */
+    static getStatusLabel(item) {
+        if (item._status === 'UTGAENDE') return 'Utgående';
+        if (item._status === 'UTGAATT') return 'Utgått';
+        if (item._status === 'AKTIV') return 'Aktiv';
+        if (item.statusText) return item.statusText;
+        if (item.status) return item.status.toString();
+        return 'Ukjent';
+    }
+
+    // ════════════════════════════════════════════════════
+    //  RENDERING
+    // ════════════════════════════════════════════════════
+
+    static renderSummaryCards(analysis) {
+        return `
+            <div class="alt-analysis-summary">
+                <div class="stat-card">
+                    <div class="stat-value">${analysis.totalItems}</div>
+                    <div class="stat-label">Utgående med erstatning</div>
+                    <div class="stat-sub">Totalt identifisert</div>
+                </div>
+                <div class="stat-card critical">
+                    <div class="stat-value">${analysis.highCount}</div>
+                    <div class="stat-label">Hastegrad HØY</div>
+                    <div class="stat-sub">Lager eller nylig salg</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-value">${analysis.migrationRequiredCount}</div>
+                    <div class="stat-label">SA-migrering påkrevd</div>
+                    <div class="stat-sub">Erstatning mangler SA</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${this.formatNumber(Math.round(analysis.totalEstimertVerdi))} kr</div>
+                    <div class="stat-label">Estimert verdi</div>
+                    <div class="stat-sub">Kapitalbinding i utgående</div>
+                </div>
+                <div class="stat-card ${analysis.withStockCount > 0 ? 'warning' : 'ok'}">
+                    <div class="stat-value">${analysis.withStockCount}</div>
+                    <div class="stat-label">Med lagersaldo</div>
+                    <div class="stat-sub">Fysisk lager på utgående</div>
+                </div>
+            </div>
+        `;
+    }
+
+    static renderTable(analysis) {
+        let filtered = this.filterResults(analysis.rows);
+        filtered = this.sortResults(filtered);
+
+        if (filtered.length === 0) {
+            return `<div class="alert alert-info">Ingen utgående artikler med erstatning funnet med gjeldende filter.</div>`;
+        }
+
+        return `
+            <div class="table-wrapper">
+                <table class="data-table compact alt-analysis-table">
+                    <thead>
+                        <tr>
+                            ${this.renderSortableHeader('Tools Nr', 'toolsNr')}
+                            ${this.renderSortableHeader('SA', 'saNumber')}
+                            ${this.renderSortableHeader('Saldo', 'stock')}
+                            ${this.renderSortableHeader('Innkommende', 'bestAntLev')}
+                            ${this.renderSortableHeader('Status', 'status')}
+                            ${this.renderSortableHeader('Erstatning', 'replacementNr')}
+                            ${this.renderSortableHeader('Erst. SA', 'replacementSaNumber')}
+                            ${this.renderSortableHeader('Erst. saldo', 'replacementStock')}
+                            ${this.renderSortableHeader('Erst. innk.', 'replacementBestAntLev')}
+                            ${this.renderSortableHeader('Salg 12m', 'salesLast12m')}
+                            ${this.renderSortableHeader('Salg 3m', 'salesLast3m')}
+                            ${this.renderSortableHeader('Hastegrad', 'urgencySort')}
+                            ${this.renderSortableHeader('SA-migr.', 'saMigrationRequired')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.map(row => this.renderRow(row)).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <p class="text-muted">Viser ${filtered.length} av ${analysis.totalItems} rader | Kvartalssalg: Q1=${this.sumField(filtered, 'Q1')}, Q2=${this.sumField(filtered, 'Q2')}, Q3=${this.sumField(filtered, 'Q3')}, Q4=${this.sumField(filtered, 'Q4')}</p>
+            </div>
+        `;
+    }
+
+    static renderRow(row) {
+        const rowClass = row.urgencyLevel === 'HIGH' ? 'row-critical' :
+                         row.urgencyLevel === 'MEDIUM' ? 'row-warning' : '';
+
+        return `
+            <tr class="${rowClass}" title="Q1: ${row.quarterlySales.Q1} | Q2: ${row.quarterlySales.Q2} | Q3: ${row.quarterlySales.Q3} | Q4: ${row.quarterlySales.Q4}">
+                <td><strong>${this.escapeHtml(row.toolsNr)}</strong></td>
+                <td>${this.escapeHtml(row.saNumber)}</td>
+                <td class="qty-cell">${this.formatNumber(row.stock)}</td>
+                <td class="qty-cell">${row.bestAntLev > 0 ? this.formatNumber(row.bestAntLev) : '-'}</td>
+                <td>${this.renderStatusBadge(row.status)}</td>
+                <td><strong>${this.escapeHtml(row.replacementNr)}</strong></td>
+                <td>${row.replacementSaNumber ? this.escapeHtml(row.replacementSaNumber) : '<span class="badge badge-warning">Mangler</span>'}</td>
+                <td class="qty-cell">${this.formatNumber(row.replacementStock)}</td>
+                <td class="qty-cell">${row.replacementBestAntLev > 0 ? this.formatNumber(row.replacementBestAntLev) : '-'}</td>
+                <td class="qty-cell">${this.formatNumber(row.salesLast12m)}</td>
+                <td class="qty-cell">${this.formatNumber(row.salesLast3m)}</td>
+                <td>${this.renderUrgencyBadge(row.urgencyLevel)}</td>
+                <td>${row.saMigrationRequired ? '<span class="badge badge-critical">JA</span>' : '<span class="badge badge-ok">Nei</span>'}</td>
+            </tr>
+        `;
+    }
+
+    static renderStatusBadge(status) {
+        const lower = (status || '').toLowerCase();
+        if (lower.includes('utgått') || lower === 'utgått') {
+            return `<span class="badge badge-critical">${this.escapeHtml(status)}</span>`;
+        }
+        if (lower.includes('utgå') || lower.includes('discontinued')) {
+            return `<span class="badge badge-warning">${this.escapeHtml(status)}</span>`;
+        }
+        if (lower.includes('aktiv')) {
+            return `<span class="badge badge-ok">${this.escapeHtml(status)}</span>`;
+        }
+        return `<span class="badge badge-info">${this.escapeHtml(status)}</span>`;
+    }
+
+    static renderUrgencyBadge(level) {
+        if (level === 'HIGH') return '<span class="badge badge-critical">HØY</span>';
+        if (level === 'MEDIUM') return '<span class="badge badge-warning">MEDIUM</span>';
+        return '<span class="badge badge-ok">LAV</span>';
+    }
+
+    static renderSortableHeader(label, key) {
+        const indicator = this.sortColumn === key
+            ? (this.sortDirection === 'asc' ? ' &#9650;' : ' &#9660;')
+            : '';
+        return `<th class="sortable-header" onclick="SAMigrationMode.handleSort('${key}')">${label}${indicator}</th>`;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  FILTERING & SORTING
+    // ════════════════════════════════════════════════════
+
+    static filterResults(rows) {
+        let filtered = rows;
+
+        switch (this.currentFilter) {
+            case 'highUrgency':
+                filtered = filtered.filter(r => r.urgencyLevel === 'HIGH');
+                break;
+            case 'migrationRequired':
+                filtered = filtered.filter(r => r.saMigrationRequired);
+                break;
+            case 'withStock':
+                filtered = filtered.filter(r => r.stock > 0);
+                break;
+        }
+
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            filtered = filtered.filter(r =>
+                r.toolsNr.toLowerCase().includes(term) ||
+                r.saNumber.toLowerCase().includes(term) ||
+                r.description.toLowerCase().includes(term) ||
+                r.replacementNr.toLowerCase().includes(term) ||
+                r.replacementSaNumber.toLowerCase().includes(term) ||
+                r.replacementDescription.toLowerCase().includes(term)
+            );
+        }
+
+        return filtered;
+    }
+
+    static sortResults(rows) {
+        if (!this.sortColumn) return rows;
+
+        const col = this.sortColumn;
+        const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...rows].sort((a, b) => {
+            let aVal = a[col];
+            let bVal = b[col];
+
+            if (aVal == null) aVal = '';
+            if (bVal == null) bVal = '';
+
+            if (typeof aVal === 'boolean') {
+                return ((aVal ? 1 : 0) - (bVal ? 1 : 0)) * dir;
+            }
+            if (typeof aVal === 'number' && typeof bVal === 'number') {
+                return (aVal - bVal) * dir;
+            }
+            return String(aVal).localeCompare(String(bVal), 'nb-NO') * dir;
+        });
+    }
+
+    // ════════════════════════════════════════════════════
+    //  EVENT HANDLERS
+    // ════════════════════════════════════════════════════
+
+    static handleFilterChange(filter) {
+        this.currentFilter = filter;
+        this.refreshAll();
+    }
+
+    static handleSearch(term) {
+        this.searchTerm = term;
+        this.refreshAll();
+    }
+
+    static handleSort(column) {
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = column === 'urgencySort' ? 'desc' : 'asc';
+        }
+        this.refreshAll();
+    }
+
+    static refreshAll() {
+        const moduleContent = document.getElementById('moduleContent');
+        if (moduleContent && this.dataStore) {
+            moduleContent.innerHTML = this.render(this.dataStore);
+        }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  CSV EXPORT
+    // ════════════════════════════════════════════════════
+
+    static exportCSV() {
+        const analysis = this.analyze(this.dataStore);
+        let filtered = this.filterResults(analysis.rows);
+        filtered = this.sortResults(filtered);
+
+        const headers = [
+            'Tools Nr',
+            'SA-nummer',
+            'Beskrivelse',
+            'Saldo',
+            'Innkommende',
+            'Status',
+            'Estimert verdi',
+            'Erstatning Nr',
+            'Erstatning Beskrivelse',
+            'Erstatning SA',
+            'Erstatning Saldo',
+            'Erstatning Innkommende',
+            'Erstatning Status',
+            'Salg 12m',
+            'Salg 3m',
+            'Q1',
+            'Q2',
+            'Q3',
+            'Q4',
+            'Hastegrad',
+            'SA-migrering påkrevd'
+        ];
+
+        const rows = filtered.map(r => [
+            r.toolsNr,
+            r.saNumber,
+            `"${(r.description || '').replace(/"/g, '""')}"`,
+            r.stock,
+            r.bestAntLev,
+            r.status,
+            Math.round(r.estimertVerdi),
+            r.replacementNr,
+            `"${(r.replacementDescription || '').replace(/"/g, '""')}"`,
+            r.replacementSaNumber,
+            r.replacementStock,
+            r.replacementBestAntLev,
+            r.replacementStatus,
+            r.salesLast12m,
+            r.salesLast3m,
+            r.quarterlySales.Q1,
+            r.quarterlySales.Q2,
+            r.quarterlySales.Q3,
+            r.quarterlySales.Q4,
+            r.urgencyLevel,
+            r.saMigrationRequired ? 'JA' : 'NEI'
+        ]);
+
+        const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sa-migrering-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // ════════════════════════════════════════════════════
+    //  UTILITY
+    // ════════════════════════════════════════════════════
+
+    static formatNumber(num) {
+        if (num === null || num === undefined) return '-';
+        return Math.round(num).toLocaleString('nb-NO');
+    }
+
+    static escapeHtml(str) {
+        if (!str) return '';
+        return str.toString()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    static sumField(rows, quarter) {
+        return this.formatNumber(rows.reduce((sum, r) => sum + (r.quarterlySales[quarter] || 0), 0));
+    }
+}
+
+// Eksporter til global scope
+window.SAMigrationMode = SAMigrationMode;
