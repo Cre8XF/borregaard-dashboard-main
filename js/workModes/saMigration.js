@@ -113,6 +113,10 @@ class SAMigrationMode {
             // Derive: urgency level
             const urgencyLevel = this.calculateUrgency(item, salesData);
 
+            // Exposure = stock + bestAntLev (total commitment)
+            const oldExposure = (item.stock || 0) + (item.bestAntLev || 0);
+            const replacementExposure = (replacement.stock || 0) + (replacement.bestAntLev || 0);
+
             const row = {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
@@ -121,15 +125,20 @@ class SAMigrationMode {
                 bestAntLev: item.bestAntLev || 0,
                 status: this.getStatusLabel(item),
                 estimertVerdi: item.estimertVerdi || 0,
+                oldExposure: oldExposure,
                 replacementNr: replacementNr,
                 replacementDescription: replacement.description || '',
                 replacementStock: replacement.stock,
                 replacementBestAntLev: replacement.bestAntLev,
                 replacementSaNumber: replacement.saNumber || '',
                 replacementStatus: replacement.statusLabel || '',
+                replacementExposure: replacementExposure,
+                replacementSalesLast12m: replacement.salesLast12m || 0,
+                replacementSalesLast3m: replacement.salesLast3m || 0,
                 salesLast12m: salesData.salesLast12m,
                 salesLast3m: salesData.salesLast3m,
                 quarterlySales: salesData.quarterlySales,
+                salesByDepartment: salesData.salesByDepartment || {},
                 saMigrationRequired: saMigrationRequired,
                 urgencyLevel: urgencyLevel,
                 // Sort helper: HIGH=3, MEDIUM=2, LOW=1
@@ -176,23 +185,27 @@ class SAMigrationMode {
 
     /**
      * Resolve replacement article data from store
-     * Uses existing SA lookup + masterOnlyArticles fallback
+     * Uses existing SA lookup + masterOnlyArticles fallback.
+     * Also calculates replacement sales (3m/12m) from outgoingOrders.
      */
     static resolveReplacement(store, replacementToolsNr) {
         // Try SA universe first
         const saItem = store.getByToolsArticleNumber(replacementToolsNr);
         if (saItem) {
+            const replSales = this.calculateSales(saItem);
             return {
                 description: saItem.description || '',
                 stock: saItem.stock || 0,
                 bestAntLev: saItem.bestAntLev || 0,
                 saNumber: saItem.saNumber || '',
                 statusLabel: this.getStatusLabel(saItem),
-                isDiscontinued: saItem.isDiscontinued || false
+                isDiscontinued: saItem.isDiscontinued || false,
+                salesLast12m: replSales.salesLast12m,
+                salesLast3m: replSales.salesLast3m
             };
         }
 
-        // Fallback: masterOnlyArticles
+        // Fallback: masterOnlyArticles (no outgoingOrders available)
         const masterData = store.masterOnlyArticles.get(replacementToolsNr);
         if (masterData) {
             return {
@@ -201,7 +214,9 @@ class SAMigrationMode {
                 bestAntLev: masterData.bestAntLev || 0,
                 saNumber: '',
                 statusLabel: masterData.statusText || 'Ukjent',
-                isDiscontinued: masterData.isDiscontinued || false
+                isDiscontinued: masterData.isDiscontinued || false,
+                salesLast12m: 0,
+                salesLast3m: 0
             };
         }
 
@@ -212,12 +227,18 @@ class SAMigrationMode {
             bestAntLev: 0,
             saNumber: '',
             statusLabel: 'Ikke funnet',
-            isDiscontinued: false
+            isDiscontinued: false,
+            salesLast12m: 0,
+            salesLast3m: 0
         };
     }
 
     /**
-     * Calculate rolling sales and quarterly breakdown from outgoing orders
+     * Calculate rolling sales, quarterly breakdown, and sales by department
+     * from outgoing orders.
+     *
+     * salesByDepartment is keyed on LevPlFtgKod (deliveryLocation from Ordrer_Jeeves).
+     * Each entry: { name: string, sales12m: number, sales3m: number }
      */
     static calculateSales(item) {
         const now = new Date();
@@ -229,13 +250,16 @@ class SAMigrationMode {
         let salesLast12m = 0;
         let salesLast3m = 0;
         const quarterlySales = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+        // Department sales keyed by LevPlFtgKod (deliveryLocation)
+        const deptMap = {};
 
         if (!item.outgoingOrders || item.outgoingOrders.length === 0) {
             // Fallback to pre-calculated values if no raw orders available
             return {
                 salesLast12m: item.sales12m || 0,
                 salesLast3m: item.sales6m ? Math.round(item.sales6m / 2) : 0,
-                quarterlySales
+                quarterlySales,
+                salesByDepartment: {}
             };
         }
 
@@ -246,20 +270,35 @@ class SAMigrationMode {
             const orderDate = order.deliveryDate instanceof Date ? order.deliveryDate :
                               order.deliveryDate ? new Date(order.deliveryDate) : null;
 
+            // Department key from LevPlFtgKod / Delivery location ID
+            const deptKey = (order.deliveryLocation || '').toString().trim();
+
             if (!orderDate || isNaN(orderDate.getTime())) {
                 // No valid date — count toward 12m total but not quarterly
                 salesLast12m += qty;
+                if (deptKey) {
+                    if (!deptMap[deptKey]) deptMap[deptKey] = { name: deptKey, sales12m: 0, sales3m: 0 };
+                    deptMap[deptKey].sales12m += qty;
+                }
                 return;
             }
 
             // Rolling 12 month
             if (orderDate >= oneYearAgo) {
                 salesLast12m += qty;
+                if (deptKey) {
+                    if (!deptMap[deptKey]) deptMap[deptKey] = { name: deptKey, sales12m: 0, sales3m: 0 };
+                    deptMap[deptKey].sales12m += qty;
+                }
             }
 
             // Rolling 3 month
             if (orderDate >= threeMonthsAgo) {
                 salesLast3m += qty;
+                if (deptKey) {
+                    if (!deptMap[deptKey]) deptMap[deptKey] = { name: deptKey, sales12m: 0, sales3m: 0 };
+                    deptMap[deptKey].sales3m += qty;
+                }
             }
 
             // Quarterly breakdown (calendar quarter of the order date)
@@ -270,6 +309,12 @@ class SAMigrationMode {
             else quarterlySales.Q4 += qty;
         });
 
+        // Round department values
+        for (const key of Object.keys(deptMap)) {
+            deptMap[key].sales12m = Math.round(deptMap[key].sales12m);
+            deptMap[key].sales3m = Math.round(deptMap[key].sales3m);
+        }
+
         return {
             salesLast12m: Math.round(salesLast12m),
             salesLast3m: Math.round(salesLast3m),
@@ -278,7 +323,8 @@ class SAMigrationMode {
                 Q2: Math.round(quarterlySales.Q2),
                 Q3: Math.round(quarterlySales.Q3),
                 Q4: Math.round(quarterlySales.Q4)
-            }
+            },
+            salesByDepartment: deptMap
         };
     }
 
@@ -363,13 +409,17 @@ class SAMigrationMode {
                             ${this.renderSortableHeader('SA', 'saNumber')}
                             ${this.renderSortableHeader('Saldo', 'stock')}
                             ${this.renderSortableHeader('Innkommende', 'bestAntLev')}
+                            ${this.renderSortableHeader('Eksponering', 'oldExposure')}
                             ${this.renderSortableHeader('Status', 'status')}
                             ${this.renderSortableHeader('Erstatning', 'replacementNr')}
                             ${this.renderSortableHeader('Erst. SA', 'replacementSaNumber')}
                             ${this.renderSortableHeader('Erst. saldo', 'replacementStock')}
                             ${this.renderSortableHeader('Erst. innk.', 'replacementBestAntLev')}
+                            ${this.renderSortableHeader('Erst. eksp.', 'replacementExposure')}
                             ${this.renderSortableHeader('Salg 12m', 'salesLast12m')}
                             ${this.renderSortableHeader('Salg 3m', 'salesLast3m')}
+                            ${this.renderSortableHeader('Erst. salg 12m', 'replacementSalesLast12m')}
+                            ${this.renderSortableHeader('Erst. salg 3m', 'replacementSalesLast3m')}
                             ${this.renderSortableHeader('Hastegrad', 'urgencySort')}
                             ${this.renderSortableHeader('SA-migr.', 'saMigrationRequired')}
                         </tr>
@@ -389,19 +439,30 @@ class SAMigrationMode {
         const rowClass = row.urgencyLevel === 'HIGH' ? 'row-critical' :
                          row.urgencyLevel === 'MEDIUM' ? 'row-warning' : '';
 
+        // Build department tooltip from salesByDepartment
+        const deptKeys = Object.keys(row.salesByDepartment || {});
+        const deptTooltip = deptKeys.length > 0
+            ? deptKeys.map(k => `${k}: 12m=${row.salesByDepartment[k].sales12m}, 3m=${row.salesByDepartment[k].sales3m}`).join(' | ')
+            : '';
+        const hoverTitle = `Q1: ${row.quarterlySales.Q1} | Q2: ${row.quarterlySales.Q2} | Q3: ${row.quarterlySales.Q3} | Q4: ${row.quarterlySales.Q4}${deptTooltip ? ' || Dept: ' + deptTooltip : ''}`;
+
         return `
-            <tr class="${rowClass}" title="Q1: ${row.quarterlySales.Q1} | Q2: ${row.quarterlySales.Q2} | Q3: ${row.quarterlySales.Q3} | Q4: ${row.quarterlySales.Q4}">
+            <tr class="${rowClass}" title="${this.escapeHtml(hoverTitle)}">
                 <td><strong>${this.escapeHtml(row.toolsNr)}</strong></td>
                 <td>${this.escapeHtml(row.saNumber)}</td>
                 <td class="qty-cell">${this.formatNumber(row.stock)}</td>
                 <td class="qty-cell">${row.bestAntLev > 0 ? this.formatNumber(row.bestAntLev) : '-'}</td>
+                <td class="qty-cell">${this.formatNumber(row.oldExposure)}</td>
                 <td>${this.renderStatusBadge(row.status)}</td>
                 <td><strong>${this.escapeHtml(row.replacementNr)}</strong></td>
                 <td>${row.replacementSaNumber ? this.escapeHtml(row.replacementSaNumber) : '<span class="badge badge-warning">Mangler</span>'}</td>
                 <td class="qty-cell">${this.formatNumber(row.replacementStock)}</td>
                 <td class="qty-cell">${row.replacementBestAntLev > 0 ? this.formatNumber(row.replacementBestAntLev) : '-'}</td>
+                <td class="qty-cell">${this.formatNumber(row.replacementExposure)}</td>
                 <td class="qty-cell">${this.formatNumber(row.salesLast12m)}</td>
                 <td class="qty-cell">${this.formatNumber(row.salesLast3m)}</td>
+                <td class="qty-cell">${this.formatNumber(row.replacementSalesLast12m)}</td>
+                <td class="qty-cell">${this.formatNumber(row.replacementSalesLast3m)}</td>
                 <td>${this.renderUrgencyBadge(row.urgencyLevel)}</td>
                 <td>${row.saMigrationRequired ? '<span class="badge badge-critical">JA</span>' : '<span class="badge badge-ok">Nei</span>'}</td>
             </tr>
@@ -532,12 +593,20 @@ class SAMigrationMode {
         let filtered = this.filterResults(analysis.rows);
         filtered = this.sortResults(filtered);
 
+        // Collect all unique department keys across all rows for CSV columns
+        const allDeptKeys = new Set();
+        filtered.forEach(r => {
+            Object.keys(r.salesByDepartment || {}).forEach(k => allDeptKeys.add(k));
+        });
+        const deptKeysSorted = Array.from(allDeptKeys).sort();
+
         const headers = [
             'Tools Nr',
             'SA-nummer',
             'Beskrivelse',
             'Saldo',
             'Innkommende',
+            'Eksponering',
             'Status',
             'Estimert verdi',
             'Erstatning Nr',
@@ -545,40 +614,61 @@ class SAMigrationMode {
             'Erstatning SA',
             'Erstatning Saldo',
             'Erstatning Innkommende',
+            'Erstatning Eksponering',
             'Erstatning Status',
             'Salg 12m',
             'Salg 3m',
+            'Erstatning Salg 12m',
+            'Erstatning Salg 3m',
             'Q1',
             'Q2',
             'Q3',
             'Q4',
             'Hastegrad',
-            'SA-migrering påkrevd'
+            'SA-migrering påkrevd',
+            // Dynamic department columns
+            ...deptKeysSorted.map(k => `Dept ${k} 12m`),
+            ...deptKeysSorted.map(k => `Dept ${k} 3m`)
         ];
 
-        const rows = filtered.map(r => [
-            r.toolsNr,
-            r.saNumber,
-            `"${(r.description || '').replace(/"/g, '""')}"`,
-            r.stock,
-            r.bestAntLev,
-            r.status,
-            Math.round(r.estimertVerdi),
-            r.replacementNr,
-            `"${(r.replacementDescription || '').replace(/"/g, '""')}"`,
-            r.replacementSaNumber,
-            r.replacementStock,
-            r.replacementBestAntLev,
-            r.replacementStatus,
-            r.salesLast12m,
-            r.salesLast3m,
-            r.quarterlySales.Q1,
-            r.quarterlySales.Q2,
-            r.quarterlySales.Q3,
-            r.quarterlySales.Q4,
-            r.urgencyLevel,
-            r.saMigrationRequired ? 'JA' : 'NEI'
-        ]);
+        const rows = filtered.map(r => {
+            const base = [
+                r.toolsNr,
+                r.saNumber,
+                `"${(r.description || '').replace(/"/g, '""')}"`,
+                r.stock,
+                r.bestAntLev,
+                r.oldExposure,
+                r.status,
+                Math.round(r.estimertVerdi),
+                r.replacementNr,
+                `"${(r.replacementDescription || '').replace(/"/g, '""')}"`,
+                r.replacementSaNumber,
+                r.replacementStock,
+                r.replacementBestAntLev,
+                r.replacementExposure,
+                r.replacementStatus,
+                r.salesLast12m,
+                r.salesLast3m,
+                r.replacementSalesLast12m,
+                r.replacementSalesLast3m,
+                r.quarterlySales.Q1,
+                r.quarterlySales.Q2,
+                r.quarterlySales.Q3,
+                r.quarterlySales.Q4,
+                r.urgencyLevel,
+                r.saMigrationRequired ? 'JA' : 'NEI'
+            ];
+            // Append department 12m values
+            deptKeysSorted.forEach(k => {
+                base.push((r.salesByDepartment[k] || {}).sales12m || 0);
+            });
+            // Append department 3m values
+            deptKeysSorted.forEach(k => {
+                base.push((r.salesByDepartment[k] || {}).sales3m || 0);
+            });
+            return base;
+        });
 
         const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
         const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
