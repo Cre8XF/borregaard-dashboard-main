@@ -1,6 +1,6 @@
 // ===================================
-// MODUS 8: RAPPORTER – KVARTALSRAPPORT MED AVDELINGSFILTER
-// Multi-customer quarterly Excel export
+// MODUS 8: RAPPORTER – KVARTALSRAPPORT + ARBEIDSRAPPORT
+// Multi-customer quarterly Excel export + internal operational report
 // ===================================
 
 class ReportsMode {
@@ -46,14 +46,20 @@ class ReportsMode {
                             `).join('')}
                         </div>
                     `}
-                <div style="margin-top:12px;">
+                <div style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                     <button onclick="ReportsMode.generateReport()"
                             class="btn-export"
                             ${departments.length === 0 ? 'disabled' : ''}
                             style="font-size:14px;padding:8px 20px;">
                         📊 Generer kvartalsrapport
                     </button>
-                    <span id="reportStatus" style="margin-left:12px;font-size:13px;color:#666;"></span>
+                    <button onclick="ReportsMode.generateArbeidsrapport()"
+                            class="btn-export"
+                            ${departments.length === 0 ? 'disabled' : ''}
+                            style="font-size:14px;padding:8px 20px;">
+                        📋 Generer arbeidsrapport
+                    </button>
+                    <span id="reportStatus" style="margin-left:4px;font-size:13px;color:#666;"></span>
                 </div>
             </div>
 
@@ -318,7 +324,198 @@ class ReportsMode {
     }
 
     // ════════════════════════════════════════════════════
-    //  EXCEL EXPORT (SheetJS / XLSX)
+    //  ARBEIDSRAPPORT (intern operativ rapport)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Resolve replacement article data from store
+     */
+    static resolveReplacement(store, replacementToolsNr) {
+        const saItem = store.getByToolsArticleNumber(replacementToolsNr);
+        if (saItem) {
+            const replSales = this.calculateSales(saItem);
+            return {
+                stock: saItem.stock || 0,
+                saNumber: saItem.saNumber || '',
+                salesLast12m: replSales.salesLast12m
+            };
+        }
+        const masterData = store.masterOnlyArticles.get(replacementToolsNr);
+        if (masterData) {
+            return {
+                stock: masterData.stock || 0,
+                saNumber: '',
+                salesLast12m: 0
+            };
+        }
+        return { stock: 0, saNumber: '', salesLast12m: 0 };
+    }
+
+    /**
+     * Calculate urgency level (same logic as SAMigrationMode)
+     */
+    static calculateUrgency(item, salesData) {
+        if ((item.stock || 0) > 0 || salesData.salesLast3m > 0) return 'HIGH';
+        if (salesData.salesLast12m > 0) return 'MEDIUM';
+        return 'LOW';
+    }
+
+    /**
+     * Derive recommended action text (same logic as SAMigrationMode)
+     */
+    static getRecommendation(row) {
+        if (!row.saMigrationRequired) return 'Ingen handling';
+        if (row.exposure > 0 && row.salesLast3m > 0) return 'Flytt SA nå (selger + lager)';
+        if (row.exposure > 0) return 'Flytt SA – tøm lager';
+        if (row.salesLast3m > 0) return 'Flytt SA (aktiv vare)';
+        return 'Flytt SA (lav prioritet)';
+    }
+
+    /**
+     * Generate Arbeidsrapport – internal operational report
+     */
+    static generateArbeidsrapport() {
+        if (this.selectedDepartments.size === 0) {
+            const statusEl = document.getElementById('reportStatus');
+            if (statusEl) statusEl.textContent = 'Velg minst én avdeling.';
+            return;
+        }
+
+        const statusEl = document.getElementById('reportStatus');
+        if (statusEl) statusEl.textContent = 'Genererer arbeidsrapport...';
+
+        const store = this.dataStore;
+        const items = store.getAllItems();
+        const selectedDepts = this.selectedDepartments;
+        const currentQ = 'Q' + (Math.floor(new Date().getMonth() / 3) + 1);
+
+        const rows = [];
+        items.forEach(item => {
+            const salesData = this.calculateSales(item);
+            const deptSales = salesData.salesByDepartment;
+
+            // Only include items with sales in selected departments
+            const hasSelectedDeptSales = Object.keys(deptSales).some(k => selectedDepts.has(k));
+            if (!hasSelectedDeptSales) return;
+
+            const discontinued = this.isDiscontinued(item);
+            const exposure = (item.stock || 0) + (item.bestAntLev || 0);
+            const replacementNr = (item.ersattAvArtikel || '').trim();
+            const statusLabel = discontinued ? 'Utgående' : 'Aktiv';
+
+            // Resolve replacement if exists
+            let replacementStock = 0;
+            let replacementSales12m = 0;
+            let saMigrationRequired = false;
+
+            if (replacementNr && replacementNr !== item.toolsArticleNumber) {
+                const repl = this.resolveReplacement(store, replacementNr);
+                replacementStock = repl.stock;
+                replacementSales12m = repl.salesLast12m;
+                saMigrationRequired = discontinued && !!item.saNumber && !repl.saNumber;
+            }
+
+            const urgencyLevel = this.calculateUrgency(item, salesData);
+            // urgencySort: HIGH=3, MEDIUM=2, LOW=1
+            const urgencySort = urgencyLevel === 'HIGH' ? 3 : urgencyLevel === 'MEDIUM' ? 2 : 1;
+
+            const row = {
+                toolsNr: item.toolsArticleNumber,
+                saNumber: item.saNumber || '',
+                description: item.description || '',
+                category: item.category || '',
+                supplier: item.supplier || '',
+                statusLabel,
+                stock: item.stock || 0,
+                bestAntLev: item.bestAntLev || 0,
+                exposure,
+                salesLast12m: salesData.salesLast12m,
+                salesLast3m: salesData.salesLast3m,
+                currentQuarterSales: salesData.quarterlySales[currentQ] || 0,
+                replacementNr: replacementNr || '',
+                replacementStock,
+                replacementSales12m,
+                saMigrationRequired,
+                urgencyLevel,
+                urgencySort
+            };
+            row.recommendation = this.getRecommendation(row);
+
+            rows.push(row);
+        });
+
+        // Default sort: urgency DESC, exposure DESC, salesLast3m DESC
+        rows.sort((a, b) =>
+            b.urgencySort - a.urgencySort ||
+            b.exposure - a.exposure ||
+            b.salesLast3m - a.salesLast3m
+        );
+
+        this.exportArbeidsrapport(rows);
+
+        if (statusEl) statusEl.textContent = `Arbeidsrapport generert med ${rows.length} artikler.`;
+    }
+
+    /**
+     * Export Arbeidsrapport to Excel (single sheet)
+     */
+    static exportArbeidsrapport(rows) {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke lastet. Kan ikke eksportere.');
+            return;
+        }
+
+        const headers = [
+            'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør',
+            'Status', 'Lager', 'Innkommende', 'Eksponering (lager + innkjøp)',
+            'Salg 12m', 'Salg 3m', 'Salg inneværende kvartal',
+            'Erstatter artikkel', 'Erst. lager', 'Erst. salg 12m',
+            'SA-migrering påkrevd', 'Hastegrad', 'Anbefalt handling'
+        ];
+
+        const data = [headers];
+        rows.forEach(r => {
+            data.push([
+                r.toolsNr,
+                r.saNumber,
+                r.description,
+                r.category,
+                r.supplier,
+                r.statusLabel,
+                r.stock,
+                r.bestAntLev,
+                r.exposure,
+                r.salesLast12m,
+                r.salesLast3m,
+                r.currentQuarterSales,
+                r.replacementNr,
+                r.replacementStock,
+                r.replacementSales12m,
+                r.saMigrationRequired ? 'Ja' : 'Nei',
+                r.urgencyLevel,
+                r.recommendation
+            ]);
+        });
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = [
+            { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 },
+            { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 22 },
+            { wch: 10 }, { wch: 10 }, { wch: 20 },
+            { wch: 16 }, { wch: 10 }, { wch: 14 },
+            { wch: 18 }, { wch: 10 }, { wch: 28 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'Arbeidsrapport');
+
+        const now = new Date();
+        const year = now.getFullYear();
+        const quarter = 'Q' + (Math.floor(now.getMonth() / 3) + 1);
+        XLSX.writeFile(wb, `Arbeidsrapport_${year}_${quarter}.xlsx`);
+    }
+
+    // ════════════════════════════════════════════════════
+    //  EXCEL EXPORT – KVARTALSRAPPORT (SheetJS / XLSX)
     // ════════════════════════════════════════════════════
 
     static exportExcel(report) {
