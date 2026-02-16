@@ -57,6 +57,8 @@ class SAMigrationMode {
 
             ${this.renderSummaryCards(analysis)}
 
+            ${this.renderPrioritySection(analysis)}
+
             <div class="module-controls">
                 <div class="filter-group">
                     <label>Filter:</label>
@@ -156,8 +158,11 @@ class SAMigrationMode {
                 urgencyLevel: urgencyLevel,
                 // Sort helper: HIGH=3, MEDIUM=2, LOW=1
                 urgencySort: urgencyLevel === 'HIGH' ? 3 : urgencyLevel === 'MEDIUM' ? 2 : 1,
+                recommendation: '', // set below after row creation
                 _item: item
             };
+
+            row.recommendation = this.getRecommendation(row);
 
             rows.push(row);
 
@@ -362,6 +367,17 @@ class SAMigrationMode {
     }
 
     /**
+     * Derive recommended action text
+     */
+    static getRecommendation(row) {
+        if (!row.saMigrationRequired) return 'Ingen handling';
+        if (row.oldExposure > 0 && row.salesLast3m > 0) return 'Flytt SA nå (selger + lager)';
+        if (row.oldExposure > 0) return 'Flytt SA – tøm lager';
+        if (row.salesLast3m > 0) return 'Flytt SA (aktiv vare)';
+        return 'Flytt SA (lav prioritet)';
+    }
+
+    /**
      * Get readable status label
      */
     static getStatusLabel(item) {
@@ -409,6 +425,43 @@ class SAMigrationMode {
         `;
     }
 
+    static renderPrioritySection(analysis) {
+        const priorityRows = analysis.rows
+            .filter(r => r.saMigrationRequired && r.urgencyLevel === 'HIGH')
+            .sort((a, b) => b.oldExposure - a.oldExposure)
+            .slice(0, 10);
+
+        if (priorityRows.length === 0) return '';
+
+        return `
+            <div style="margin-bottom:16px;border:2px solid #d32f2f;border-radius:6px;padding:12px 16px;background:#fff5f5;">
+                <h3 style="margin:0 0 8px 0;color:#d32f2f;font-size:15px;">\u{1F534} M\u00e5 tas n\u00e5 (${priorityRows.length})</h3>
+                <table class="data-table compact" style="margin:0;">
+                    <thead>
+                        <tr>
+                            <th>Tools Nr</th>
+                            <th>Lager</th>
+                            <th>Salg 3m</th>
+                            <th>Erst. Lager</th>
+                            <th>Anbefalt handling</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${priorityRows.map(r => `
+                            <tr>
+                                <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
+                                <td class="qty-cell">${this.formatNumber(r.stock)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.replacementStock)}</td>
+                                <td>${this.escapeHtml(r.recommendation)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
     static renderTable(analysis) {
         let filtered = this.filterResults(analysis.rows);
         filtered = this.sortResults(filtered);
@@ -424,21 +477,22 @@ class SAMigrationMode {
                         <tr>
                             ${this.renderSortableHeader('Tools Nr', 'toolsNr')}
                             ${this.renderSortableHeader('SA', 'saNumber')}
-                            ${this.renderSortableHeader('Saldo', 'stock')}
-                            ${this.renderSortableHeader('Innkommende', 'bestAntLev')}
-                            ${this.renderSortableHeader('Eksponering', 'oldExposure')}
+                            ${this.renderSortableHeader('Saldo', 'stock', 'Lagersaldo (TotLagSaldo)')}
+                            ${this.renderSortableHeader('Innkommende', 'bestAntLev', 'Bestilt antall leverandør')}
+                            ${this.renderSortableHeader('Eksponering (lager + innkjøp)', 'oldExposure', 'Totaleksponering = lagersaldo + innkommende bestillinger')}
                             ${this.renderSortableHeader('Status', 'status')}
                             ${this.renderSortableHeader('Erstatning', 'replacementNr')}
-                            ${this.renderSortableHeader('Erst. SA', 'replacementSaNumber')}
+                            ${this.renderSortableHeader('Erst. SA', 'replacementSaNumber', 'SA-nummer for erstatningsartikkel. «Mangler» betyr at erstatningen ikke har SA-nummer og SA-migrering er påkrevd.')}
                             ${this.renderSortableHeader('Erst. saldo', 'replacementStock')}
                             ${this.renderSortableHeader('Erst. innk.', 'replacementBestAntLev')}
-                            ${this.renderSortableHeader('Erst. eksp.', 'replacementExposure')}
-                            ${this.renderSortableHeader('Salg 12m', 'salesLast12m')}
-                            ${this.renderSortableHeader('Salg 3m', 'salesLast3m')}
+                            ${this.renderSortableHeader('Erst. eksp.', 'replacementExposure', 'Erstatning totaleksponering = saldo + innkommende')}
+                            ${this.renderSortableHeader('Salg 12m', 'salesLast12m', 'Utgående ordrer siste 12 måneder')}
+                            ${this.renderSortableHeader('Salg 3m', 'salesLast3m', 'Utgående ordrer siste 3 måneder')}
                             ${this.renderSortableHeader('Erst. salg 12m', 'replacementSalesLast12m')}
                             ${this.renderSortableHeader('Erst. salg 3m', 'replacementSalesLast3m')}
                             ${this.renderSortableHeader('Hastegrad', 'urgencySort')}
                             ${this.renderSortableHeader('SA-migr.', 'saMigrationRequired')}
+                            ${this.renderSortableHeader('Anbefalt handling', 'recommendation')}
                         </tr>
                     </thead>
                     <tbody>
@@ -482,6 +536,7 @@ class SAMigrationMode {
                 <td class="qty-cell">${this.formatNumber(row.replacementSalesLast3m)}</td>
                 <td>${this.renderUrgencyBadge(row.urgencyLevel)}</td>
                 <td>${row.saMigrationRequired ? '<span class="badge badge-critical">JA</span>' : '<span class="badge badge-ok">Nei</span>'}</td>
+                <td>${this.renderRecommendationBadge(row.recommendation)}</td>
             </tr>
         `;
     }
@@ -506,11 +561,19 @@ class SAMigrationMode {
         return '<span class="badge badge-ok" style="color:#9e9e9e;">LAV</span>';
     }
 
-    static renderSortableHeader(label, key) {
+    static renderRecommendationBadge(rec) {
+        if (rec === 'Ingen handling') return `<span style="color:#9e9e9e;">${rec}</span>`;
+        if (rec.startsWith('Flytt SA nå')) return `<span style="color:#d32f2f;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
+        if (rec.includes('tøm lager')) return `<span style="color:#e65100;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
+        return `<span style="color:#1565c0;">${this.escapeHtml(rec)}</span>`;
+    }
+
+    static renderSortableHeader(label, key, tooltip) {
         const indicator = this.sortColumn === key
             ? (this.sortDirection === 'asc' ? ' &#9650;' : ' &#9660;')
             : '';
-        return `<th class="sortable-header" onclick="SAMigrationMode.handleSort('${key}')">${label}${indicator}</th>`;
+        const titleAttr = tooltip ? ` title="${this.escapeHtml(tooltip)}"` : '';
+        return `<th class="sortable-header"${titleAttr} onclick="SAMigrationMode.handleSort('${key}')">${label}${indicator}</th>`;
     }
 
     // ════════════════════════════════════════════════════
@@ -680,6 +743,7 @@ class SAMigrationMode {
             'Q4',
             'Hastegrad',
             'SA-migrering påkrevd',
+            'Anbefalt handling',
             // Dynamic department columns
             ...deptKeysSorted.map(k => `Dept ${k} 12m`),
             ...deptKeysSorted.map(k => `Dept ${k} 3m`)
@@ -711,7 +775,8 @@ class SAMigrationMode {
                 r.quarterlySales.Q3,
                 r.quarterlySales.Q4,
                 r.urgencyLevel,
-                r.saMigrationRequired ? 'JA' : 'NEI'
+                r.saMigrationRequired ? 'JA' : 'NEI',
+                `"${r.recommendation}"`
             ];
             // Append department 12m values
             deptKeysSorted.forEach(k => {
