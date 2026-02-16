@@ -22,9 +22,15 @@
 class SAMigrationMode {
     static dataStore = null;
     static searchTerm = '';
-    static sortColumn = 'urgencySort';
+    static sortColumn = null; // null = default multi-key sort
     static sortDirection = 'desc';
     static currentFilter = 'all'; // all | highUrgency | migrationRequired | withStock
+
+    // Quick-filter toggles (checkboxes, combinable)
+    static toggleMigrationOnly = false;
+    static toggleHighOnly = false;
+    static toggleExposureOnly = false;
+    static toggleBorregaardOnly = false;
 
     /**
      * Render SA-migration view
@@ -67,6 +73,13 @@ class SAMigrationMode {
                            onkeyup="SAMigrationMode.handleSearch(this.value)">
                 </div>
                 <button onclick="SAMigrationMode.exportCSV()" class="btn-export">Eksporter CSV</button>
+            </div>
+
+            <div class="module-controls" style="padding-top:0;gap:16px;flex-wrap:wrap;">
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleMigrationOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleMigrationOnly', this.checked)"> Kun SA-migrering påkrevd</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHighOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHighOnly', this.checked)"> Kun HØY hastegrad</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleExposureOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleExposureOnly', this.checked)"> Kun eksponering &gt; 0</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleBorregaardOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleBorregaardOnly', this.checked)"> Kun 424186 (Borregaard)</label>
             </div>
 
             <div id="saMigrationContent">
@@ -156,8 +169,12 @@ class SAMigrationMode {
             totalEstimertVerdi += item.estimertVerdi || 0;
         });
 
-        // Default sort: urgency desc, then stock desc
-        rows.sort((a, b) => b.urgencySort - a.urgencySort || b.stock - a.stock);
+        // Default sort: saMigrationRequired first, then urgency desc, then exposure desc
+        rows.sort((a, b) =>
+            (b.saMigrationRequired ? 1 : 0) - (a.saMigrationRequired ? 1 : 0) ||
+            b.urgencySort - a.urgencySort ||
+            b.oldExposure - a.oldExposure
+        );
 
         return {
             rows,
@@ -484,9 +501,9 @@ class SAMigrationMode {
     }
 
     static renderUrgencyBadge(level) {
-        if (level === 'HIGH') return '<span class="badge badge-critical">HØY</span>';
-        if (level === 'MEDIUM') return '<span class="badge badge-warning">MEDIUM</span>';
-        return '<span class="badge badge-ok">LAV</span>';
+        if (level === 'HIGH') return '<span class="badge badge-critical" style="color:#d32f2f;font-weight:bold;">HØY</span>';
+        if (level === 'MEDIUM') return '<span class="badge badge-warning" style="color:#e65100;font-weight:bold;">MEDIUM</span>';
+        return '<span class="badge badge-ok" style="color:#9e9e9e;">LAV</span>';
     }
 
     static renderSortableHeader(label, key) {
@@ -503,6 +520,7 @@ class SAMigrationMode {
     static filterResults(rows) {
         let filtered = rows;
 
+        // Dropdown filter
         switch (this.currentFilter) {
             case 'highUrgency':
                 filtered = filtered.filter(r => r.urgencyLevel === 'HIGH');
@@ -515,6 +533,24 @@ class SAMigrationMode {
                 break;
         }
 
+        // Quick-filter toggles (combinable)
+        if (this.toggleMigrationOnly) {
+            filtered = filtered.filter(r => r.saMigrationRequired);
+        }
+        if (this.toggleHighOnly) {
+            filtered = filtered.filter(r => r.urgencyLevel === 'HIGH');
+        }
+        if (this.toggleExposureOnly) {
+            filtered = filtered.filter(r => r.oldExposure > 0);
+        }
+        if (this.toggleBorregaardOnly) {
+            filtered = filtered.filter(r => {
+                const dept = r.salesByDepartment || {};
+                return Object.keys(dept).some(k => k.startsWith('424186'));
+            });
+        }
+
+        // Text search
         if (this.searchTerm) {
             const term = this.searchTerm.toLowerCase();
             filtered = filtered.filter(r =>
@@ -531,7 +567,14 @@ class SAMigrationMode {
     }
 
     static sortResults(rows) {
-        if (!this.sortColumn) return rows;
+        // No explicit column → use default multi-key sort
+        if (!this.sortColumn) {
+            return [...rows].sort((a, b) =>
+                (b.saMigrationRequired ? 1 : 0) - (a.saMigrationRequired ? 1 : 0) ||
+                b.urgencySort - a.urgencySort ||
+                b.oldExposure - a.oldExposure
+            );
+        }
 
         const col = this.sortColumn;
         const dir = this.sortDirection === 'asc' ? 1 : -1;
@@ -569,11 +612,22 @@ class SAMigrationMode {
 
     static handleSort(column) {
         if (this.sortColumn === column) {
-            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+            // Third click on same column → reset to default multi-key sort
+            if (this.sortDirection === 'desc') {
+                this.sortColumn = null;
+                this.sortDirection = 'desc';
+            } else {
+                this.sortDirection = 'desc';
+            }
         } else {
             this.sortColumn = column;
-            this.sortDirection = column === 'urgencySort' ? 'desc' : 'asc';
+            this.sortDirection = column === 'urgencySort' || column === 'saMigrationRequired' ? 'desc' : 'asc';
         }
+        this.refreshAll();
+    }
+
+    static handleToggle(prop, checked) {
+        this[prop] = checked;
         this.refreshAll();
     }
 
