@@ -99,9 +99,20 @@
         </div>
       </section>
 
-      <!-- TAB NAVIGATION - 5 ARBEIDSMODUSER -->
+      <!-- TAB NAVIGATION -->
       <nav class="tab-navigation">
-        <button class="tab active" data-module="overview">
+        <button class="tab active" data-module="work">
+          <span class="tab-icon">1</span>
+          <span class="tab-label">Arbeid</span>
+          <span class="tab-desc">Operativ kontroll</span>
+        </button>
+        <button class="tab" data-module="reports">
+          <span class="tab-icon">2</span>
+          <span class="tab-label">Rapporter</span>
+          <span class="tab-desc">Kvartalsrapport</span>
+        </button>
+        <!-- Temporarily disabled tabs (logic preserved, UI hidden)
+        <button class="tab" data-module="overview">
           <span class="tab-icon">1</span>
           <span class="tab-label">Oversikt</span>
           <span class="tab-desc">Daglig kontroll</span>
@@ -136,11 +147,7 @@
           <span class="tab-label">SA-migrering</span>
           <span class="tab-desc">Utgående + erstatning</span>
         </button>
-        <button class="tab" data-module="reports">
-          <span class="tab-icon">8</span>
-          <span class="tab-label">Rapporter</span>
-          <span class="tab-desc">Kvartalsrapport</span>
-        </button>
+        -->
       </nav>
 
       <!-- MODULE CONTENT AREA -->
@@ -183,6 +190,7 @@
     <script src="js/workModes/noSaArticles.js"></script>
     <script src="js/workModes/saMigration.js"></script>
     <script src="js/workModes/reports.js"></script>
+    <script src="js/workModes/work.js"></script>
 
     <!-- FASE 5: Legacy modules — kandidater for fjerning når nye seksjoner er verifisert -->
     <!-- topSellers.js → overlapper med DemandMode -->
