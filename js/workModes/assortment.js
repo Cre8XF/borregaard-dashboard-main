@@ -600,7 +600,7 @@ class AssortmentMode {
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 30)}</td>
                                 <td>${this.truncate(item.supplier, 20)}</td>
-                                <td>${item.location || item.placementLocation || '-'}</td>
+                                <td>${item.location || '-'}</td>
                                 <td class="qty-cell">${this.formatNumber(item.stock)}</td>
                                 <td><span class="badge badge-critical">${item.statusText || 'Utgående'}</span></td>
                                 <td>${this.renderButlerLink(item, true)}</td>
@@ -934,7 +934,7 @@ class AssortmentMode {
                             </div>
                             <div class="detail-item">
                                 <strong>Lokasjon</strong>
-                                ${item.location || item.shelf || '-'}
+                                ${item.location || '-'}
                             </div>
                         </div>
                     </div>
@@ -1075,7 +1075,7 @@ class AssortmentMode {
             item.saNumber || '',
             `"${(item.description || '').replace(/"/g, '""')}"`,
             `"${(item.supplier || '').replace(/"/g, '""')}"`,
-            item.location || item.placementLocation || '',
+            item.location || '',
             item.stock || 0,
             item.sales12m || 0,
             item.daysToEmpty === Infinity ? 'Uendelig' : (item.daysToEmpty || 0),

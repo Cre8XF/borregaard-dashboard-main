@@ -32,7 +32,6 @@ class DataProcessor {
         orderedQty: 'BestAntLev',
         orderNumber: 'Beställningsnummer',
         replacedBy: 'Ersätts av artikel',
-        replaces: 'Ersätter artikel',
         location: 'Lokasjon',
 
         supplier: 'Företagsnamn',
@@ -456,7 +455,6 @@ class DataProcessor {
             // ── Article identity ──
             item.description = this.getMasterValue(row, colMap.description) || item.description;
             item.location = this.getMasterValue(row, colMap.location) || '';
-            item.shelf = item.location;
             item.supplier = this.getMasterValue(row, colMap.supplier) || item.supplier || '';
             item.category = this.getMasterValue(row, colMap.category) || item.category || '';
 
@@ -510,10 +508,8 @@ class DataProcessor {
 
             // ── Alternatives from Master ──
             const ersattAv = this.getMasterValue(row, colMap.replacedBy) || '';
-            const ersatter = this.getMasterValue(row, colMap.replaces) || '';
 
             item.ersattAvArtikel = ersattAv.trim();
-            item.ersatterArtikel = ersatter.trim();
 
             // Build alternative mapping: source → [{altArticle}]
             if (ersattAv.trim() && ersattAv.trim() !== articleNo) {
@@ -658,7 +654,6 @@ class DataProcessor {
             item.addOutgoingOrder({
                 orderNo: this.getColumnValue(row, 'orderNoOut') || this.getColumnValue(row, 'orderNo'),
                 quantity: quantity,
-                deliveredValue: this.parseNumber(this.getColumnValue(row, 'deliveredValue')),
                 deliveryDate: this.parseDate(
                     this.getColumnValue(row, 'invoiceDate') || this.getColumnValue(row, 'date')
                 ),

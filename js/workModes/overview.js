@@ -698,7 +698,7 @@ class OverviewMode {
                             </div>
                             <div class="detail-item">
                                 <strong>Lokasjon</strong>
-                                ${item.location || item.shelf || '-'}
+                                ${item.location || '-'}
                             </div>
                             <div class="detail-item">
                                 <strong>Status</strong>
