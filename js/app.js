@@ -24,6 +24,9 @@ class DashboardApp {
             lagerplan: null     // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
         };
 
+        // Pending files from drag-and-drop (replaces DOM file inputs)
+        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null };
+
         // Samlet datastruktur
         this.dataStore = null;
 
@@ -160,11 +163,11 @@ class DashboardApp {
             }
         }
 
-        // Place files into input elements
-        this.setFileInput('masterFile', routed.master);
-        this.setFileInput('ordersOutFile', routed.ordersOut);
-        this.setFileInput('saFile', routed.sa);
-        this.setFileInput('lagerplanFile', routed.lagerplan);
+        // Store files on instance for later processing
+        if (routed.master) this.pendingFiles.master = routed.master;
+        if (routed.ordersOut) this.pendingFiles.ordersOut = routed.ordersOut;
+        if (routed.sa) this.pendingFiles.sa = routed.sa;
+        if (routed.lagerplan) this.pendingFiles.lagerplan = routed.lagerplan;
 
         // Parse Kategori.xlsx if present (optional, for Reports module)
         if (routed.kategori) {
@@ -320,20 +323,6 @@ class DashboardApp {
     }
 
     /**
-     * Plasser fil i et input-element via DataTransfer
-     */
-    setFileInput(inputId, file) {
-        const input = document.getElementById(inputId);
-        if (!input) return;
-
-        if (file) {
-            const dt = new DataTransfer();
-            dt.items.add(file);
-            input.files = dt.files;
-        }
-    }
-
-    /**
      * Oppdater drop-status visning
      */
     updateDropStatus(results) {
@@ -370,11 +359,11 @@ class DashboardApp {
      * FASE 6.1: SA-Nummer.xlsx er nå PÅKREVD sammen med Master og Ordrer.
      */
     async handleFileUpload() {
-        // Hent filer fra input-elementer
-        const masterFile = document.getElementById('masterFile')?.files[0];
-        const ordersOutFile = document.getElementById('ordersOutFile')?.files[0];
-        const saFile = document.getElementById('saFile')?.files[0] || null;
-        const lagerplanFile = document.getElementById('lagerplanFile')?.files[0] || null;
+        // Hent filer fra pending (satt av drag-and-drop)
+        const masterFile = this.pendingFiles.master;
+        const ordersOutFile = this.pendingFiles.ordersOut;
+        const saFile = this.pendingFiles.sa || null;
+        const lagerplanFile = this.pendingFiles.lagerplan || null;
 
         // FASE 6.1: Valider alle 3 påkrevde filer
         const missing = [];
@@ -684,20 +673,17 @@ class DashboardApp {
      */
     setLoadingState(loading) {
         const uploadBtn = document.getElementById('uploadBtn');
-        const fileInputs = document.querySelectorAll('input[type="file"]');
 
         if (loading) {
             if (uploadBtn) {
                 uploadBtn.disabled = true;
                 uploadBtn.textContent = 'Behandler...';
             }
-            fileInputs.forEach(input => input.disabled = true);
         } else {
             if (uploadBtn) {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Analyser data';
             }
-            fileInputs.forEach(input => input.disabled = false);
         }
     }
 
@@ -860,10 +846,8 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV4');
             localStorage.removeItem('borregaardDashboardV3');
 
-            // Nullstill file inputs og drop-status
-            document.querySelectorAll('input[type="file"]').forEach(input => {
-                input.value = '';
-            });
+            // Nullstill pending files og drop-status
+            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null };
             const dropStatus = document.getElementById('dropStatus');
             if (dropStatus) dropStatus.innerHTML = '';
 

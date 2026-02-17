@@ -27,47 +27,10 @@
           <div class="drop-zone-content">
             <div class="drop-zone-icon">📂</div>
             <p class="drop-zone-text">Dra inn Excel-filer her</p>
-            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx, SA-nummer.xlsx, Analyse_Lagerplan.xlsx)</p>
+            <p class="drop-zone-hint">(Master.xlsx, Ordrer_Jeeves.xlsx, SA-nummer.xlsx, Analyse_Lagerplan.xlsx, Kategori.xlsx)</p>
           </div>
         </div>
         <div id="dropStatus" class="drop-status"></div>
-
-        <p class="upload-divider"><span>eller velg filer enkeltvis</span></p>
-
-        <div class="upload-grid six-columns">
-          <div class="upload-item">
-            <label for="masterFile">
-              <span class="file-label">Master</span>
-              <span class="file-required">(påkrevd)</span>
-            </label>
-            <input type="file" id="masterFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Artikkeldata, saldo, status, bestillinger, alternativer</span>
-          </div>
-          <div class="upload-item">
-            <label for="ordersOutFile">
-              <span class="file-label">Ordrer (salg ut)</span>
-              <span class="file-required">(påkrevd)</span>
-            </label>
-            <input type="file" id="ordersOutFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Ordrer_Jeeves – salgsordrer ut</span>
-          </div>
-          <div class="upload-item">
-            <label for="saFile">
-              <span class="file-label">SA-nummer</span>
-              <span class="file-required">(påkrevd)</span>
-            </label>
-            <input type="file" id="saFile" accept=".xlsx,.csv" />
-            <span class="file-hint">SA-nummer – definerer det operative artikkeluniverset</span>
-          </div>
-          <div class="upload-item">
-            <label for="lagerplanFile">
-              <span class="file-label">Analyse Lagerplan</span>
-              <span class="file-optional">(valgfri)</span>
-            </label>
-            <input type="file" id="lagerplanFile" accept=".xlsx,.csv" />
-            <span class="file-hint">Analyse_Lagerplan – BP (bestillingspunkt) og EOK (ordrekvantitet)</span>
-          </div>
-        </div>
         <div class="upload-actions">
           <button id="uploadBtn" class="btn-primary">Analyser data</button>
           <button id="clearBtn" class="btn-secondary">Nullstill</button>
