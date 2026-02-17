@@ -813,12 +813,33 @@ class ReportsMode {
         const qLabel = this.formatQuarterLabel(s.selectedQuarter);
         const salesLabel = s.isQuarterFilter ? `Salg ${qLabel}` : 'Salg 12m';
         const qtyLabel = s.isQuarterFilter ? `Ordrer ${qLabel}` : 'Ordrer 12m';
+        const riskWithExposure = report.riskList.filter(r => r.exposure > 0).length;
+
+        // Dynamic executive summary sentence
+        const summaryParts = [];
+        summaryParts.push(`${this.escapeHtml(periodTitle)}: ${this.formatNumber(s.activeCount)} aktive artikler`);
+        if (s.saMigrationCount > 0) summaryParts.push(`${s.saMigrationCount} krever SA-migrering`);
+        if (s.discontinuedCount > 0) summaryParts.push(`${s.discontinuedCount} utgående artikler, ${riskWithExposure} med eksponering`);
+        const summaryText = summaryParts.join('. ') + '.';
+
+        const sectionStyle = 'border-radius:6px;padding:20px;margin-bottom:20px;';
+        const sectionHeaderStyle = 'margin:0 0 16px 0;font-size:15px;font-weight:700;padding-bottom:8px;border-bottom:2px solid;';
+        const tblStyle = 'font-size:12px;';
 
         return `
-            <div style="border:1px solid #dee2e6;border-radius:6px;padding:16px;margin-bottom:16px;">
-                <!-- SECTION 1: Sammendrag -->
-                <h3 style="margin:0 0 4px 0;font-size:15px;">Sammendrag – ${this.escapeHtml(s.selectedDepartments)}</h3>
-                <p style="margin:0 0 12px 0;font-size:13px;color:#666;">Periode: <strong>${this.escapeHtml(periodTitle)}</strong></p>
+            <div style="margin-bottom:16px;">
+
+            <!-- ══════════════════════════════════════════ -->
+            <!-- SECTION 1: EXECUTIVE SUMMARY              -->
+            <!-- ══════════════════════════════════════════ -->
+            <div style="${sectionStyle}background:#f4f9f4;border:1px solid #c8e6c9;">
+                <h3 style="${sectionHeaderStyle}border-color:#4caf50;color:#2e7d32;">Sammendrag</h3>
+                <p style="margin:0 0 4px 0;font-size:13px;color:#555;">
+                    ${this.escapeHtml(s.selectedDepartments)}
+                </p>
+                <p style="margin:0 0 14px 0;font-size:13px;color:#666;">
+                    Periode: <strong>${this.escapeHtml(periodTitle)}</strong>
+                </p>
                 <div class="alt-analysis-summary">
                     <div class="stat-card">
                         <div class="stat-value">${this.formatNumber(s.activeCount)}</div>
@@ -846,17 +867,26 @@ class ReportsMode {
                         <div class="stat-label">Total eksponering</div>
                     </div>
                 </div>
+                <p style="margin:14px 0 0 0;font-size:13px;color:#444;line-height:1.5;background:#fff;border-radius:4px;padding:10px 12px;border-left:3px solid #4caf50;">
+                    ${summaryText}
+                </p>
+            </div>
+
+            <!-- ══════════════════════════════════════════ -->
+            <!-- SECTION 2: COMMERCIAL INSIGHTS            -->
+            <!-- ══════════════════════════════════════════ -->
+            <div style="${sectionStyle}background:#f4f6fb;border:1px solid #bbdefb;">
+                <h3 style="${sectionHeaderStyle}border-color:#1976d2;color:#1565c0;">Kommersiell innsikt</h3>
 
                 ${report.categorySummary ? `
-                <!-- SECTION: Kategorifordeling -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Kategorifordeling (Kategori 1)</h4>
-                <div class="table-wrapper">
-                    <table class="data-table compact" style="font-size:13px;">
+                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Kategorifordeling (Topp 5)</h4>
+                <div class="table-wrapper" style="margin-bottom:20px;">
+                    <table class="data-table compact" style="${tblStyle}">
                         <thead>
-                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th><th>Antall artikler</th></tr>
+                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th><th>Aktive artikler</th></tr>
                         </thead>
                         <tbody>
-                            ${report.categorySummary.map(c => `
+                            ${report.categorySummary.slice(0, 5).map(c => `
                                 <tr>
                                     <td>${this.escapeHtml(c.name)}</td>
                                     <td class="qty-cell">${this.formatNumber(c.sales)}</td>
@@ -870,19 +900,18 @@ class ReportsMode {
                 ` : ''}
 
                 ${report.supplierSummary ? `
-                <!-- SECTION: Leverandørfordeling -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Leverandørfordeling (Topp 5)</h4>
-                <div class="table-wrapper">
-                    <table class="data-table compact" style="font-size:13px;">
+                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Leverandørfordeling (Topp 5)</h4>
+                <div class="table-wrapper" style="margin-bottom:20px;">
+                    <table class="data-table compact" style="${tblStyle}">
                         <thead>
                             <tr><th>Leverandør</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th></tr>
                         </thead>
                         <tbody>
-                            ${report.supplierSummary.map(s => `
+                            ${report.supplierSummary.map(sup => `
                                 <tr>
-                                    <td>${this.escapeHtml(s.name)}</td>
-                                    <td class="qty-cell">${this.formatNumber(s.sales)}</td>
-                                    <td class="qty-cell">${s.percentage.toFixed(1)} %</td>
+                                    <td>${this.escapeHtml(sup.name)}</td>
+                                    <td class="qty-cell">${this.formatNumber(sup.sales)}</td>
+                                    <td class="qty-cell">${sup.percentage.toFixed(1)} %</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -890,46 +919,51 @@ class ReportsMode {
                 </div>
                 ` : ''}
 
-                <!-- SECTION 2: Topp 20 Verdi -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Verdi (${this.escapeHtml(salesLabel.toLowerCase())})</h4>
-                ${this.renderTop20ValueTable(report.top20Value, s)}
+                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Topp 20 – Omsetning (${this.escapeHtml(salesLabel.toLowerCase())})</h4>
+                ${this.renderOmsetningTable(report.top20Value, s)}
 
-                <!-- SECTION 3: Topp 20 Antall -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Antall (${this.escapeHtml(qtyLabel.toLowerCase())})</h4>
-                ${this.renderTop20QuantityTable(report.top20Quantity, s)}
+                <h4 style="margin:20px 0 8px 0;font-size:13px;font-weight:600;color:#333;">Topp 20 – Ordrefrekvens (${this.escapeHtml(qtyLabel.toLowerCase())})</h4>
+                ${this.renderOrdrefrekvensTable(report.top20Quantity, s)}
+                ${report.top20Value.length > 10 ? '<p style="color:#888;font-size:11px;margin-top:6px;">Viser topp 10 i forhåndsvisning. Komplett liste (20) i Excel-eksport.</p>' : ''}
+            </div>
 
-                <!-- SECTION 4: Risiko -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Risiko (${report.riskList.length} artikler)</h4>
+            <!-- ══════════════════════════════════════════ -->
+            <!-- SECTION 3: RISK & CONTROL                 -->
+            <!-- ══════════════════════════════════════════ -->
+            <div style="${sectionStyle}background:#fdf4f4;border:1px solid #ffcdd2;">
+                <h3 style="${sectionHeaderStyle}border-color:#e53935;color:#c62828;">Risiko og kontroll</h3>
+
+                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Risikoartikler (${report.riskList.length})</h4>
                 ${report.riskList.length === 0
-                    ? '<p style="color:#888;font-size:13px;">Ingen risikoartikler funnet.</p>'
+                    ? '<p style="color:#888;font-size:12px;">Ingen risikoartikler funnet.</p>'
                     : `
-                    <div class="table-wrapper">
-                        <table class="data-table compact" style="font-size:13px;">
+                    <div class="table-wrapper" style="margin-bottom:16px;">
+                        <table class="data-table compact" style="${tblStyle}">
                             <thead>
-                                <tr><th>Tools nr</th><th>Beskrivelse</th><th>Lager</th><th>Eksponering</th><th>Salg 3m</th><th>SA-migr. påkrevd</th></tr>
+                                <tr><th>Tools nr</th><th>Lager</th><th>Eksponering</th><th>${this.escapeHtml(salesLabel)}</th><th>SA-migr.</th></tr>
                             </thead>
                             <tbody>
-                                ${report.riskList.slice(0, 30).map(r => `
-                                    <tr class="row-warning">
+                                ${report.riskList.slice(0, 20).map(r => {
+                                    const periodSales = s.isQuarterFilter ? (r.quarterlySales[s.selectedQuarter] || 0) : r.salesLast12m;
+                                    return `
+                                    <tr>
                                         <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
-                                        <td>${this.escapeHtml(r.description)}</td>
                                         <td class="qty-cell">${this.formatNumber(r.stock)}</td>
                                         <td class="qty-cell">${this.formatNumber(r.exposure)}</td>
-                                        <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
+                                        <td class="qty-cell">${this.formatNumber(periodSales)}</td>
                                         <td>${r.saMigrationRequired ? '<span class="badge badge-critical">Ja</span>' : 'Nei'}</td>
-                                    </tr>
-                                `).join('')}
+                                    </tr>`;
+                                }).join('')}
                             </tbody>
                         </table>
                     </div>
-                    ${report.riskList.length > 30 ? `<p style="color:#888;font-size:12px;">Viser 30 av ${report.riskList.length} (alle i Excel)</p>` : ''}
+                    ${report.riskList.length > 20 ? `<p style="color:#888;font-size:11px;">Viser 20 av ${report.riskList.length} (komplett liste i Excel)</p>` : ''}
                     `}
 
-                <!-- SECTION 5: Avdelingsfordeling -->
                 ${Object.keys(report.deptSummary).length > 0 ? `
-                    <h4 style="margin:20px 0 8px 0;font-size:14px;">Avdelingsfordeling</h4>
+                    <h4 style="margin:20px 0 8px 0;font-size:13px;font-weight:600;color:#333;">Avdelingsfordeling</h4>
                     <div class="table-wrapper">
-                        <table class="data-table compact" style="font-size:13px;">
+                        <table class="data-table compact" style="${tblStyle}">
                             <thead>
                                 <tr><th>Avdeling</th><th>Artikler</th><th>Salg 12m</th><th>Salg 3m</th></tr>
                             </thead>
@@ -948,12 +982,14 @@ class ReportsMode {
                     </div>
                 ` : ''}
             </div>
+
+            </div>
         `;
     }
 
-    static renderTop20ValueTable(rows, summary) {
+    static renderOmsetningTable(rows, summary) {
         if (!rows || rows.length === 0) {
-            return '<p style="color:#888;font-size:13px;">Ingen data.</p>';
+            return '<p style="color:#888;font-size:12px;">Ingen data.</p>';
         }
         const isQ = summary.isQuarterFilter;
         const qSel = summary.selectedQuarter;
@@ -961,9 +997,10 @@ class ReportsMode {
         const getSalesVal = isQ
             ? (r) => r.quarterlySales[qSel] || 0
             : (r) => r.salesLast12m;
+        const previewRows = rows.slice(0, 10);
         return `
             <div class="table-wrapper">
-                <table class="data-table compact" style="font-size:13px;">
+                <table class="data-table compact" style="font-size:12px;">
                     <thead>
                         <tr>
                             <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
@@ -972,7 +1009,7 @@ class ReportsMode {
                         </tr>
                     </thead>
                     <tbody>
-                        ${rows.map((r, i) => `
+                        ${previewRows.map((r, i) => `
                             <tr>
                                 <td>${i + 1}</td>
                                 <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
@@ -991,38 +1028,38 @@ class ReportsMode {
         `;
     }
 
-    static renderTop20QuantityTable(rows, summary) {
+    static renderOrdrefrekvensTable(rows, summary) {
         if (!rows || rows.length === 0) {
-            return '<p style="color:#888;font-size:13px;">Ingen data.</p>';
+            return '<p style="color:#888;font-size:12px;">Ingen data.</p>';
         }
         const isQ = summary.isQuarterFilter;
         const qSel = summary.selectedQuarter;
         const qtyCol = isQ ? `Ordrer ${this.formatQuarterLabel(qSel)}` : 'Ordrer 12m';
+        const salesCol = isQ ? `Salg ${this.formatQuarterLabel(qSel)}` : 'Salg 12m';
         const getQtyVal = isQ
             ? (r) => r.quarterlyOrders[qSel] || 0
             : (r) => r.quantityLast12m;
+        const getSalesVal = isQ
+            ? (r) => r.quarterlySales[qSel] || 0
+            : (r) => r.salesLast12m;
+        const previewRows = rows.slice(0, 10);
         return `
             <div class="table-wrapper">
-                <table class="data-table compact" style="font-size:13px;">
+                <table class="data-table compact" style="font-size:12px;">
                     <thead>
                         <tr>
-                            <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
-                            <th>Varegruppe</th><th>Leverandør</th>
-                            <th>${this.escapeHtml(qtyCol)}</th><th>Salg 12m</th><th>Salg 3m</th>
+                            <th>#</th><th>Tools nr</th><th>Beskrivelse</th>
+                            <th>${this.escapeHtml(qtyCol)}</th><th>${this.escapeHtml(salesCol)}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${rows.map((r, i) => `
+                        ${previewRows.map((r, i) => `
                             <tr>
                                 <td>${i + 1}</td>
                                 <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
-                                <td>${this.escapeHtml(r.saNumber)}</td>
                                 <td>${this.escapeHtml(r.description)}</td>
-                                <td>${this.escapeHtml(r.category)}</td>
-                                <td>${this.escapeHtml(r.supplier)}</td>
                                 <td class="qty-cell"><strong>${this.formatNumber(getQtyVal(r))}</strong></td>
-                                <td class="qty-cell">${this.formatNumber(r.salesLast12m)}</td>
-                                <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
+                                <td class="qty-cell">${this.formatNumber(getSalesVal(r))}</td>
                             </tr>
                         `).join('')}
                     </tbody>
