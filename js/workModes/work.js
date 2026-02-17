@@ -996,7 +996,7 @@ class WorkMode {
         const items = store.getAllItems();
         const aggregated = new Map();
 
-        // Step 1: Aggregate orders within date range
+        // Step 1: Aggregate orders within date range — ALL items, no filtering
         items.forEach(item => {
             if (!item.outgoingOrders || item.outgoingOrders.length === 0) return;
 
@@ -1017,27 +1017,59 @@ class WorkMode {
             });
         });
 
-        // Step 2: Build result rows
+        // Step 2: Build result rows — ALL items with period sales, no exclusions
         const rows = [];
 
         aggregated.forEach(({ item, totalQty }, toolsNr) => {
-            // Exclude discontinued items
-            if (this.isDiscontinued(item)) return;
-            if (item._status !== 'AKTIV' && item._status !== 'UKJENT') return;
-
             const stock = item.stock || 0;
             const bestAntLev = item.bestAntLev || 0;
             const kalkylPris = item.kalkylPris || 0;
+            const disc = this.isDiscontinued(item);
+
+            // Alternative cross-check via existing resolver
+            let hasAlternative = false;
+            let altItemNo = '';
+            let altStock = 0;
+            let altBestAntLev = 0;
+            let altStatusText = '';
+
+            if (typeof store.resolveAlternativeStatus === 'function') {
+                const altInfo = store.resolveAlternativeStatus(item);
+                if (altInfo.classification !== 'NO_ALTERNATIVE') {
+                    hasAlternative = true;
+                    altItemNo = altInfo.altToolsArtNr || '';
+                    altStock = altInfo.altStock || 0;
+                    altBestAntLev = altInfo.altBestAntLev || 0;
+                    altStatusText = altInfo.altStatus || '';
+                }
+            }
+
+            // Effective available: use alternative supply if discontinued with alternative
+            let effectiveAvailable;
+            if (disc && hasAlternative) {
+                effectiveAvailable = altStock + altBestAntLev;
+            } else {
+                effectiveAvailable = stock + bestAntLev;
+            }
+
+            const coveredByAlternative = disc && hasAlternative &&
+                (altStock + altBestAntLev) >= totalQty;
 
             const stopForecast = Math.ceil(totalQty * 1.15);
-            const availableNow = stock + bestAntLev;
-            const suggestedPurchase = Math.max(0, stopForecast - availableNow);
+            const suggestedPurchase = Math.max(0, stopForecast - effectiveAvailable);
 
+            // Status logic with alternative awareness
             let statusLabel, statusClass;
-            if (availableNow < totalQty) {
+            if (disc && coveredByAlternative) {
+                statusLabel = 'Dekket av alternativ';
+                statusClass = 'altCovered';
+            } else if (disc && !coveredByAlternative) {
+                statusLabel = 'Utg\u00E5ende \u2013 risiko';
+                statusClass = 'critical';
+            } else if (effectiveAvailable < totalQty) {
                 statusLabel = 'Kritisk';
                 statusClass = 'critical';
-            } else if (availableNow < stopForecast) {
+            } else if (effectiveAvailable < stopForecast) {
                 statusLabel = 'Lav buffer';
                 statusClass = 'warning';
             } else {
@@ -1056,20 +1088,29 @@ class WorkMode {
                 valueNok: Math.round(suggestedPurchase * kalkylPris),
                 kalkylPris,
                 statusLabel,
-                statusClass
+                statusClass,
+                itemStatus: item._status || 'UKJENT',
+                disc,
+                hasAlternative,
+                altItemNo,
+                altStock,
+                altBestAntLev,
+                coveredByAlternative
             });
         });
 
-        // Step 3: Sort by stopForecast DESC
-        rows.sort((a, b) => b.stopForecast - a.stopForecast);
+        // Step 3: Sort by periodQty DESC (total consumption)
+        rows.sort((a, b) => b.periodQty - a.periodQty);
 
         // Step 4: Compute summary stats
         const totalPeriodQty = rows.reduce((s, r) => s + r.periodQty, 0);
         const totalForecastValue = rows.reduce((s, r) => s + Math.round(r.stopForecast * r.kalkylPris), 0);
         const totalPurchaseValue = rows.reduce((s, r) => s + r.valueNok, 0);
         const criticalCount = rows.filter(r => r.suggestedPurchase > 0).length;
+        const discCount = rows.filter(r => r.disc).length;
+        const coveredCount = rows.filter(r => r.coveredByAlternative).length;
 
-        return { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount };
+        return { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount, discCount, coveredCount };
     }
 
     static getStopDates() {
@@ -1081,16 +1122,106 @@ class WorkMode {
         };
     }
 
+    static renderStopContent(data, periodLabel) {
+        const { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount, discCount, coveredCount } = data;
+
+        const cardStyle = 'padding:14px;border-radius:8px;text-align:center;';
+        const valStyle = 'font-size:20px;font-weight:700;margin-bottom:4px;';
+        const lblStyle = 'font-size:11px;font-weight:600;';
+
+        const summaryHtml = `
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px;">
+                <div style="${cardStyle}background:#e3f2fd;border:1px solid #bbdefb;">
+                    <div style="${valStyle}color:#1565c0;">${this.fmt(totalPeriodQty)}</div>
+                    <div style="${lblStyle}color:#1565c0;">Total periodeforbruk</div>
+                    <div style="font-size:10px;color:#42a5f5;margin-top:2px;">${this.esc(periodLabel)}</div>
+                </div>
+                <div style="${cardStyle}background:#e8f5e9;border:1px solid #c8e6c9;">
+                    <div style="${valStyle}color:#2e7d32;">${this.fmtKr(totalForecastValue)}</div>
+                    <div style="${lblStyle}color:#2e7d32;">Forecast-verdi</div>
+                    <div style="font-size:10px;color:#66bb6a;margin-top:2px;">Antall \u00D7 kalkylpris</div>
+                </div>
+                <div style="${cardStyle}background:#fff3e0;border:1px solid #ffe0b2;">
+                    <div style="${valStyle}color:#e65100;">${this.fmtKr(totalPurchaseValue)}</div>
+                    <div style="${lblStyle}color:#e65100;">Innkj\u00F8psbehov verdi</div>
+                    <div style="font-size:10px;color:#ffa726;margin-top:2px;">Foresl\u00E5tt innkj\u00F8p</div>
+                </div>
+                <div style="${cardStyle}background:${criticalCount > 0 ? '#fdf4f4' : '#f5f5f5'};border:1px solid ${criticalCount > 0 ? '#ffcdd2' : '#e0e0e0'};">
+                    <div style="${valStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">${criticalCount}</div>
+                    <div style="${lblStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">Kritiske artikler</div>
+                    <div style="font-size:10px;color:${criticalCount > 0 ? '#ef9a9a' : '#9e9e9e'};margin-top:2px;">M\u00E5 kj\u00F8pes &gt; 0</div>
+                </div>
+                <div style="${cardStyle}background:${discCount > 0 ? '#fff3e0' : '#f5f5f5'};border:1px solid ${discCount > 0 ? '#ffe0b2' : '#e0e0e0'};">
+                    <div style="${valStyle}color:${discCount > 0 ? '#e65100' : '#757575'};">${discCount}</div>
+                    <div style="${lblStyle}color:${discCount > 0 ? '#e65100' : '#757575'};">Utg\u00E5ende i perioden</div>
+                    <div style="font-size:10px;color:${discCount > 0 ? '#ffa726' : '#9e9e9e'};margin-top:2px;">Utgående / utg\u00E5tt</div>
+                </div>
+                <div style="${cardStyle}background:${coveredCount > 0 ? '#e8f5e9' : '#f5f5f5'};border:1px solid ${coveredCount > 0 ? '#c8e6c9' : '#e0e0e0'};">
+                    <div style="${valStyle}color:${coveredCount > 0 ? '#2e7d32' : '#757575'};">${coveredCount}</div>
+                    <div style="${lblStyle}color:${coveredCount > 0 ? '#2e7d32' : '#757575'};">Dekket av alternativ</div>
+                    <div style="font-size:10px;color:${coveredCount > 0 ? '#66bb6a' : '#9e9e9e'};margin-top:2px;">Alt. lager \u2265 behov</div>
+                </div>
+            </div>
+        `;
+
+        let tableHtml;
+        if (rows.length === 0) {
+            tableHtml = '<div class="alert alert-info" style="font-size:13px;">Ingen vedlikeholdsstopp-data funnet for perioden ' + this.esc(periodLabel) + '.</div>';
+        } else {
+            tableHtml = `
+                <div class="table-wrapper">
+                    <table class="data-table compact" style="font-size:12px;">
+                        <thead>
+                            <tr>
+                                <th>Artikkel</th>
+                                <th>Beskrivelse</th>
+                                <th>Periode</th>
+                                <th>Forecast 2026</th>
+                                <th>Lager</th>
+                                <th>I bestilling</th>
+                                <th>M\u00E5 kj\u00F8pes</th>
+                                <th>Verdi NOK</th>
+                                <th>Status n\u00E5</th>
+                                <th>Alternativ</th>
+                                <th>Alt. lager</th>
+                                <th>Dekket?</th>
+                                <th>Vurdering</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map(r => `
+                                <tr class="${r.statusClass === 'critical' ? 'row-critical' : r.statusClass === 'warning' ? 'row-warning' : ''}">
+                                    <td><strong>${this.esc(r.toolsNr)}</strong></td>
+                                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
+                                    <td class="qty-cell">${this.fmt(r.periodQty)}</td>
+                                    <td class="qty-cell">${this.fmt(r.stopForecast)}</td>
+                                    <td class="qty-cell">${this.fmt(r.stock)}</td>
+                                    <td class="qty-cell">${r.bestAntLev > 0 ? this.fmt(r.bestAntLev) : '-'}</td>
+                                    <td class="qty-cell" style="font-weight:${r.suggestedPurchase > 0 ? '700' : '400'};color:${r.suggestedPurchase > 0 ? '#c62828' : '#757575'};">${r.suggestedPurchase > 0 ? this.fmt(r.suggestedPurchase) : '0'}</td>
+                                    <td class="qty-cell">${r.valueNok > 0 ? this.fmtKr(r.valueNok) : '-'}</td>
+                                    <td>${this.itemStatusBadge(r.itemStatus)}</td>
+                                    <td>${r.altItemNo ? this.esc(r.altItemNo) : '-'}</td>
+                                    <td class="qty-cell">${r.hasAlternative ? this.fmt(r.altStock) : '-'}</td>
+                                    <td>${this.coveredBadge(r.disc, r.hasAlternative, r.coveredByAlternative)}</td>
+                                    <td>${this.stopStatusBadge(r.statusLabel, r.statusClass)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <p class="text-muted">Viser ${rows.length} artikler | Periode: ${this.esc(periodLabel)} | Forecast = historikk \u00D7 1.15</p>
+                </div>
+            `;
+        }
+
+        return summaryHtml + tableHtml;
+    }
+
     static renderMaintenanceStopSection(store) {
         const dates = this.getStopDates();
         const data = this.buildMaintenanceStopData(store, dates.from, dates.to);
-        const { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount } = data;
-
-        const periodLabel = `${dates.from} – ${dates.to}`;
-
-        const cardStyle = 'padding:16px;border-radius:8px;text-align:center;';
-        const valStyle = 'font-size:22px;font-weight:700;margin-bottom:4px;';
-        const lblStyle = 'font-size:12px;font-weight:600;';
+        const periodLabel = `${dates.from} \u2013 ${dates.to}`;
 
         const datePickerHtml = `
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:#f5f5f5;border-radius:6px;border:1px solid #e0e0e0;">
@@ -1107,83 +1238,14 @@ class WorkMode {
             </div>
         `;
 
-        const summaryHtml = `
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
-                <div style="${cardStyle}background:#e3f2fd;border:1px solid #bbdefb;">
-                    <div style="${valStyle}color:#1565c0;">${this.fmt(totalPeriodQty)}</div>
-                    <div style="${lblStyle}color:#1565c0;">Total periodeforbruk</div>
-                    <div style="font-size:10px;color:#42a5f5;margin-top:2px;">${periodLabel}</div>
-                </div>
-                <div style="${cardStyle}background:#e8f5e9;border:1px solid #c8e6c9;">
-                    <div style="${valStyle}color:#2e7d32;">${this.fmtKr(totalForecastValue)}</div>
-                    <div style="${lblStyle}color:#2e7d32;">Forecast-verdi</div>
-                    <div style="font-size:10px;color:#66bb6a;margin-top:2px;">Antall × kalkylpris</div>
-                </div>
-                <div style="${cardStyle}background:#fff3e0;border:1px solid #ffe0b2;">
-                    <div style="${valStyle}color:#e65100;">${this.fmtKr(totalPurchaseValue)}</div>
-                    <div style="${lblStyle}color:#e65100;">Innkjøpsbehov verdi</div>
-                    <div style="font-size:10px;color:#ffa726;margin-top:2px;">Foreslått innkjøp</div>
-                </div>
-                <div style="${cardStyle}background:${criticalCount > 0 ? '#fdf4f4' : '#f5f5f5'};border:1px solid ${criticalCount > 0 ? '#ffcdd2' : '#e0e0e0'};">
-                    <div style="${valStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">${criticalCount}</div>
-                    <div style="${lblStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">Kritiske artikler</div>
-                    <div style="font-size:10px;color:${criticalCount > 0 ? '#ef9a9a' : '#9e9e9e'};margin-top:2px;">Må kjøpes &gt; 0</div>
-                </div>
-            </div>
-        `;
-
-        let tableHtml;
-        if (rows.length === 0) {
-            tableHtml = `<div class="alert alert-info" style="font-size:13px;">Ingen vedlikeholdsstopp-data funnet for perioden ${this.esc(periodLabel)}.</div>`;
-        } else {
-            tableHtml = `
-                <div class="table-wrapper">
-                    <table class="data-table compact" style="font-size:12px;">
-                        <thead>
-                            <tr>
-                                <th>Artikkel</th>
-                                <th>Beskrivelse</th>
-                                <th>Periode</th>
-                                <th>Forecast 2026</th>
-                                <th>Lager</th>
-                                <th>I bestilling</th>
-                                <th>Må kjøpes</th>
-                                <th>Verdi NOK</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows.map(r => `
-                                <tr class="${r.statusClass === 'critical' ? 'row-critical' : r.statusClass === 'warning' ? 'row-warning' : ''}">
-                                    <td><strong>${this.esc(r.toolsNr)}</strong></td>
-                                    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
-                                    <td class="qty-cell">${this.fmt(r.periodQty)}</td>
-                                    <td class="qty-cell">${this.fmt(r.stopForecast)}</td>
-                                    <td class="qty-cell">${this.fmt(r.stock)}</td>
-                                    <td class="qty-cell">${r.bestAntLev > 0 ? this.fmt(r.bestAntLev) : '-'}</td>
-                                    <td class="qty-cell" style="font-weight:${r.suggestedPurchase > 0 ? '700' : '400'};color:${r.suggestedPurchase > 0 ? '#c62828' : '#757575'};">${r.suggestedPurchase > 0 ? this.fmt(r.suggestedPurchase) : '0'}</td>
-                                    <td class="qty-cell">${r.valueNok > 0 ? this.fmtKr(r.valueNok) : '-'}</td>
-                                    <td>${this.stopStatusBadge(r.statusLabel, r.statusClass)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="table-footer">
-                    <p class="text-muted">Viser ${rows.length} artikler | Periode: ${this.esc(periodLabel)} | Forecast = historikk × 1.15</p>
-                </div>
-            `;
-        }
-
         return `
             <div style="margin-top:28px;border-top:2px solid #1565c0;padding-top:20px;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-                    <h3 style="margin:0;font-size:16px;color:#1565c0;">Vedlikeholdsstopp – Planlegging 2026</h3>
+                    <h3 style="margin:0;font-size:16px;color:#1565c0;">Vedlikeholdsstopp \u2013 Planlegging 2026</h3>
                 </div>
                 ${datePickerHtml}
                 <div id="stopAnalysisContent">
-                    ${summaryHtml}
-                    ${tableHtml}
+                    ${this.renderStopContent(data, periodLabel)}
                 </div>
             </div>
         `;
@@ -1202,96 +1264,39 @@ class WorkMode {
         localStorage.setItem('stopTo', toDate);
 
         const data = this.buildMaintenanceStopData(this.dataStore, fromDate, toDate);
-        const { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount } = data;
-
-        const periodLabel = `${fromDate} – ${toDate}`;
-
-        const cardStyle = 'padding:16px;border-radius:8px;text-align:center;';
-        const valStyle = 'font-size:22px;font-weight:700;margin-bottom:4px;';
-        const lblStyle = 'font-size:12px;font-weight:600;';
-
-        const summaryHtml = `
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
-                <div style="${cardStyle}background:#e3f2fd;border:1px solid #bbdefb;">
-                    <div style="${valStyle}color:#1565c0;">${this.fmt(totalPeriodQty)}</div>
-                    <div style="${lblStyle}color:#1565c0;">Total periodeforbruk</div>
-                    <div style="font-size:10px;color:#42a5f5;margin-top:2px;">${this.esc(periodLabel)}</div>
-                </div>
-                <div style="${cardStyle}background:#e8f5e9;border:1px solid #c8e6c9;">
-                    <div style="${valStyle}color:#2e7d32;">${this.fmtKr(totalForecastValue)}</div>
-                    <div style="${lblStyle}color:#2e7d32;">Forecast-verdi</div>
-                    <div style="font-size:10px;color:#66bb6a;margin-top:2px;">Antall × kalkylpris</div>
-                </div>
-                <div style="${cardStyle}background:#fff3e0;border:1px solid #ffe0b2;">
-                    <div style="${valStyle}color:#e65100;">${this.fmtKr(totalPurchaseValue)}</div>
-                    <div style="${lblStyle}color:#e65100;">Innkjøpsbehov verdi</div>
-                    <div style="font-size:10px;color:#ffa726;margin-top:2px;">Foreslått innkjøp</div>
-                </div>
-                <div style="${cardStyle}background:${criticalCount > 0 ? '#fdf4f4' : '#f5f5f5'};border:1px solid ${criticalCount > 0 ? '#ffcdd2' : '#e0e0e0'};">
-                    <div style="${valStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">${criticalCount}</div>
-                    <div style="${lblStyle}color:${criticalCount > 0 ? '#c62828' : '#757575'};">Kritiske artikler</div>
-                    <div style="font-size:10px;color:${criticalCount > 0 ? '#ef9a9a' : '#9e9e9e'};margin-top:2px;">Må kjøpes &gt; 0</div>
-                </div>
-            </div>
-        `;
-
-        let tableHtml;
-        if (rows.length === 0) {
-            tableHtml = `<div class="alert alert-info" style="font-size:13px;">Ingen vedlikeholdsstopp-data funnet for perioden ${this.esc(periodLabel)}.</div>`;
-        } else {
-            tableHtml = `
-                <div class="table-wrapper">
-                    <table class="data-table compact" style="font-size:12px;">
-                        <thead>
-                            <tr>
-                                <th>Artikkel</th>
-                                <th>Beskrivelse</th>
-                                <th>Periode</th>
-                                <th>Forecast 2026</th>
-                                <th>Lager</th>
-                                <th>I bestilling</th>
-                                <th>Må kjøpes</th>
-                                <th>Verdi NOK</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows.map(r => `
-                                <tr class="${r.statusClass === 'critical' ? 'row-critical' : r.statusClass === 'warning' ? 'row-warning' : ''}">
-                                    <td><strong>${this.esc(r.toolsNr)}</strong></td>
-                                    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
-                                    <td class="qty-cell">${this.fmt(r.periodQty)}</td>
-                                    <td class="qty-cell">${this.fmt(r.stopForecast)}</td>
-                                    <td class="qty-cell">${this.fmt(r.stock)}</td>
-                                    <td class="qty-cell">${r.bestAntLev > 0 ? this.fmt(r.bestAntLev) : '-'}</td>
-                                    <td class="qty-cell" style="font-weight:${r.suggestedPurchase > 0 ? '700' : '400'};color:${r.suggestedPurchase > 0 ? '#c62828' : '#757575'};">${r.suggestedPurchase > 0 ? this.fmt(r.suggestedPurchase) : '0'}</td>
-                                    <td class="qty-cell">${r.valueNok > 0 ? this.fmtKr(r.valueNok) : '-'}</td>
-                                    <td>${this.stopStatusBadge(r.statusLabel, r.statusClass)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="table-footer">
-                    <p class="text-muted">Viser ${rows.length} artikler | Periode: ${this.esc(periodLabel)} | Forecast = historikk × 1.15</p>
-                </div>
-            `;
-        }
+        const periodLabel = `${fromDate} \u2013 ${toDate}`;
 
         const el = document.getElementById('stopAnalysisContent');
         if (el) {
-            el.innerHTML = summaryHtml + tableHtml;
+            el.innerHTML = this.renderStopContent(data, periodLabel);
         }
     }
 
     static stopStatusBadge(label, statusClass) {
         if (statusClass === 'critical') {
-            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">Kritisk</span>';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">' + this.esc(label) + '</span>';
         }
         if (statusClass === 'warning') {
-            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">Lav buffer</span>';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">' + this.esc(label) + '</span>';
+        }
+        if (statusClass === 'altCovered') {
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#e0f2f1;color:#00695c;">' + this.esc(label) + '</span>';
         }
         return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;color:#2e7d32;background:#e8f5e9;">OK</span>';
+    }
+
+    static itemStatusBadge(status) {
+        if (status === 'AKTIV') return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#e8f5e9;color:#2e7d32;">Aktiv</span>';
+        if (status === 'UTGAENDE') return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#fff9c4;color:#f57f17;">Utg\u00E5ende</span>';
+        if (status === 'UTGAATT') return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#ffcdd2;color:#c62828;">Utg\u00E5tt</span>';
+        return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;color:#757575;background:#f5f5f5;">' + this.esc(status) + '</span>';
+    }
+
+    static coveredBadge(disc, hasAlt, covered) {
+        if (!disc) return '<span style="font-size:11px;color:#9e9e9e;">\u2013</span>';
+        if (!hasAlt) return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#ffcdd2;color:#c62828;">Ingen alt.</span>';
+        if (covered) return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#e8f5e9;color:#2e7d32;">Ja</span>';
+        return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#fff9c4;color:#f57f17;">Nei</span>';
     }
 }
 
