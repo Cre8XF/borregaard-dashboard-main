@@ -30,9 +30,6 @@ class DashboardApp {
         // Samlet datastruktur
         this.dataStore = null;
 
-        // Legacy data (for bakoverkompatibilitet)
-        this.processedData = [];
-
         // Nåværende arbeidsmodus
         this.currentModule = 'work';
 
@@ -391,9 +388,6 @@ class DashboardApp {
                 lagerplan: lagerplanFile
             }, (status) => this.showStatus(status, 'info'));
 
-            // Generer legacy processedData for bakoverkompatibilitet
-            this.processedData = this.generateLegacyData();
-
             console.log(`[FASE 6.1] Prosessert: ${this.dataStore.items.size} SA-artikler`);
 
             // Oppdater UI
@@ -413,37 +407,6 @@ class DashboardApp {
         } finally {
             this.setLoadingState(false);
         }
-    }
-
-    /**
-     * Generer legacy-format for bakoverkompatibilitet
-     */
-    generateLegacyData() {
-        if (!this.dataStore) return [];
-
-        return this.dataStore.getAllItems().map(item => {
-            const display = item.toDisplayObject();
-            return {
-                itemNo: item.toolsArticleNumber,
-                description: item.description,
-                stock: item.stock,
-                available: item.available,
-                reserved: item.reserved,
-                bp: item.bp,
-                max: item.max,
-                status: item.status,
-                supplier: item.supplier,
-                shelf: item.shelf,
-                sales12m: display.sales12m,
-                orderCount: display.orderCount,
-                monthlyConsumption: display.monthlyConsumption,
-                daysToEmpty: display.daysToEmpty,
-                lastSaleDate: display.lastSaleDate,
-                r12: display.sales12m,
-                price: item.kalkylPris || 0,
-                estimertVerdi: item.estimertVerdi || 0
-            };
-        });
     }
 
     /**
@@ -584,31 +547,6 @@ class DashboardApp {
                 }
                 break;
 
-            // ── FASE 5: Legacy-moduler (kandidater for fjerning) ──
-            case 'topSellers':
-                if (typeof TopSellers !== 'undefined') {
-                    contentDiv.innerHTML = TopSellers.render(this.processedData);
-                }
-                break;
-
-            case 'orderSuggestions':
-                if (typeof OrderSuggestions !== 'undefined') {
-                    contentDiv.innerHTML = OrderSuggestions.render(this.processedData);
-                }
-                break;
-
-            case 'slowMovers':
-                if (typeof SlowMovers !== 'undefined') {
-                    contentDiv.innerHTML = SlowMovers.render(this.processedData, []);
-                }
-                break;
-
-            case 'inactiveItems':
-                if (typeof InactiveItems !== 'undefined') {
-                    contentDiv.innerHTML = InactiveItems.render(this.processedData);
-                }
-                break;
-
             default:
                 if (typeof WorkMode !== 'undefined') {
                     contentDiv.innerHTML = WorkMode.render(this.dataStore);
@@ -701,7 +639,7 @@ class DashboardApp {
                 version: '4.3',
                 currentModule: this.currentModule,
                 timestamp: new Date().toISOString(),
-                items: this.dataStore ? this.dataStore.getAllDisplayItems() : [],
+                items: this.dataStore ? this.dataStore.getAllItems().map(i => i.toDisplayObject()) : [],
                 toolsLookup: this.dataStore ? Array.from(this.dataStore.toolsLookup.entries()) : [],
                 alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
                     ? Array.from(this.dataStore.alternativeArticles.entries())
@@ -736,7 +674,6 @@ class DashboardApp {
 
                 if (parsed.version === '4.3' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
-                    this.processedData = this.generateLegacyData();
                     this.currentModule = parsed.currentModule || 'work';
 
                     console.log('[FASE 6.1] Lastet lagret data fra:', parsed.timestamp);
@@ -794,7 +731,6 @@ class DashboardApp {
                 item.supplier = itemData.supplier;
                 item.supplierId = itemData.supplierId || null;
                 item.brand = itemData.brand || null;
-                item.shelf = itemData.shelf;
                 item.saType = itemData.saType || null;
                 item.saGyldigFra = itemData.saGyldigFra ? new Date(itemData.saGyldigFra) : null;
                 item.saGyldigTil = itemData.saGyldigTil ? new Date(itemData.saGyldigTil) : null;
@@ -802,7 +738,6 @@ class DashboardApp {
                 item.bestAntLev = itemData.bestAntLev || 0;
                 item.bestillingsNummer = itemData.bestillingsNummer || '';
                 item.ersattAvArtikel = itemData.ersattAvArtikel || '';
-                item.ersatterArtikel = itemData.ersatterArtikel || '';
                 item.bestillingspunkt = itemData.bestillingspunkt ?? null;
                 item.ordrekvantitet = itemData.ordrekvantitet ?? null;
                 item.kalkylPris = itemData.kalkylPris || 0;
@@ -844,7 +779,6 @@ class DashboardApp {
                 lagerplan: null
             };
             this.dataStore = null;
-            this.processedData = [];
 
             localStorage.removeItem('borregaardDashboardV4');
             localStorage.removeItem('borregaardDashboardV3');

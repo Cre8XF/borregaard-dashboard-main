@@ -880,7 +880,7 @@ class PlanningMode {
                             </div>
                             <div class="detail-item">
                                 <strong>Lokasjon</strong>
-                                ${item.location || item.shelf || '-'}
+                                ${item.location || '-'}
                             </div>
                         </div>
                     </div>

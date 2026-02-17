@@ -45,8 +45,6 @@ class UnifiedItem {
         this.supplier = '';
         this.supplierId = null;   // Supplier ID (from Ordrer_Jeeves.xlsx)
         this.brand = null;        // Brand (from Ordrer_Jeeves.xlsx)
-        this.shelf = '';
-        this.placementLocation = '';
         this.category = null;
         this._status = 'UKJENT';  // Normalized lifecycle status
 
@@ -56,7 +54,6 @@ class UnifiedItem {
 
         // ── Master.xlsx: alternatives ──
         this.ersattAvArtikel = '';       // Ersätts av artikel
-        this.ersatterArtikel = '';       // Ersätter artikel
 
         // ── Incoming orders array (populated from Master BestAntLev) ──
         this.incomingOrders = [];
@@ -275,14 +272,11 @@ class UnifiedItem {
             supplier: this.supplier,
             supplierId: this.supplierId,
             brand: this.brand,
-            shelf: this.shelf,
-            placementLocation: this.placementLocation,
             category: this.category,
             _status: this._status,
             bestAntLev: this.bestAntLev,
             bestillingsNummer: this.bestillingsNummer,
             ersattAvArtikel: this.ersattAvArtikel,
-            ersatterArtikel: this.ersatterArtikel,
             bestillingspunkt: this.bestillingspunkt,
             ordrekvantitet: this.ordrekvantitet,
             sales6m: Math.round(this.sales6m),
@@ -409,22 +403,6 @@ class UnifiedDataStore {
      */
     getActiveItems() {
         return this.getAllItems();
-    }
-
-    /**
-     * Hent alle artikler som display-objekter
-     */
-    getAllDisplayItems() {
-        return this.getAllItems().map(item => item.toDisplayObject());
-    }
-
-    /**
-     * Hent artikler med spesifikke issues
-     */
-    getItemsWithIssue(issueCode) {
-        return this.getAllItems().filter(item =>
-            item.getIssues().some(issue => issue.code === issueCode)
-        );
     }
 
     /**
