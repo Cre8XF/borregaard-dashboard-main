@@ -9,6 +9,7 @@ class ReportsMode {
     static lastReport = null;
     static currentReportData = null;
     static generating = false;
+    static selectedQuarter = 'rolling'; // 'rolling' | 'Q1' | 'Q2' | 'Q3' | 'Q4'
 
     /**
      * Render the reports view
@@ -48,6 +49,16 @@ class ReportsMode {
                         </div>
                     `}
                 <div style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <label style="font-size:13px;font-weight:600;">Periode:</label>
+                        <select class="filter-select" onchange="ReportsMode.handleQuarterChange(this.value)" style="font-size:13px;">
+                            <option value="rolling" ${this.selectedQuarter === 'rolling' ? 'selected' : ''}>Rullerende 12 mnd</option>
+                            <option value="Q1" ${this.selectedQuarter === 'Q1' ? 'selected' : ''}>Q1</option>
+                            <option value="Q2" ${this.selectedQuarter === 'Q2' ? 'selected' : ''}>Q2</option>
+                            <option value="Q3" ${this.selectedQuarter === 'Q3' ? 'selected' : ''}>Q3</option>
+                            <option value="Q4" ${this.selectedQuarter === 'Q4' ? 'selected' : ''}>Q4</option>
+                        </select>
+                    </div>
                     <button onclick="ReportsMode.generateReport()"
                             class="btn-export"
                             ${departments.length === 0 ? 'disabled' : ''}
@@ -116,14 +127,18 @@ class ReportsMode {
 
         let salesLast12m = 0;
         let salesLast3m = 0;
+        let orderCount12m = 0;
         const quarterlySales = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+        const quarterlyOrders = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
         const deptMap = {};
 
         if (!item.outgoingOrders || item.outgoingOrders.length === 0) {
             return {
                 salesLast12m: item.sales12m || 0,
                 salesLast3m: item.sales6m ? Math.round(item.sales6m / 2) : 0,
+                orderCount12m: item.orderCount || 0,
                 quarterlySales,
+                quarterlyOrders,
                 salesByDepartment: {}
             };
         }
@@ -138,6 +153,7 @@ class ReportsMode {
 
             if (!orderDate || isNaN(orderDate.getTime())) {
                 salesLast12m += qty;
+                orderCount12m++;
                 if (deptKey) {
                     if (!deptMap[deptKey]) deptMap[deptKey] = { sales12m: 0, sales3m: 0 };
                     deptMap[deptKey].sales12m += qty;
@@ -147,6 +163,7 @@ class ReportsMode {
 
             if (orderDate >= oneYearAgo) {
                 salesLast12m += qty;
+                orderCount12m++;
                 if (deptKey) {
                     if (!deptMap[deptKey]) deptMap[deptKey] = { sales12m: 0, sales3m: 0 };
                     deptMap[deptKey].sales12m += qty;
@@ -162,21 +179,23 @@ class ReportsMode {
             }
 
             const month = orderDate.getMonth();
-            if (month <= 2) quarterlySales.Q1 += qty;
-            else if (month <= 5) quarterlySales.Q2 += qty;
-            else if (month <= 8) quarterlySales.Q3 += qty;
-            else quarterlySales.Q4 += qty;
+            if (month <= 2) { quarterlySales.Q1 += qty; quarterlyOrders.Q1++; }
+            else if (month <= 5) { quarterlySales.Q2 += qty; quarterlyOrders.Q2++; }
+            else if (month <= 8) { quarterlySales.Q3 += qty; quarterlyOrders.Q3++; }
+            else { quarterlySales.Q4 += qty; quarterlyOrders.Q4++; }
         });
 
         return {
             salesLast12m: Math.round(salesLast12m),
             salesLast3m: Math.round(salesLast3m),
+            orderCount12m,
             quarterlySales: {
                 Q1: Math.round(quarterlySales.Q1),
                 Q2: Math.round(quarterlySales.Q2),
                 Q3: Math.round(quarterlySales.Q3),
                 Q4: Math.round(quarterlySales.Q4)
             },
+            quarterlyOrders,
             salesByDepartment: deptMap
         };
     }
@@ -251,11 +270,14 @@ class ReportsMode {
                 kalkylPris: item.kalkylPris || 0,
                 salesLast12m: salesData.salesLast12m,
                 salesLast3m: salesData.salesLast3m,
+                orderCount12m: salesData.orderCount12m || 0,
                 deptSales12m: Math.round(deptSales12m),
                 deptSales3m: Math.round(deptSales3m),
                 quarterlySales: salesData.quarterlySales,
+                quarterlyOrders: salesData.quarterlyOrders || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
                 salesByDepartment: deptSales,
                 currentQuarterSales: 0, // set below
+                quantityLast12m: salesData.orderCount12m || 0,
                 discontinued,
                 status: item._status || 'UKJENT',
                 replacementNr: replacementNr || '',
@@ -264,16 +286,30 @@ class ReportsMode {
             });
         });
 
-        // Current quarter
+        // Quarter selection
         const currentQ = 'Q' + (Math.floor(new Date().getMonth() / 3) + 1);
+        const qSel = this.selectedQuarter; // 'rolling' | 'Q1'-'Q4'
+        const isQuarterFilter = qSel !== 'rolling';
+        const periodLabel = isQuarterFilter
+            ? `${qSel} ${new Date().getFullYear()}`
+            : 'Rullerende 12 måneder';
 
         // Set currentQuarterSales on each row
         rows.forEach(r => { r.currentQuarterSales = r.quarterlySales[currentQ] || 0; });
 
+        // Derive period-specific sales metric for sorting
+        // For rolling: salesLast12m. For specific quarter: quarterlySales[QX].
+        const getSalesMetric = isQuarterFilter
+            ? (r) => r.quarterlySales[qSel] || 0
+            : (r) => r.salesLast12m;
+        const getQuantityMetric = isQuarterFilter
+            ? (r) => r.quarterlyOrders[qSel] || 0
+            : (r) => r.quantityLast12m;
+
         // A) Summary
         const summary = {
-            totalSales12m: rows.reduce((s, r) => s + r.salesLast12m, 0),
-            totalSales3m: rows.reduce((s, r) => s + r.salesLast3m, 0),
+            totalSales12m: rows.reduce((s, r) => s + getSalesMetric(r), 0),
+            totalSales3m: isQuarterFilter ? 0 : rows.reduce((s, r) => s + r.salesLast3m, 0),
             currentQuarterSales: rows.reduce((s, r) => s + r.currentQuarterSales, 0),
             currentQuarter: currentQ,
             activeCount: rows.filter(r => !r.discontinued).length,
@@ -282,14 +318,17 @@ class ReportsMode {
             totalExposure: rows.reduce((s, r) => s + r.exposure, 0),
             totalEstimertVerdi: rows.reduce((s, r) => s + r.estimertVerdi, 0),
             totalItems: rows.length,
-            selectedDepartments: Array.from(selectedDepts).sort().join(', ')
+            selectedDepartments: Array.from(selectedDepts).sort().join(', '),
+            periodLabel,
+            isQuarterFilter,
+            selectedQuarter: qSel
         };
 
-        // B) Top 20 by value (salesLast12m)
-        const top20Value = [...rows].sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 20);
+        // B) Top 20 by value (estimertVerdi for rolling, quarterlySales value for quarter)
+        const top20Value = [...rows].sort((a, b) => getSalesMetric(b) - getSalesMetric(a)).slice(0, 20);
 
-        // C) Top 20 by quantity (total order count from outgoing orders)
-        const top20Quantity = [...rows].sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 20);
+        // C) Top 20 by order count (quantityLast12m for rolling, quarterlyOrders for quarter)
+        const top20Quantity = [...rows].sort((a, b) => getQuantityMetric(b) - getQuantityMetric(a)).slice(0, 20);
 
         // D) Risk list: discontinued + (exposure > 0 OR SA-migration required)
         const riskList = rows
@@ -536,20 +575,28 @@ class ReportsMode {
         }
 
         const report = this.currentReportData;
+        const s = report.summary;
+        const isQ = s.isQuarterFilter;
+        const qSel = s.selectedQuarter;
+        const periodLabel = s.periodLabel || 'Rullerende 12 måneder';
+        const salesColLabel = isQ ? `Salg ${qSel}` : 'Salg 12m';
+        const qtyColLabel = isQ ? `Ordrer ${qSel}` : 'Ordrer 12m';
+        const getSalesVal = isQ ? (r) => r.quarterlySales[qSel] || 0 : (r) => r.salesLast12m;
+        const getQtyVal = isQ ? (r) => r.quarterlyOrders[qSel] || 0 : (r) => r.quantityLast12m;
+
         const wb = XLSX.utils.book_new();
-        const topHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', 'Salg 12m', 'Salg 3m', 'Salg innev. kvartal'];
 
         // Sheet 1: Sammendrag
-        const s = report.summary;
         const summaryData = [
             ['Kvartalsrapport'],
+            ['Periode', periodLabel],
             ['Generert', new Date().toISOString().split('T')[0]],
             ['Avdelinger', s.selectedDepartments],
             [],
             ['Nøkkeltall', 'Verdi'],
             ['Aktive artikler', s.activeCount],
-            ['Salg 12m', Math.round(s.totalSales12m)],
-            ['Salg 3m', Math.round(s.totalSales3m)],
+            [salesColLabel, Math.round(s.totalSales12m)],
+            ...(!isQ ? [['Salg 3m', Math.round(s.totalSales3m)]] : []),
             ['Utgående artikler', s.discontinuedCount],
             ['SA-migrering påkrevd', s.saMigrationCount],
             ['Total eksponering', Math.round(s.totalExposure)]
@@ -559,21 +606,23 @@ class ReportsMode {
         XLSX.utils.book_append_sheet(wb, ws1, 'Sammendrag');
 
         // Sheet 2: Topp20_Verdi
-        const top20vData = [topHeaders];
+        const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel, 'Salg 3m', 'Salg innev. kvartal'];
+        const top20vData = [valueHeaders];
         report.top20Value.forEach((r, i) => {
-            top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, r.salesLast12m, r.salesLast3m, r.currentQuarterSales]);
+            top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getSalesVal(r), r.salesLast3m, r.currentQuarterSales]);
         });
         const ws2 = XLSX.utils.aoa_to_sheet(top20vData);
-        ws2['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
+        ws2['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
         XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
-        // Sheet 3: Topp20_Antall
-        const top20qData = [topHeaders];
+        // Sheet 3: Topp20_Antall (order count as primary metric)
+        const qtyHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', qtyColLabel, 'Salg 12m', 'Salg 3m'];
+        const top20qData = [qtyHeaders];
         report.top20Quantity.forEach((r, i) => {
-            top20qData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, r.salesLast12m, r.salesLast3m, r.currentQuarterSales]);
+            top20qData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getQtyVal(r), r.salesLast12m, r.salesLast3m]);
         });
         const ws3 = XLSX.utils.aoa_to_sheet(top20qData);
-        ws3['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
+        ws3['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 }];
         XLSX.utils.book_append_sheet(wb, ws3, 'Topp20_Antall');
 
         // Sheet 4: Risiko
@@ -607,8 +656,8 @@ class ReportsMode {
         // Write file
         const now = new Date();
         const year = now.getFullYear();
-        const quarter = 'Q' + (Math.floor(now.getMonth() / 3) + 1);
-        XLSX.writeFile(wb, `Kvartalsrapport_${year}_${quarter}.xlsx`);
+        const fileQuarter = isQ ? qSel : 'Q' + (Math.floor(now.getMonth() / 3) + 1);
+        XLSX.writeFile(wb, `Kvartalsrapport_${year}_${fileQuarter}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
@@ -617,11 +666,15 @@ class ReportsMode {
 
     static renderReportPreview(report) {
         const s = report.summary;
+        const periodTitle = s.periodLabel || 'Rullerende 12 måneder';
+        const salesLabel = s.isQuarterFilter ? `Salg ${s.selectedQuarter}` : 'Salg 12m';
+        const qtyLabel = s.isQuarterFilter ? `Ordrer ${s.selectedQuarter}` : 'Ordrer 12m';
 
         return `
             <div style="border:1px solid #dee2e6;border-radius:6px;padding:16px;margin-bottom:16px;">
                 <!-- SECTION 1: Sammendrag -->
-                <h3 style="margin:0 0 12px 0;font-size:15px;">Sammendrag – ${this.escapeHtml(s.selectedDepartments)}</h3>
+                <h3 style="margin:0 0 4px 0;font-size:15px;">Sammendrag – ${this.escapeHtml(s.selectedDepartments)}</h3>
+                <p style="margin:0 0 12px 0;font-size:13px;color:#666;">Periode: <strong>${this.escapeHtml(periodTitle)}</strong></p>
                 <div class="alt-analysis-summary">
                     <div class="stat-card">
                         <div class="stat-value">${this.formatNumber(s.activeCount)}</div>
@@ -629,12 +682,13 @@ class ReportsMode {
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">${this.formatNumber(Math.round(s.totalSales12m))}</div>
-                        <div class="stat-label">Salg 12m</div>
+                        <div class="stat-label">${this.escapeHtml(salesLabel)}</div>
                     </div>
+                    ${!s.isQuarterFilter ? `
                     <div class="stat-card">
                         <div class="stat-value">${this.formatNumber(Math.round(s.totalSales3m))}</div>
                         <div class="stat-label">Salg 3m</div>
-                    </div>
+                    </div>` : ''}
                     <div class="stat-card ${s.discontinuedCount > 0 ? 'warning' : ''}">
                         <div class="stat-value">${s.discontinuedCount}</div>
                         <div class="stat-label">Utgående</div>
@@ -650,12 +704,12 @@ class ReportsMode {
                 </div>
 
                 <!-- SECTION 2: Topp 20 Verdi -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Verdi (salg 12m)</h4>
-                ${this.renderTop20Table(report.top20Value)}
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Verdi (${this.escapeHtml(salesLabel.toLowerCase())})</h4>
+                ${this.renderTop20ValueTable(report.top20Value, s)}
 
                 <!-- SECTION 3: Topp 20 Antall -->
-                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Antall</h4>
-                ${this.renderTop20Table(report.top20Quantity)}
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Antall (${this.escapeHtml(qtyLabel.toLowerCase())})</h4>
+                ${this.renderTop20QuantityTable(report.top20Quantity, s)}
 
                 <!-- SECTION 4: Risiko -->
                 <h4 style="margin:20px 0 8px 0;font-size:14px;">Risiko (${report.riskList.length} artikler)</h4>
@@ -710,10 +764,16 @@ class ReportsMode {
         `;
     }
 
-    static renderTop20Table(rows) {
+    static renderTop20ValueTable(rows, summary) {
         if (!rows || rows.length === 0) {
             return '<p style="color:#888;font-size:13px;">Ingen data.</p>';
         }
+        const isQ = summary.isQuarterFilter;
+        const qSel = summary.selectedQuarter;
+        const salesCol = isQ ? `Salg ${qSel}` : 'Salg 12m';
+        const getSalesVal = isQ
+            ? (r) => r.quarterlySales[qSel] || 0
+            : (r) => r.salesLast12m;
         return `
             <div class="table-wrapper">
                 <table class="data-table compact" style="font-size:13px;">
@@ -721,7 +781,7 @@ class ReportsMode {
                         <tr>
                             <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
                             <th>Varegruppe</th><th>Leverandør</th>
-                            <th>Salg 12m</th><th>Salg 3m</th><th>Salg innev. kvartal</th>
+                            <th>${this.escapeHtml(salesCol)}</th><th>Salg 3m</th><th>Salg innev. kvartal</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -733,9 +793,49 @@ class ReportsMode {
                                 <td>${this.escapeHtml(r.description)}</td>
                                 <td>${this.escapeHtml(r.category)}</td>
                                 <td>${this.escapeHtml(r.supplier)}</td>
-                                <td class="qty-cell">${this.formatNumber(r.salesLast12m)}</td>
+                                <td class="qty-cell">${this.formatNumber(getSalesVal(r))}</td>
                                 <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
                                 <td class="qty-cell">${this.formatNumber(r.currentQuarterSales)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    static renderTop20QuantityTable(rows, summary) {
+        if (!rows || rows.length === 0) {
+            return '<p style="color:#888;font-size:13px;">Ingen data.</p>';
+        }
+        const isQ = summary.isQuarterFilter;
+        const qSel = summary.selectedQuarter;
+        const qtyCol = isQ ? `Ordrer ${qSel}` : 'Ordrer 12m';
+        const getQtyVal = isQ
+            ? (r) => r.quarterlyOrders[qSel] || 0
+            : (r) => r.quantityLast12m;
+        return `
+            <div class="table-wrapper">
+                <table class="data-table compact" style="font-size:13px;">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
+                            <th>Varegruppe</th><th>Leverandør</th>
+                            <th>${this.escapeHtml(qtyCol)}</th><th>Salg 12m</th><th>Salg 3m</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((r, i) => `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
+                                <td>${this.escapeHtml(r.saNumber)}</td>
+                                <td>${this.escapeHtml(r.description)}</td>
+                                <td>${this.escapeHtml(r.category)}</td>
+                                <td>${this.escapeHtml(r.supplier)}</td>
+                                <td class="qty-cell"><strong>${this.formatNumber(getQtyVal(r))}</strong></td>
+                                <td class="qty-cell">${this.formatNumber(r.salesLast12m)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -753,6 +853,16 @@ class ReportsMode {
             this.selectedDepartments.add(key);
         } else {
             this.selectedDepartments.delete(key);
+        }
+    }
+
+    static handleQuarterChange(value) {
+        this.selectedQuarter = value;
+        // If a report was previously generated, regenerate with new quarter
+        if (this.currentReportData) {
+            this.generateReport();
+        } else {
+            this.refreshAll();
         }
     }
 
