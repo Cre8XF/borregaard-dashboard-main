@@ -11,6 +11,7 @@ class ReportsMode {
     static generating = false;
     static selectedQuarter = 'rolling'; // 'rolling' | 'YYYY-QX' e.g. '2025-Q3'
     static categoryMap = null; // Map<toolsArticleNumber, {category1, category2, supplier, deliveredValue, deliveredQuantity, inventoryValue}>
+    static selectedCategoryLevel = 1; // 1-5, maps to category1..category5 from Kategori.xlsx
 
     /**
      * Render the reports view
@@ -65,6 +66,18 @@ class ReportsMode {
                             `).join('')}
                         </select>
                     </div>
+                    ${window.app && window.app.categoryData && window.app.categoryData.length > 0 ? `
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <label style="font-size:13px;font-weight:600;">Kategorinivå:</label>
+                        <select class="filter-select" onchange="ReportsMode.handleCategoryLevelChange(this.value)" style="font-size:13px;">
+                            <option value="1" ${this.selectedCategoryLevel === 1 ? 'selected' : ''}>Item category 1</option>
+                            <option value="2" ${this.selectedCategoryLevel === 2 ? 'selected' : ''}>Item category 2</option>
+                            <option value="3" ${this.selectedCategoryLevel === 3 ? 'selected' : ''}>Item category 3</option>
+                            <option value="4" ${this.selectedCategoryLevel === 4 ? 'selected' : ''}>Item category 4</option>
+                            <option value="5" ${this.selectedCategoryLevel === 5 ? 'selected' : ''}>Item category 5</option>
+                        </select>
+                    </div>
+                    ` : ''}
                     <button onclick="ReportsMode.generateReport()"
                             class="btn-export"
                             ${departments.length === 0 ? 'disabled' : ''}
@@ -321,6 +334,7 @@ class ReportsMode {
 
             // Enrich with Kategori.xlsx data if available
             const catData = this.categoryMap ? this.categoryMap.get(item.toolsArticleNumber) : null;
+            const catLevelKey = `category${this.selectedCategoryLevel}`;
 
             rows.push({
                 toolsNr: item.toolsArticleNumber,
@@ -328,7 +342,7 @@ class ReportsMode {
                 description: item.description || '',
                 category: item.category || '',
                 supplier: item.supplier || '',
-                catCategory1: catData ? catData.category1 : (item.category || ''),
+                catCategory: catData ? (catData[catLevelKey] || 'Ukjent') : (item.category || ''),
                 catSupplier: catData ? catData.supplier : (item.supplier || ''),
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
@@ -418,12 +432,12 @@ class ReportsMode {
             }
         });
 
-        // F) Category summary (Kategori 1) — only if categoryData loaded
+        // F) Category summary — only if categoryData loaded (uses selectedCategoryLevel)
         let categorySummary = null;
         if (this.categoryMap) {
             const catMap = {};
             rows.forEach(r => {
-                const cat = r.catCategory1 || 'Ukjent';
+                const cat = r.catCategory || 'Ukjent';
                 if (!catMap[cat]) catMap[cat] = { sales: 0, count: 0 };
                 catMap[cat].sales += getSalesMetric(r);
                 if (!r.discontinued) catMap[cat].count++;
@@ -767,8 +781,8 @@ class ReportsMode {
         let execCatDataStart = -1;
         if (report.categorySummary && report.categorySummary.length > 0) {
             execAoa.push([]);
-            execAoa.push(['Topp 5 Kategorier']);
-            execAoa.push(['Kategori', 'Salg', 'Andel']);
+            execAoa.push([`Topp 5 Kategorier (niv\u00e5 ${this.selectedCategoryLevel})`]);
+            execAoa.push([`Kategori (niv\u00e5 ${this.selectedCategoryLevel})`, 'Salg', 'Andel']);
             execCatDataStart = execAoa.length;
             report.categorySummary.slice(0, 5).forEach(c => {
                 execAoa.push([c.name, c.sales, c.percentage / 100]);
@@ -928,7 +942,7 @@ class ReportsMode {
         //  SHEET 6: Kategorifordeling (only if categoryData present)
         // ══════════════════════════════════════════════════════
         if (report.categorySummary) {
-            const catHeaders = ['Kategori', 'Salg (kr)', 'Andel (%)', 'Antall artikler (stk)'];
+            const catHeaders = [`Kategori (niv\u00e5 ${this.selectedCategoryLevel})`, 'Salg (kr)', 'Andel (%)', 'Antall artikler (stk)'];
             const catData = [catHeaders];
             report.categorySummary.forEach(c => {
                 catData.push([c.name, c.sales, c.percentage / 100, c.count]);
@@ -938,7 +952,7 @@ class ReportsMode {
             const cRows = report.categorySummary.length;
             freezeAndFilter(ws6, catHeaders.length, cRows + 1);
             autoFmtByHeaders(ws6, catHeaders, cRows);
-            XLSX.utils.book_append_sheet(wb, ws6, 'Kategorifordeling');
+            XLSX.utils.book_append_sheet(wb, ws6, `Kategori_niv\u00e5${this.selectedCategoryLevel}`);
         }
 
         // ══════════════════════════════════════════════════════
@@ -1048,11 +1062,11 @@ class ReportsMode {
                 <h3 style="${sectionHeaderStyle}border-color:#1976d2;color:#1565c0;">Kommersiell innsikt</h3>
 
                 ${report.categorySummary ? `
-                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Kategorifordeling (Topp 5)</h4>
+                <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">Kategorifordeling (niv\u00e5 ${this.selectedCategoryLevel}) \u2013 Topp 5</h4>
                 <div class="table-wrapper" style="margin-bottom:20px;">
                     <table class="data-table compact" style="${tblStyle}">
                         <thead>
-                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)} (kr)</th><th>Andel (%)</th><th>Aktive artikler (stk)</th></tr>
+                            <tr><th>Kategori (niv\u00e5 ${this.selectedCategoryLevel})</th><th>${this.escapeHtml(salesLabel)} (kr)</th><th>Andel (%)</th><th>Aktive artikler (stk)</th></tr>
                         </thead>
                         <tbody>
                             ${report.categorySummary.slice(0, 5).map(c => `
@@ -1256,6 +1270,14 @@ class ReportsMode {
             this.generateReport();
         } else {
             this.refreshAll();
+        }
+    }
+
+    static handleCategoryLevelChange(value) {
+        this.selectedCategoryLevel = parseInt(value) || 1;
+        // If a report was previously generated, regenerate with new category level
+        if (this.currentReportData) {
+            this.generateReport();
         }
     }
 
