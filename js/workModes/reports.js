@@ -726,7 +726,24 @@ class ReportsMode {
         const freezeAndFilter = (ws, colCount, totalRowCount) => {
             const lastCol = XLSX.utils.encode_col(colCount - 1);
             ws['!autofilter'] = { ref: `A1:${lastCol}${totalRowCount}` };
-            ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+            // Freeze top row via SheetJS views API
+            ws['!views'] = [{ state: 'frozen', ySplit: 1, xSplit: 0, topLeftCell: 'A2', activePane: 'bottomLeft' }];
+        };
+
+        /**
+         * Auto-apply number formats based on header text conventions.
+         * Scans header row for (kr), (stk), (%) suffixes and applies formats.
+         */
+        const autoFmtByHeaders = (ws, headers, dataRowCount) => {
+            if (dataRowCount <= 0) return;
+            headers.forEach((h, c) => {
+                const label = (h || '').toString();
+                let fmt = null;
+                if (label.includes('(kr)')) fmt = FMT_KR;
+                else if (label.includes('(stk)')) fmt = FMT_NUM;
+                else if (label.includes('(%)')) fmt = FMT_PCT;
+                if (fmt) fmtCol(ws, c, 1, dataRowCount, fmt);
+            });
         };
 
         // ══════════════════════════════════════════════════════
@@ -746,6 +763,7 @@ class ReportsMode {
             ['Total eksponering', Math.round(s.totalExposure)]
         ];
 
+        // Top 5 Kategorier
         let execCatDataStart = -1;
         if (report.categorySummary && report.categorySummary.length > 0) {
             execAoa.push([]);
@@ -754,6 +772,18 @@ class ReportsMode {
             execCatDataStart = execAoa.length;
             report.categorySummary.slice(0, 5).forEach(c => {
                 execAoa.push([c.name, c.sales, c.percentage / 100]);
+            });
+        }
+
+        // Top 5 Leverandører
+        let execSupDataStart = -1;
+        if (report.supplierSummary && report.supplierSummary.length > 0) {
+            execAoa.push([]);
+            execAoa.push(['Topp 5 Leverandører']);
+            execAoa.push(['Leverandør', 'Salg', 'Andel']);
+            execSupDataStart = execAoa.length;
+            report.supplierSummary.slice(0, 5).forEach(sup => {
+                execAoa.push([sup.name, sup.sales, sup.percentage / 100]);
             });
         }
 
@@ -772,6 +802,14 @@ class ReportsMode {
             fmtCol(wsExec, 1, execCatDataStart, execCatDataStart + catCount - 1, FMT_KR);
             fmtCol(wsExec, 2, execCatDataStart, execCatDataStart + catCount - 1, FMT_PCT);
         }
+        // Top 5 Leverandører formats
+        if (execSupDataStart > 0) {
+            const supCount = Math.min(report.supplierSummary.length, 5);
+            fmtCol(wsExec, 1, execSupDataStart, execSupDataStart + supCount - 1, FMT_KR);
+            fmtCol(wsExec, 2, execSupDataStart, execSupDataStart + supCount - 1, FMT_PCT);
+        }
+        // Charts: SheetJS community edition does not support chart objects.
+        // If a future version adds chart API, add column charts for Top 5 here.
         XLSX.utils.book_append_sheet(wb, wsExec, 'Executive');
 
         // ══════════════════════════════════════════════════════
@@ -819,10 +857,8 @@ class ReportsMode {
         const ws2 = XLSX.utils.aoa_to_sheet(top20vData);
         ws2['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
         const vRows = report.top20Value.length;
-        freezeAndFilter(ws2, 9, vRows + 1);
-        fmtCol(ws2, 6, 1, vRows, FMT_KR);   // Salg (period)
-        fmtCol(ws2, 7, 1, vRows, FMT_KR);   // Salg 3m
-        fmtCol(ws2, 8, 1, vRows, FMT_KR);   // Salg innev. kvartal
+        freezeAndFilter(ws2, valueHeaders.length, vRows + 1);
+        autoFmtByHeaders(ws2, valueHeaders, vRows);
         XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
         // ══════════════════════════════════════════════════════
@@ -836,10 +872,8 @@ class ReportsMode {
         const ws3 = XLSX.utils.aoa_to_sheet(top20qData);
         ws3['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
         const qRows = report.top20Quantity.length;
-        freezeAndFilter(ws3, 9, qRows + 1);
-        fmtCol(ws3, 6, 1, qRows, FMT_NUM);   // Ordrer (count)
-        fmtCol(ws3, 7, 1, qRows, FMT_KR);    // Salg 12m
-        fmtCol(ws3, 8, 1, qRows, FMT_KR);    // Salg 3m
+        freezeAndFilter(ws3, qtyHeaders.length, qRows + 1);
+        autoFmtByHeaders(ws3, qtyHeaders, qRows);
         XLSX.utils.book_append_sheet(wb, ws3, 'Topp20_Antall');
 
         // ══════════════════════════════════════════════════════
@@ -854,10 +888,8 @@ class ReportsMode {
         ws4['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
         const rRows = report.riskList.length;
         if (rRows > 0) {
-            freezeAndFilter(ws4, 6, rRows + 1);
-            fmtCol(ws4, 2, 1, rRows, FMT_NUM);   // Lager
-            fmtCol(ws4, 3, 1, rRows, FMT_KR);    // Eksponering
-            fmtCol(ws4, 4, 1, rRows, FMT_KR);    // Salg 3m
+            freezeAndFilter(ws4, riskHeaders.length, rRows + 1);
+            autoFmtByHeaders(ws4, riskHeaders, rRows);
         }
         XLSX.utils.book_append_sheet(wb, ws4, 'Risiko');
 
@@ -882,12 +914,10 @@ class ReportsMode {
         const dRows = depts.length;
         // Autofilter covers header + dept rows only (excludes TOTALT)
         if (dRows > 0) {
-            freezeAndFilter(ws5, 4, dRows + 1);
-            fmtCol(ws5, 1, 1, dRows, FMT_NUM);   // Artikler
-            fmtCol(ws5, 2, 1, dRows, FMT_KR);    // Salg 12m
-            fmtCol(ws5, 3, 1, dRows, FMT_KR);    // Salg 3m
+            freezeAndFilter(ws5, deptHeaders.length, dRows + 1);
+            autoFmtByHeaders(ws5, deptHeaders, dRows);
         }
-        // Format TOTALT row separately
+        // Format TOTALT row separately (outside autofilter range)
         const totaltRow = dRows + 2;
         fmtCell(ws5, totaltRow, 1, FMT_NUM);
         fmtCell(ws5, totaltRow, 2, FMT_KR);
@@ -906,10 +936,8 @@ class ReportsMode {
             const ws6 = XLSX.utils.aoa_to_sheet(catData);
             ws6['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
             const cRows = report.categorySummary.length;
-            freezeAndFilter(ws6, 4, cRows + 1);
-            fmtCol(ws6, 1, 1, cRows, FMT_KR);    // Salg
-            fmtCol(ws6, 2, 1, cRows, FMT_PCT);   // Andel (stored as decimal)
-            fmtCol(ws6, 3, 1, cRows, FMT_NUM);   // Antall
+            freezeAndFilter(ws6, catHeaders.length, cRows + 1);
+            autoFmtByHeaders(ws6, catHeaders, cRows);
             XLSX.utils.book_append_sheet(wb, ws6, 'Kategorifordeling');
         }
 
@@ -925,9 +953,8 @@ class ReportsMode {
             const ws7 = XLSX.utils.aoa_to_sheet(supData);
             ws7['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 10 }];
             const sRows = report.supplierSummary.length;
-            freezeAndFilter(ws7, 3, sRows + 1);
-            fmtCol(ws7, 1, 1, sRows, FMT_KR);    // Salg
-            fmtCol(ws7, 2, 1, sRows, FMT_PCT);   // Andel (stored as decimal)
+            freezeAndFilter(ws7, supHeaders.length, sRows + 1);
+            autoFmtByHeaders(ws7, supHeaders, sRows);
             XLSX.utils.book_append_sheet(wb, ws7, 'Leverandørfordeling');
         }
 
