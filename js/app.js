@@ -31,7 +31,7 @@ class DashboardApp {
         this.processedData = [];
 
         // Nåværende arbeidsmodus
-        this.currentModule = 'overview';
+        this.currentModule = 'work';
 
         this.init();
     }
@@ -510,6 +510,12 @@ class DashboardApp {
 
         // Render basert på valgt modus
         switch (this.currentModule) {
+            case 'work':
+                if (typeof WorkMode !== 'undefined') {
+                    contentDiv.innerHTML = WorkMode.render(this.dataStore);
+                }
+                break;
+
             case 'overview':
                 contentDiv.innerHTML = OverviewMode.render(this.dataStore);
                 break;
@@ -576,7 +582,11 @@ class DashboardApp {
                 break;
 
             default:
-                contentDiv.innerHTML = OverviewMode.render(this.dataStore);
+                if (typeof WorkMode !== 'undefined') {
+                    contentDiv.innerHTML = WorkMode.render(this.dataStore);
+                } else {
+                    contentDiv.innerHTML = OverviewMode.render(this.dataStore);
+                }
         }
     }
 
@@ -702,7 +712,7 @@ class DashboardApp {
                 if (parsed.version === '4.3' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
                     this.processedData = this.generateLegacyData();
-                    this.currentModule = parsed.currentModule || 'overview';
+                    this.currentModule = parsed.currentModule || 'work';
 
                     console.log('[FASE 6.1] Lastet lagret data fra:', parsed.timestamp);
 
