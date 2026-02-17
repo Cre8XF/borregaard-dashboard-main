@@ -10,6 +10,7 @@ class ReportsMode {
     static currentReportData = null;
     static generating = false;
     static selectedQuarter = 'rolling'; // 'rolling' | 'YYYY-QX' e.g. '2025-Q3'
+    static categoryMap = null; // Map<toolsArticleNumber, {category1, category2, supplier, deliveredValue, deliveredQuantity, inventoryValue}>
 
     /**
      * Render the reports view
@@ -118,6 +119,23 @@ class ReportsMode {
         return Object.values(deptMap)
             .map(d => ({ key: d.key, itemCount: d.itemCount }))
             .sort((a, b) => a.key.localeCompare(b.key, 'nb-NO'));
+    }
+
+    /**
+     * Build fast lookup map from Kategori.xlsx data stored in window.app.categoryData.
+     * Safe to call even if categoryData is missing.
+     */
+    static buildCategoryMap() {
+        this.categoryMap = null;
+        const data = window.app && window.app.categoryData;
+        if (!data || !Array.isArray(data) || data.length === 0) return;
+
+        const map = new Map();
+        data.forEach(row => {
+            const key = (row.toolsArticleNumber || '').toString().trim();
+            if (key) map.set(key, row);
+        });
+        this.categoryMap = map;
     }
 
     /**
@@ -271,6 +289,9 @@ class ReportsMode {
         const items = store.getAllItems();
         const selectedDepts = this.selectedDepartments;
 
+        // Build category lookup (safe if Kategori.xlsx not loaded)
+        this.buildCategoryMap();
+
         // Build enriched rows for all items that have sales in selected departments
         const rows = [];
         items.forEach(item => {
@@ -298,12 +319,17 @@ class ReportsMode {
                 replacementNr !== item.toolsArticleNumber &&
                 item.saNumber && !this.getReplacementSa(store, replacementNr);
 
+            // Enrich with Kategori.xlsx data if available
+            const catData = this.categoryMap ? this.categoryMap.get(item.toolsArticleNumber) : null;
+
             rows.push({
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
                 description: item.description || '',
                 category: item.category || '',
                 supplier: item.supplier || '',
+                catCategory1: catData ? catData.category1 : (item.category || ''),
+                catSupplier: catData ? catData.supplier : (item.supplier || ''),
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 exposure,
@@ -392,7 +418,49 @@ class ReportsMode {
             }
         });
 
-        const report = { summary, top20Value, top20Quantity, riskList, deptSummary, rows };
+        // F) Category summary (Kategori 1) — only if categoryData loaded
+        let categorySummary = null;
+        if (this.categoryMap) {
+            const catMap = {};
+            rows.forEach(r => {
+                const cat = r.catCategory1 || 'Ukjent';
+                if (!catMap[cat]) catMap[cat] = { sales: 0, count: 0 };
+                catMap[cat].sales += getSalesMetric(r);
+                if (!r.discontinued) catMap[cat].count++;
+            });
+            const totalCatSales = Object.values(catMap).reduce((s, c) => s + c.sales, 0);
+            categorySummary = Object.entries(catMap)
+                .map(([name, data]) => ({
+                    name,
+                    sales: Math.round(data.sales),
+                    count: data.count,
+                    percentage: totalCatSales > 0 ? Math.round(data.sales / totalCatSales * 1000) / 10 : 0
+                }))
+                .sort((a, b) => b.sales - a.sales)
+                .slice(0, 10);
+        }
+
+        // G) Supplier summary (Top 5) — only if categoryData loaded
+        let supplierSummary = null;
+        if (this.categoryMap) {
+            const supMap = {};
+            rows.forEach(r => {
+                const sup = r.catSupplier || 'Ukjent';
+                if (!supMap[sup]) supMap[sup] = 0;
+                supMap[sup] += getSalesMetric(r);
+            });
+            const totalSupSales = Object.values(supMap).reduce((s, v) => s + v, 0);
+            supplierSummary = Object.entries(supMap)
+                .map(([name, sales]) => ({
+                    name,
+                    sales: Math.round(sales),
+                    percentage: totalSupSales > 0 ? Math.round(sales / totalSupSales * 1000) / 10 : 0
+                }))
+                .sort((a, b) => b.sales - a.sales)
+                .slice(0, 5);
+        }
+
+        const report = { summary, top20Value, top20Quantity, riskList, deptSummary, categorySummary, supplierSummary, rows };
         this.currentReportData = report;
         this.lastReport = report;
 
@@ -697,6 +765,30 @@ class ReportsMode {
         ws5['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
         XLSX.utils.book_append_sheet(wb, ws5, 'Avdelingsfordeling');
 
+        // Sheet 6: Kategorifordeling (only if categoryData present)
+        if (report.categorySummary) {
+            const catHeaders = ['Kategori', 'Salg', 'Andel %', 'Antall artikler'];
+            const catData = [catHeaders];
+            report.categorySummary.forEach(c => {
+                catData.push([c.name, c.sales, c.percentage, c.count]);
+            });
+            const ws6 = XLSX.utils.aoa_to_sheet(catData);
+            ws6['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+            XLSX.utils.book_append_sheet(wb, ws6, 'Kategorifordeling');
+        }
+
+        // Sheet 7: Leverandørfordeling (only if categoryData present)
+        if (report.supplierSummary) {
+            const supHeaders = ['Leverandør', 'Salg', 'Andel %'];
+            const supData = [supHeaders];
+            report.supplierSummary.forEach(s => {
+                supData.push([s.name, s.sales, s.percentage]);
+            });
+            const ws7 = XLSX.utils.aoa_to_sheet(supData);
+            ws7['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 10 }];
+            XLSX.utils.book_append_sheet(wb, ws7, 'Leverandørfordeling');
+        }
+
         // Write file — derive filename from selected quarter key or current quarter
         const now = new Date();
         let fileYear, fileQ;
@@ -754,6 +846,49 @@ class ReportsMode {
                         <div class="stat-label">Total eksponering</div>
                     </div>
                 </div>
+
+                ${report.categorySummary ? `
+                <!-- SECTION: Kategorifordeling -->
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Kategorifordeling (Kategori 1)</h4>
+                <div class="table-wrapper">
+                    <table class="data-table compact" style="font-size:13px;">
+                        <thead>
+                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th><th>Antall artikler</th></tr>
+                        </thead>
+                        <tbody>
+                            ${report.categorySummary.map(c => `
+                                <tr>
+                                    <td>${this.escapeHtml(c.name)}</td>
+                                    <td class="qty-cell">${this.formatNumber(c.sales)}</td>
+                                    <td class="qty-cell">${c.percentage.toFixed(1)} %</td>
+                                    <td class="qty-cell">${this.formatNumber(c.count)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : ''}
+
+                ${report.supplierSummary ? `
+                <!-- SECTION: Leverandørfordeling -->
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Leverandørfordeling (Topp 5)</h4>
+                <div class="table-wrapper">
+                    <table class="data-table compact" style="font-size:13px;">
+                        <thead>
+                            <tr><th>Leverandør</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th></tr>
+                        </thead>
+                        <tbody>
+                            ${report.supplierSummary.map(s => `
+                                <tr>
+                                    <td>${this.escapeHtml(s.name)}</td>
+                                    <td class="qty-cell">${this.formatNumber(s.sales)}</td>
+                                    <td class="qty-cell">${s.percentage.toFixed(1)} %</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : ''}
 
                 <!-- SECTION 2: Topp 20 Verdi -->
                 <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Verdi (${this.escapeHtml(salesLabel.toLowerCase())})</h4>
