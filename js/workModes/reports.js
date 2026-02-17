@@ -7,6 +7,7 @@ class ReportsMode {
     static dataStore = null;
     static selectedDepartments = new Set();
     static lastReport = null;
+    static currentReportData = null;
     static generating = false;
 
     /**
@@ -21,8 +22,8 @@ class ReportsMode {
 
         return `
             <div class="module-header">
-                <h2>Kvartalsrapport</h2>
-                <p class="module-description">Generer kvartalsrapport med avdelingsfilter. Velg en eller flere avdelinger og eksporter til Excel.</p>
+                <h2>Rapporter</h2>
+                <p class="module-description">Velg avdelinger, generer forhåndsvisning, og eksporter til Excel.</p>
             </div>
 
             <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:16px;margin-bottom:16px;">
@@ -59,11 +60,18 @@ class ReportsMode {
                             style="font-size:14px;padding:8px 20px;">
                         📋 Generer arbeidsrapport
                     </button>
+                    ${this.currentReportData ? `
+                    <button onclick="ReportsMode.exportQuarterlyExcel()"
+                            class="btn-export"
+                            style="font-size:14px;padding:8px 20px;background:#1565c0;color:#fff;">
+                        📥 Eksporter kvartalsrapport til Excel
+                    </button>
+                    ` : ''}
                     <span id="reportStatus" style="margin-left:4px;font-size:13px;color:#666;"></span>
                 </div>
             </div>
 
-            ${this.lastReport ? this.renderReportPreview(this.lastReport) : ''}
+            ${this.currentReportData ? this.renderReportPreview(this.currentReportData) : ''}
         `;
     }
 
@@ -234,6 +242,8 @@ class ReportsMode {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
                 description: item.description || '',
+                category: item.category || '',
+                supplier: item.supplier || '',
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 exposure,
@@ -245,6 +255,7 @@ class ReportsMode {
                 deptSales3m: Math.round(deptSales3m),
                 quarterlySales: salesData.quarterlySales,
                 salesByDepartment: deptSales,
+                currentQuarterSales: 0, // set below
                 discontinued,
                 status: item._status || 'UKJENT',
                 replacementNr: replacementNr || '',
@@ -256,11 +267,14 @@ class ReportsMode {
         // Current quarter
         const currentQ = 'Q' + (Math.floor(new Date().getMonth() / 3) + 1);
 
+        // Set currentQuarterSales on each row
+        rows.forEach(r => { r.currentQuarterSales = r.quarterlySales[currentQ] || 0; });
+
         // A) Summary
         const summary = {
             totalSales12m: rows.reduce((s, r) => s + r.salesLast12m, 0),
             totalSales3m: rows.reduce((s, r) => s + r.salesLast3m, 0),
-            currentQuarterSales: rows.reduce((s, r) => s + (r.quarterlySales[currentQ] || 0), 0),
+            currentQuarterSales: rows.reduce((s, r) => s + r.currentQuarterSales, 0),
             currentQuarter: currentQ,
             activeCount: rows.filter(r => !r.discontinued).length,
             discontinuedCount: rows.filter(r => r.discontinued).length,
@@ -271,15 +285,18 @@ class ReportsMode {
             selectedDepartments: Array.from(selectedDepts).sort().join(', ')
         };
 
-        // B) Top 20 by salesLast12m
-        const top20 = [...rows].sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 20);
+        // B) Top 20 by value (salesLast12m)
+        const top20Value = [...rows].sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 20);
 
-        // C) Risk list: discontinued + (exposure > 0 OR salesLast3m > 0)
+        // C) Top 20 by quantity (total order count from outgoing orders)
+        const top20Quantity = [...rows].sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 20);
+
+        // D) Risk list: discontinued + (exposure > 0 OR SA-migration required)
         const riskList = rows
-            .filter(r => r.discontinued && (r.exposure > 0 || r.salesLast3m > 0))
+            .filter(r => r.discontinued && (r.exposure > 0 || r.saMigrationRequired))
             .sort((a, b) => b.exposure - a.exposure);
 
-        // D) Department summary
+        // E) Department summary
         const deptSummary = {};
         for (const dept of selectedDepts) {
             deptSummary[dept] = { sales12m: 0, sales3m: 0, itemCount: 0 };
@@ -294,23 +311,13 @@ class ReportsMode {
             }
         });
 
-        // E) Opportunities: items selling OUTSIDE selected depts but low/no sales inside
-        const opportunities = rows.filter(r => {
-            // Has sales outside selected depts
-            const outsideSales = r.salesLast12m - r.deptSales12m;
-            // Low inside sales = less than 10% of total
-            return outsideSales > 0 && r.deptSales12m < r.salesLast12m * 0.1 && r.salesLast12m > 0;
-        }).sort((a, b) => b.salesLast12m - a.salesLast12m).slice(0, 50);
-
-        const report = { summary, top20, riskList, deptSummary, opportunities, rows };
+        const report = { summary, top20Value, top20Quantity, riskList, deptSummary, rows };
+        this.currentReportData = report;
         this.lastReport = report;
 
-        // Generate Excel
-        this.exportExcel(report);
+        if (statusEl) statusEl.textContent = `Rapport generert med ${rows.length} artikler. Klikk "Eksporter" for Excel.`;
 
-        if (statusEl) statusEl.textContent = `Rapport generert med ${rows.length} artikler.`;
-
-        // Re-render to show preview
+        // Re-render to show preview (no auto-download)
         this.refreshAll();
     }
 
@@ -518,173 +525,90 @@ class ReportsMode {
     //  EXCEL EXPORT – KVARTALSRAPPORT (SheetJS / XLSX)
     // ════════════════════════════════════════════════════
 
-    static exportExcel(report) {
+    /**
+     * Export quarterly report to Excel (triggered by export button, not auto)
+     */
+    static exportQuarterlyExcel() {
+        if (!this.currentReportData) return;
         if (typeof XLSX === 'undefined') {
             alert('XLSX-biblioteket er ikke lastet. Kan ikke eksportere.');
             return;
         }
 
+        const report = this.currentReportData;
         const wb = XLSX.utils.book_new();
+        const topHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', 'Salg 12m', 'Salg 3m', 'Salg innev. kvartal'];
 
         // Sheet 1: Sammendrag
-        this.addSummarySheet(wb, report.summary);
-
-        // Sheet 2: Topp 20
-        this.addTop20Sheet(wb, report.top20);
-
-        // Sheet 3: Risiko
-        this.addRiskSheet(wb, report.riskList);
-
-        // Sheet 4: Avdelingsfordeling
-        this.addDeptSheet(wb, report.deptSummary);
-
-        // Sheet 5: Muligheter
-        this.addOpportunitiesSheet(wb, report.opportunities);
-
-        // Generate filename: Kvartalsrapport_YYYY_QX.xlsx
-        const now = new Date();
-        const year = now.getFullYear();
-        const quarter = 'Q' + (Math.floor(now.getMonth() / 3) + 1);
-        const filename = `Kvartalsrapport_${year}_${quarter}.xlsx`;
-
-        XLSX.writeFile(wb, filename);
-    }
-
-    static addSummarySheet(wb, summary) {
-        const data = [
-            ['Kvartalsrapport - Sammendrag'],
+        const s = report.summary;
+        const summaryData = [
+            ['Kvartalsrapport'],
             ['Generert', new Date().toISOString().split('T')[0]],
-            ['Valgte avdelinger', summary.selectedDepartments],
+            ['Avdelinger', s.selectedDepartments],
             [],
             ['Nøkkeltall', 'Verdi'],
-            ['Totalt artikler i utvalg', summary.totalItems],
-            ['Aktive artikler', summary.activeCount],
-            ['Utgående artikler', summary.discontinuedCount],
-            ['SA-migrering påkrevd', summary.saMigrationCount],
-            [],
-            ['Salg', 'Antall'],
-            ['Total salg 12m', Math.round(summary.totalSales12m)],
-            ['Total salg 3m', Math.round(summary.totalSales3m)],
-            [`Salg ${summary.currentQuarter} (inneværende)`, Math.round(summary.currentQuarterSales)],
-            [],
-            ['Eksponering', 'Verdi'],
-            ['Total eksponering (lager + innkjøp)', Math.round(summary.totalExposure)],
-            ['Estimert verdi (NOK)', Math.round(summary.totalEstimertVerdi)]
+            ['Aktive artikler', s.activeCount],
+            ['Salg 12m', Math.round(s.totalSales12m)],
+            ['Salg 3m', Math.round(s.totalSales3m)],
+            ['Utgående artikler', s.discontinuedCount],
+            ['SA-migrering påkrevd', s.saMigrationCount],
+            ['Total eksponering', Math.round(s.totalExposure)]
         ];
+        const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+        ws1['!cols'] = [{ wch: 30 }, { wch: 25 }];
+        XLSX.utils.book_append_sheet(wb, ws1, 'Sammendrag');
 
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        // Widen columns
-        ws['!cols'] = [{ wch: 35 }, { wch: 30 }];
-        XLSX.utils.book_append_sheet(wb, ws, 'Sammendrag');
-    }
-
-    static addTop20Sheet(wb, top20) {
-        const headers = ['#', 'Tools Nr', 'SA-nummer', 'Beskrivelse', 'Saldo', 'Salg 12m', 'Salg 3m', 'Avd. salg 12m', 'Avd. salg 3m', 'Eksponering', 'Estimert verdi', 'Status'];
-        const data = [headers];
-
-        top20.forEach((r, i) => {
-            data.push([
-                i + 1,
-                r.toolsNr,
-                r.saNumber,
-                r.description,
-                r.stock,
-                r.salesLast12m,
-                r.salesLast3m,
-                r.deptSales12m,
-                r.deptSales3m,
-                r.exposure,
-                Math.round(r.estimertVerdi),
-                r.status
-            ]);
+        // Sheet 2: Topp20_Verdi
+        const top20vData = [topHeaders];
+        report.top20Value.forEach((r, i) => {
+            top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, r.salesLast12m, r.salesLast3m, r.currentQuarterSales]);
         });
+        const ws2 = XLSX.utils.aoa_to_sheet(top20vData);
+        ws2['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [
-            { wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
-            { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
-            { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }
-        ];
-        XLSX.utils.book_append_sheet(wb, ws, 'Topp 20');
-    }
-
-    static addRiskSheet(wb, riskList) {
-        const headers = ['Tools Nr', 'SA-nummer', 'Beskrivelse', 'Status', 'Saldo', 'Innkommende', 'Eksponering', 'Salg 3m', 'Salg 12m', 'Erstatning', 'SA-migr. påkrevd'];
-        const data = [headers];
-
-        riskList.forEach(r => {
-            data.push([
-                r.toolsNr,
-                r.saNumber,
-                r.description,
-                r.status,
-                r.stock,
-                r.bestAntLev,
-                r.exposure,
-                r.salesLast3m,
-                r.salesLast12m,
-                r.replacementNr,
-                r.saMigrationRequired ? 'JA' : 'NEI'
-            ]);
+        // Sheet 3: Topp20_Antall
+        const top20qData = [topHeaders];
+        report.top20Quantity.forEach((r, i) => {
+            top20qData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, r.salesLast12m, r.salesLast3m, r.currentQuarterSales]);
         });
+        const ws3 = XLSX.utils.aoa_to_sheet(top20qData);
+        ws3['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
+        XLSX.utils.book_append_sheet(wb, ws3, 'Topp20_Antall');
 
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [
-            { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 12 },
-            { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
-            { wch: 10 }, { wch: 16 }, { wch: 14 }
-        ];
-        XLSX.utils.book_append_sheet(wb, ws, 'Risiko');
-    }
+        // Sheet 4: Risiko
+        const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager', 'Eksponering', 'Salg 3m', 'SA-migrering påkrevd'];
+        const riskData = [riskHeaders];
+        report.riskList.forEach(r => {
+            riskData.push([r.toolsNr, r.description, r.stock, r.exposure, r.salesLast3m, r.saMigrationRequired ? 'Ja' : 'Nei']);
+        });
+        const ws4 = XLSX.utils.aoa_to_sheet(riskData);
+        ws4['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
+        XLSX.utils.book_append_sheet(wb, ws4, 'Risiko');
 
-    static addDeptSheet(wb, deptSummary) {
-        const headers = ['Avdeling', 'Artikler', 'Salg 12m', 'Salg 3m'];
-        const data = [headers];
-
-        const depts = Object.keys(deptSummary).sort();
+        // Sheet 5: Avdelingsfordeling
+        const deptHeaders = ['Avdeling', 'Artikler', 'Salg 12m', 'Salg 3m'];
+        const deptData = [deptHeaders];
+        const depts = Object.keys(report.deptSummary).sort();
         let totalItems = 0, total12m = 0, total3m = 0;
-
         depts.forEach(dept => {
-            const d = deptSummary[dept];
-            data.push([dept, d.itemCount, Math.round(d.sales12m), Math.round(d.sales3m)]);
+            const d = report.deptSummary[dept];
+            deptData.push([dept, d.itemCount, Math.round(d.sales12m), Math.round(d.sales3m)]);
             totalItems += d.itemCount;
             total12m += d.sales12m;
             total3m += d.sales3m;
         });
+        deptData.push([]);
+        deptData.push(['TOTALT', totalItems, Math.round(total12m), Math.round(total3m)]);
+        const ws5 = XLSX.utils.aoa_to_sheet(deptData);
+        ws5['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+        XLSX.utils.book_append_sheet(wb, ws5, 'Avdelingsfordeling');
 
-        data.push([]);
-        data.push(['TOTALT', totalItems, Math.round(total12m), Math.round(total3m)]);
-
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
-        XLSX.utils.book_append_sheet(wb, ws, 'Avdelingsfordeling');
-    }
-
-    static addOpportunitiesSheet(wb, opportunities) {
-        const headers = ['Tools Nr', 'SA-nummer', 'Beskrivelse', 'Total salg 12m', 'Avd. salg 12m', 'Salg utenfor avd.', 'Andel utenfor', 'Status'];
-        const data = [headers];
-
-        opportunities.forEach(r => {
-            const outsideSales = r.salesLast12m - r.deptSales12m;
-            const pct = r.salesLast12m > 0 ? Math.round((outsideSales / r.salesLast12m) * 100) : 0;
-            data.push([
-                r.toolsNr,
-                r.saNumber,
-                r.description,
-                r.salesLast12m,
-                r.deptSales12m,
-                outsideSales,
-                pct + '%',
-                r.status
-            ]);
-        });
-
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [
-            { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 14 },
-            { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 12 }
-        ];
-        XLSX.utils.book_append_sheet(wb, ws, 'Muligheter');
+        // Write file
+        const now = new Date();
+        const year = now.getFullYear();
+        const quarter = 'Q' + (Math.floor(now.getMonth() / 3) + 1);
+        XLSX.writeFile(wb, `Kvartalsrapport_${year}_${quarter}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
@@ -693,13 +617,15 @@ class ReportsMode {
 
     static renderReportPreview(report) {
         const s = report.summary;
+
         return `
             <div style="border:1px solid #dee2e6;border-radius:6px;padding:16px;margin-bottom:16px;">
-                <h3 style="margin:0 0 12px 0;font-size:15px;">Siste rapport – ${s.selectedDepartments}</h3>
+                <!-- SECTION 1: Sammendrag -->
+                <h3 style="margin:0 0 12px 0;font-size:15px;">Sammendrag – ${this.escapeHtml(s.selectedDepartments)}</h3>
                 <div class="alt-analysis-summary">
                     <div class="stat-card">
-                        <div class="stat-value">${this.formatNumber(s.totalItems)}</div>
-                        <div class="stat-label">Artikler</div>
+                        <div class="stat-value">${this.formatNumber(s.activeCount)}</div>
+                        <div class="stat-label">Aktive artikler</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">${this.formatNumber(Math.round(s.totalSales12m))}</div>
@@ -717,21 +643,52 @@ class ReportsMode {
                         <div class="stat-value">${s.saMigrationCount}</div>
                         <div class="stat-label">SA-migr. påkrevd</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.formatNumber(Math.round(s.totalExposure))}</div>
+                        <div class="stat-label">Total eksponering</div>
+                    </div>
                 </div>
 
-                <div style="margin-top:12px;">
-                    <strong style="font-size:13px;">Risikoliste:</strong>
-                    <span style="font-size:13px;color:#666;">${report.riskList.length} utgående artikler med eksponering eller nylig salg</span>
-                </div>
-                <div style="margin-top:4px;">
-                    <strong style="font-size:13px;">Muligheter:</strong>
-                    <span style="font-size:13px;color:#666;">${report.opportunities.length} artikler med salg primært utenfor valgte avdelinger</span>
-                </div>
+                <!-- SECTION 2: Topp 20 Verdi -->
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Verdi (salg 12m)</h4>
+                ${this.renderTop20Table(report.top20Value)}
 
+                <!-- SECTION 3: Topp 20 Antall -->
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Topp 20 – Antall</h4>
+                ${this.renderTop20Table(report.top20Quantity)}
+
+                <!-- SECTION 4: Risiko -->
+                <h4 style="margin:20px 0 8px 0;font-size:14px;">Risiko (${report.riskList.length} artikler)</h4>
+                ${report.riskList.length === 0
+                    ? '<p style="color:#888;font-size:13px;">Ingen risikoartikler funnet.</p>'
+                    : `
+                    <div class="table-wrapper">
+                        <table class="data-table compact" style="font-size:13px;">
+                            <thead>
+                                <tr><th>Tools nr</th><th>Beskrivelse</th><th>Lager</th><th>Eksponering</th><th>Salg 3m</th><th>SA-migr. påkrevd</th></tr>
+                            </thead>
+                            <tbody>
+                                ${report.riskList.slice(0, 30).map(r => `
+                                    <tr class="row-warning">
+                                        <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
+                                        <td>${this.escapeHtml(r.description)}</td>
+                                        <td class="qty-cell">${this.formatNumber(r.stock)}</td>
+                                        <td class="qty-cell">${this.formatNumber(r.exposure)}</td>
+                                        <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
+                                        <td>${r.saMigrationRequired ? '<span class="badge badge-critical">Ja</span>' : 'Nei'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${report.riskList.length > 30 ? `<p style="color:#888;font-size:12px;">Viser 30 av ${report.riskList.length} (alle i Excel)</p>` : ''}
+                    `}
+
+                <!-- SECTION 5: Avdelingsfordeling -->
                 ${Object.keys(report.deptSummary).length > 0 ? `
-                    <div style="margin-top:12px;">
-                        <strong style="font-size:13px;">Avdelingsfordeling:</strong>
-                        <table class="data-table compact" style="margin-top:6px;font-size:13px;">
+                    <h4 style="margin:20px 0 8px 0;font-size:14px;">Avdelingsfordeling</h4>
+                    <div class="table-wrapper">
+                        <table class="data-table compact" style="font-size:13px;">
                             <thead>
                                 <tr><th>Avdeling</th><th>Artikler</th><th>Salg 12m</th><th>Salg 3m</th></tr>
                             </thead>
@@ -749,6 +706,40 @@ class ReportsMode {
                         </table>
                     </div>
                 ` : ''}
+            </div>
+        `;
+    }
+
+    static renderTop20Table(rows) {
+        if (!rows || rows.length === 0) {
+            return '<p style="color:#888;font-size:13px;">Ingen data.</p>';
+        }
+        return `
+            <div class="table-wrapper">
+                <table class="data-table compact" style="font-size:13px;">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
+                            <th>Varegruppe</th><th>Leverandør</th>
+                            <th>Salg 12m</th><th>Salg 3m</th><th>Salg innev. kvartal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((r, i) => `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
+                                <td>${this.escapeHtml(r.saNumber)}</td>
+                                <td>${this.escapeHtml(r.description)}</td>
+                                <td>${this.escapeHtml(r.category)}</td>
+                                <td>${this.escapeHtml(r.supplier)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.salesLast12m)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
+                                <td class="qty-cell">${this.formatNumber(r.currentQuarterSales)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
             </div>
         `;
     }
