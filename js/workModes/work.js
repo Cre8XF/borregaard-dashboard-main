@@ -17,6 +17,7 @@ class WorkMode {
     static priorityQueue = [];
     static activeFilters = new Set(); // 'high' | 'exposure' | 'stock' | 'noSa'
     static pqSearch = '';
+    static archiveExpanded = false;
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -48,7 +49,7 @@ class WorkMode {
                     </button>
                     <button class="view-tab ${this.currentSubTab === 'noSa' ? 'active' : ''}"
                             onclick="WorkMode.switchSubTab('noSa')">
-                        Lager uten SA (${stats.noSaWithStock})
+                        Uten SA (${stats.noSaDriftsrelevante} aktive / ${stats.noSaArkivkandidater} arkiv)
                     </button>
                     <button class="view-tab ${this.currentSubTab === 'outgoing' ? 'active' : ''}"
                             onclick="WorkMode.switchSubTab('outgoing')">
@@ -120,6 +121,23 @@ class WorkMode {
         const noSaData = store.getArticlesWithoutSA();
         const noSaWithStock = noSaData.withStock ? noSaData.withStock.length : 0;
 
+        // Driftsrelevante vs Arkivkandidater (all masterOnlyArticles)
+        let noSaDriftsrelevante = 0;
+        let noSaArkivkandidater = 0;
+        let noSaDriftsVerdiKr = 0;
+        if (store.masterOnlyArticles) {
+            store.masterOnlyArticles.forEach(data => {
+                const s = data.stock || 0;
+                const b = data.bestAntLev || 0;
+                if (s > 0 || b > 0) {
+                    noSaDriftsrelevante++;
+                    noSaDriftsVerdiKr += s * (data.kalkylPris || 0);
+                } else {
+                    noSaArkivkandidater++;
+                }
+            });
+        }
+
         return {
             saMigrationHigh,
             discWithExposure,
@@ -127,6 +145,9 @@ class WorkMode {
             discWithStock,
             discStockValueKr: Math.round(discStockValueKr),
             noSaWithStock,
+            noSaDriftsrelevante,
+            noSaArkivkandidater,
+            noSaDriftsVerdiKr: Math.round(noSaDriftsVerdiKr),
             deadStockCount,
             deadStockValueKr: Math.round(deadStockValueKr)
         };
@@ -292,12 +313,13 @@ class WorkMode {
             <div style="${blockStyle}background:#fff8e1;border:1px solid #ffe082;">
                 <h4 style="margin:0 0 10px 0;font-size:13px;font-weight:700;color:#e65100;text-transform:uppercase;letter-spacing:0.5px;">Risiko</h4>
                 <div style="${rowStyle}"><span>Utgående med lager</span><span style="${valStyle}color:#e65100;">${stats.discWithStock} stk</span></div>
-                <div style="${rowStyle}"><span>Lager uten SA</span><span style="${valStyle}color:#e65100;">${stats.noSaWithStock} stk</span></div>
+                <div style="${rowStyle}"><span>Driftsrel. uten SA</span><span style="${valStyle}color:#e65100;">${stats.noSaDriftsrelevante} stk</span></div>
                 <div style="${rowStyle}border-top:1px solid #ffe082;padding-top:8px;margin-top:4px;"><span>Kapital i utgående</span><span style="${valStyle}color:#e65100;">${this.fmtKr(stats.discStockValueKr)}</span></div>
             </div>
             <div style="${blockStyle}background:#f5f5f5;border:1px solid #e0e0e0;">
                 <h4 style="margin:0 0 10px 0;font-size:13px;font-weight:700;color:#616161;text-transform:uppercase;letter-spacing:0.5px;">Opprydding</h4>
                 <div style="${rowStyle}"><span>Død lager</span><span style="${valStyle}color:#616161;">${stats.deadStockCount} stk</span></div>
+                <div style="${rowStyle}"><span>Arkivkandidater</span><span style="${valStyle}color:#616161;">${stats.noSaArkivkandidater} stk</span></div>
                 <div style="${rowStyle}border-top:1px solid #e0e0e0;padding-top:8px;margin-top:4px;"><span>Kapital i dødt lager</span><span style="${valStyle}color:#616161;">${this.fmtKr(stats.deadStockValueKr)}</span></div>
             </div>
         </div>
@@ -409,10 +431,178 @@ class WorkMode {
     // ════════════════════════════════════════════════════
 
     static renderNoSaTab(store) {
-        if (typeof NoSaArticlesMode !== 'undefined') {
-            return NoSaArticlesMode.render(store);
+        // Build items directly from masterOnlyArticles
+        const allItems = [];
+        if (store.masterOnlyArticles) {
+            store.masterOnlyArticles.forEach((data, toolsNr) => {
+                const stock = data.stock || 0;
+                const bestAntLev = data.bestAntLev || 0;
+                const kalkylPris = data.kalkylPris || 0;
+                allItems.push({
+                    toolsNr,
+                    description: data.description || '',
+                    stock,
+                    bestAntLev,
+                    bestillingspunkt: 0, // BP only available for SA-articles via Analyse_Lagerplan
+                    estimertVerdi: stock > 0 ? Math.round(stock * kalkylPris) : 0,
+                    supplier: data.supplier || '',
+                    _status: data._status || 'UKJENT',
+                    brand: data.brand || '',
+                    supplierId: data.supplierId || ''
+                });
+            });
         }
-        return '<p>NoSaArticlesMode er ikke lastet.</p>';
+
+        // Split: Driftsrelevante vs Arkivkandidater
+        const operational = allItems.filter(i => i.stock > 0 || i.bestAntLev > 0 || i.bestillingspunkt > 0);
+        const archive = allItems.filter(i => i.stock === 0 && i.bestAntLev === 0 && i.bestillingspunkt === 0);
+
+        // Apply search
+        let filteredOps = operational;
+        let filteredArc = archive;
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            const searchFn = r =>
+                r.toolsNr.toLowerCase().includes(term) ||
+                r.description.toLowerCase().includes(term) ||
+                r.supplier.toLowerCase().includes(term);
+            filteredOps = filteredOps.filter(searchFn);
+            filteredArc = filteredArc.filter(searchFn);
+        }
+
+        // Sort
+        filteredOps = this.applySortToRows(filteredOps, 'stock', [
+            (a, b) => b.stock - a.stock,
+            (a, b) => b.bestAntLev - a.bestAntLev
+        ]);
+        filteredArc = this.applySortToRows(filteredArc, 'toolsNr', [
+            (a, b) => a.toolsNr.localeCompare(b.toolsNr, 'nb-NO')
+        ]);
+
+        const totalDriftsVerdi = operational.reduce((s, i) => s + i.estimertVerdi, 0);
+
+        // ── Summary cards ──
+        const summaryHtml = `
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:12px 0;">
+                <div style="padding:14px;background:#e8f5e9;border-radius:6px;border:1px solid #c8e6c9;">
+                    <div style="font-size:24px;font-weight:700;color:#2e7d32;">${operational.length}</div>
+                    <div style="font-size:13px;font-weight:600;color:#2e7d32;">Driftsrelevante uten SA</div>
+                    <div style="font-size:11px;color:#558b2f;margin-top:4px;">Bundet kapital: ${this.fmtKr(totalDriftsVerdi)}</div>
+                </div>
+                <div style="padding:14px;background:#fafafa;border-radius:6px;border:1px solid #e0e0e0;">
+                    <div style="font-size:24px;font-weight:700;color:#9e9e9e;">${archive.length}</div>
+                    <div style="font-size:13px;font-weight:600;color:#757575;">Arkivkandidater</div>
+                    <div style="font-size:11px;color:#9e9e9e;margin-top:4px;">Ingen kapitalbinding</div>
+                </div>
+            </div>
+        `;
+
+        // ── Search ──
+        const searchHtml = `
+            <div class="module-controls" style="margin-top:8px;">
+                <div class="search-group">
+                    <input type="text" class="search-input" placeholder="Søk artikkel..."
+                           value="${this.searchTerm}"
+                           onkeyup="WorkMode.handleSearch(this.value)">
+                </div>
+            </div>
+        `;
+
+        // ── Section A: Driftsrelevante ──
+        let sectionA;
+        if (filteredOps.length === 0) {
+            sectionA = '<div class="alert alert-info" style="font-size:13px;">Ingen driftsrelevante artikler uten SA funnet.</div>';
+        } else {
+            sectionA = `
+                <h4 style="margin:16px 0 8px 0;font-size:14px;color:#2e7d32;">Driftsrelevante uten SA</h4>
+                <div class="table-wrapper">
+                    <table class="data-table compact">
+                        <thead>
+                            <tr>
+                                ${this.th('Tools nr', 'toolsNr')}
+                                ${this.th('Beskrivelse', 'description')}
+                                ${this.th('Lager (stk)', 'stock')}
+                                ${this.th('Innkommende (stk)', 'bestAntLev')}
+                                ${this.th('BP', 'bestillingspunkt')}
+                                ${this.th('Est. verdi', 'estimertVerdi')}
+                                ${this.th('Leverandør', 'supplier')}
+                                <th>Prioritet</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filteredOps.map(r => `
+                                <tr>
+                                    <td><strong>${this.esc(r.toolsNr)}</strong></td>
+                                    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
+                                    <td class="qty-cell">${this.fmt(r.stock)}</td>
+                                    <td class="qty-cell">${r.bestAntLev > 0 ? this.fmt(r.bestAntLev) : '-'}</td>
+                                    <td class="qty-cell">${r.bestillingspunkt > 0 ? this.fmt(r.bestillingspunkt) : '-'}</td>
+                                    <td class="qty-cell">${r.estimertVerdi > 0 ? this.fmtKr(r.estimertVerdi) : '-'}</td>
+                                    <td>${this.esc(r.supplier)}</td>
+                                    <td>${this.noSaBadges(r)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer"><p class="text-muted">Viser ${filteredOps.length} driftsrelevante artikler</p></div>
+            `;
+        }
+
+        // ── Section B: Arkivkandidater (collapsed by default) ──
+        const arcLimit = 100;
+        const arcDisplay = this.archiveExpanded ? filteredArc.slice(0, arcLimit) : [];
+        const sectionB = `
+            <div style="margin-top:20px;border-top:1px solid #e0e0e0;padding-top:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;"
+                     onclick="WorkMode.toggleArchive()">
+                    <h4 style="margin:0;font-size:14px;color:#757575;">
+                        ${this.archiveExpanded ? '&#9660;' : '&#9654;'} Arkivkandidater (${archive.length})
+                    </h4>
+                    <span style="font-size:12px;color:#9e9e9e;">${this.archiveExpanded ? 'Skjul' : 'Vis'}</span>
+                </div>
+                ${this.archiveExpanded ? `
+                    <p style="font-size:12px;color:#9e9e9e;margin:8px 0;">Artikler uten lager, innkommende og bestillingspunkt. Kandidater for opprydding i Master.</p>
+                    ${filteredArc.length === 0
+                        ? '<div class="alert alert-info" style="font-size:13px;">Ingen arkivkandidater funnet med valgt søk.</div>'
+                        : `
+                        <div class="table-wrapper">
+                            <table class="data-table compact" style="font-size:12px;">
+                                <thead>
+                                    <tr>
+                                        ${this.th('Tools nr', 'toolsNr')}
+                                        ${this.th('Beskrivelse', 'description')}
+                                        ${this.th('Lager (stk)', 'stock')}
+                                        ${this.th('Innkommende (stk)', 'bestAntLev')}
+                                        ${this.th('BP', 'bestillingspunkt')}
+                                        ${this.th('Status', '_status')}
+                                        ${this.th('Leverandør', 'supplier')}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${arcDisplay.map(r => `
+                                        <tr>
+                                            <td>${this.esc(r.toolsNr)}</td>
+                                            <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
+                                            <td class="qty-cell">0</td>
+                                            <td class="qty-cell">0</td>
+                                            <td class="qty-cell">-</td>
+                                            <td>${this.statusBadge(r._status)}</td>
+                                            <td>${this.esc(r.supplier)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${filteredArc.length > arcLimit
+                            ? `<div class="table-footer"><p class="text-muted">Viser ${arcLimit} av ${filteredArc.length} arkivkandidater</p></div>`
+                            : `<div class="table-footer"><p class="text-muted">Viser ${arcDisplay.length} arkivkandidater</p></div>`}
+                        `}
+                ` : ''}
+            </div>
+        `;
+
+        return summaryHtml + searchHtml + sectionA + sectionB;
     }
 
     // ════════════════════════════════════════════════════
@@ -656,6 +846,14 @@ class WorkMode {
         this.refreshPriority();
     }
 
+    static toggleArchive() {
+        this.archiveExpanded = !this.archiveExpanded;
+        const el = document.getElementById('workSubContent');
+        if (el && this.dataStore) {
+            el.innerHTML = this.renderSubTab(this.dataStore);
+        }
+    }
+
     static refreshPriority() {
         const el = document.getElementById('prioritySection');
         if (el) {
@@ -739,6 +937,15 @@ class WorkMode {
         if (score >= 80) return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffe0b2;color:#e65100;">Høy</span>';
         if (score >= 40) return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">Medium</span>';
         return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;color:#757575;background:#f5f5f5;">Lav</span>';
+    }
+
+    static noSaBadges(item) {
+        const badges = [];
+        const bs = 'display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;margin-right:3px;';
+        if (item.stock > 0) badges.push(`<span style="${bs}background:#c8e6c9;color:#2e7d32;">Har lager</span>`);
+        if (item.bestillingspunkt > 0) badges.push(`<span style="${bs}background:#bbdefb;color:#1565c0;">Har BP</span>`);
+        if (item.bestAntLev > 0) badges.push(`<span style="${bs}background:#fff9c4;color:#f57f17;">Innkommende</span>`);
+        return badges.length > 0 ? badges.join('') : '-';
     }
 
     static urgencyBadge(level) {
