@@ -706,19 +706,19 @@ class ReportsMode {
             ['Avdelinger', s.selectedDepartments],
             [],
             ['Nøkkeltall', 'Verdi'],
-            ['Aktive artikler', s.activeCount],
-            [salesColLabel, Math.round(s.totalSales12m)],
-            ...(!isQ ? [['Salg 3m', Math.round(s.totalSales3m)]] : []),
-            ['Utgående artikler', s.discontinuedCount],
-            ['SA-migrering påkrevd', s.saMigrationCount],
-            ['Total eksponering', Math.round(s.totalExposure)]
+            ['Aktive artikler (stk)', s.activeCount],
+            [salesColLabel + ' (kr)', Math.round(s.totalSales12m)],
+            ...(!isQ ? [['Salg 3m (kr)', Math.round(s.totalSales3m)]] : []),
+            ['Utgående artikler (stk)', s.discontinuedCount],
+            ['SA-migrering påkrevd (stk)', s.saMigrationCount],
+            ['Total eksponering (kr)', Math.round(s.totalExposure)]
         ];
         const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
         ws1['!cols'] = [{ wch: 30 }, { wch: 25 }];
         XLSX.utils.book_append_sheet(wb, ws1, 'Sammendrag');
 
         // Sheet 2: Topp20_Verdi
-        const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel, 'Salg 3m', 'Salg innev. kvartal'];
+        const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel + ' (kr)', 'Salg 3m (kr)', 'Salg innev. kvartal (kr)'];
         const top20vData = [valueHeaders];
         report.top20Value.forEach((r, i) => {
             top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getSalesVal(r), r.salesLast3m, r.currentQuarterSales]);
@@ -728,7 +728,7 @@ class ReportsMode {
         XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
         // Sheet 3: Topp20_Antall (order count as primary metric)
-        const qtyHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', qtyColLabel, 'Salg 12m', 'Salg 3m'];
+        const qtyHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', qtyColLabel + ' (stk)', 'Salg 12m (kr)', 'Salg 3m (kr)'];
         const top20qData = [qtyHeaders];
         report.top20Quantity.forEach((r, i) => {
             top20qData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getQtyVal(r), r.salesLast12m, r.salesLast3m]);
@@ -738,7 +738,7 @@ class ReportsMode {
         XLSX.utils.book_append_sheet(wb, ws3, 'Topp20_Antall');
 
         // Sheet 4: Risiko
-        const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager', 'Eksponering', 'Salg 3m', 'SA-migrering påkrevd'];
+        const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager (stk)', 'Eksponering (kr)', 'Salg 3m (kr)', 'SA-migrering påkrevd'];
         const riskData = [riskHeaders];
         report.riskList.forEach(r => {
             riskData.push([r.toolsNr, r.description, r.stock, r.exposure, r.salesLast3m, r.saMigrationRequired ? 'Ja' : 'Nei']);
@@ -748,7 +748,7 @@ class ReportsMode {
         XLSX.utils.book_append_sheet(wb, ws4, 'Risiko');
 
         // Sheet 5: Avdelingsfordeling
-        const deptHeaders = ['Avdeling', 'Artikler', 'Salg 12m', 'Salg 3m'];
+        const deptHeaders = ['Avdeling', 'Artikler (stk)', 'Salg 12m (kr)', 'Salg 3m (kr)'];
         const deptData = [deptHeaders];
         const depts = Object.keys(report.deptSummary).sort();
         let totalItems = 0, total12m = 0, total3m = 0;
@@ -767,7 +767,7 @@ class ReportsMode {
 
         // Sheet 6: Kategorifordeling (only if categoryData present)
         if (report.categorySummary) {
-            const catHeaders = ['Kategori', 'Salg', 'Andel %', 'Antall artikler'];
+            const catHeaders = ['Kategori', 'Salg (kr)', 'Andel (%)', 'Antall artikler (stk)'];
             const catData = [catHeaders];
             report.categorySummary.forEach(c => {
                 catData.push([c.name, c.sales, c.percentage, c.count]);
@@ -779,7 +779,7 @@ class ReportsMode {
 
         // Sheet 7: Leverandørfordeling (only if categoryData present)
         if (report.supplierSummary) {
-            const supHeaders = ['Leverandør', 'Salg', 'Andel %'];
+            const supHeaders = ['Leverandør', 'Salg (kr)', 'Andel (%)'];
             const supData = [supHeaders];
             report.supplierSummary.forEach(s => {
                 supData.push([s.name, s.sales, s.percentage]);
@@ -842,28 +842,28 @@ class ReportsMode {
                 </p>
                 <div class="alt-analysis-summary">
                     <div class="stat-card">
-                        <div class="stat-value">${this.formatNumber(s.activeCount)}</div>
+                        <div class="stat-value">${this.formatUnits(s.activeCount)}</div>
                         <div class="stat-label">Aktive artikler</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${this.formatNumber(Math.round(s.totalSales12m))}</div>
+                        <div class="stat-value">${this.formatCurrency(s.totalSales12m)}</div>
                         <div class="stat-label">${this.escapeHtml(salesLabel)}</div>
                     </div>
                     ${!s.isQuarterFilter ? `
                     <div class="stat-card">
-                        <div class="stat-value">${this.formatNumber(Math.round(s.totalSales3m))}</div>
+                        <div class="stat-value">${this.formatCurrency(s.totalSales3m)}</div>
                         <div class="stat-label">Salg 3m</div>
                     </div>` : ''}
                     <div class="stat-card ${s.discontinuedCount > 0 ? 'warning' : ''}">
-                        <div class="stat-value">${s.discontinuedCount}</div>
+                        <div class="stat-value">${this.formatUnits(s.discontinuedCount)}</div>
                         <div class="stat-label">Utgående</div>
                     </div>
                     <div class="stat-card ${s.saMigrationCount > 0 ? 'critical' : ''}">
-                        <div class="stat-value">${s.saMigrationCount}</div>
+                        <div class="stat-value">${this.formatUnits(s.saMigrationCount)}</div>
                         <div class="stat-label">SA-migr. påkrevd</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${this.formatNumber(Math.round(s.totalExposure))}</div>
+                        <div class="stat-value">${this.formatCurrency(s.totalExposure)}</div>
                         <div class="stat-label">Total eksponering</div>
                     </div>
                 </div>
@@ -883,15 +883,15 @@ class ReportsMode {
                 <div class="table-wrapper" style="margin-bottom:20px;">
                     <table class="data-table compact" style="${tblStyle}">
                         <thead>
-                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th><th>Aktive artikler</th></tr>
+                            <tr><th>Kategori</th><th>${this.escapeHtml(salesLabel)} (kr)</th><th>Andel (%)</th><th>Aktive artikler (stk)</th></tr>
                         </thead>
                         <tbody>
                             ${report.categorySummary.slice(0, 5).map(c => `
                                 <tr>
                                     <td>${this.escapeHtml(c.name)}</td>
-                                    <td class="qty-cell">${this.formatNumber(c.sales)}</td>
-                                    <td class="qty-cell">${c.percentage.toFixed(1)} %</td>
-                                    <td class="qty-cell">${this.formatNumber(c.count)}</td>
+                                    <td class="qty-cell">${this.formatCurrency(c.sales)}</td>
+                                    <td class="qty-cell">${this.formatPercent(c.percentage)}</td>
+                                    <td class="qty-cell">${this.formatUnits(c.count)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -904,14 +904,14 @@ class ReportsMode {
                 <div class="table-wrapper" style="margin-bottom:20px;">
                     <table class="data-table compact" style="${tblStyle}">
                         <thead>
-                            <tr><th>Leverandør</th><th>${this.escapeHtml(salesLabel)}</th><th>Andel</th></tr>
+                            <tr><th>Leverandør</th><th>${this.escapeHtml(salesLabel)} (kr)</th><th>Andel (%)</th></tr>
                         </thead>
                         <tbody>
                             ${report.supplierSummary.map(sup => `
                                 <tr>
                                     <td>${this.escapeHtml(sup.name)}</td>
-                                    <td class="qty-cell">${this.formatNumber(sup.sales)}</td>
-                                    <td class="qty-cell">${sup.percentage.toFixed(1)} %</td>
+                                    <td class="qty-cell">${this.formatCurrency(sup.sales)}</td>
+                                    <td class="qty-cell">${this.formatPercent(sup.percentage)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -940,7 +940,7 @@ class ReportsMode {
                     <div class="table-wrapper" style="margin-bottom:16px;">
                         <table class="data-table compact" style="${tblStyle}">
                             <thead>
-                                <tr><th>Tools nr</th><th>Lager</th><th>Eksponering</th><th>${this.escapeHtml(salesLabel)}</th><th>SA-migr.</th></tr>
+                                <tr><th>Tools nr</th><th>Lager (stk)</th><th>Eksponering (kr)</th><th>${this.escapeHtml(salesLabel)} (kr)</th><th>SA-migr.</th></tr>
                             </thead>
                             <tbody>
                                 ${report.riskList.slice(0, 20).map(r => {
@@ -948,9 +948,9 @@ class ReportsMode {
                                     return `
                                     <tr>
                                         <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
-                                        <td class="qty-cell">${this.formatNumber(r.stock)}</td>
-                                        <td class="qty-cell">${this.formatNumber(r.exposure)}</td>
-                                        <td class="qty-cell">${this.formatNumber(periodSales)}</td>
+                                        <td class="qty-cell">${this.formatUnits(r.stock)}</td>
+                                        <td class="qty-cell">${this.formatCurrency(r.exposure)}</td>
+                                        <td class="qty-cell">${this.formatCurrency(periodSales)}</td>
                                         <td>${r.saMigrationRequired ? '<span class="badge badge-critical">Ja</span>' : 'Nei'}</td>
                                     </tr>`;
                                 }).join('')}
@@ -965,16 +965,16 @@ class ReportsMode {
                     <div class="table-wrapper">
                         <table class="data-table compact" style="${tblStyle}">
                             <thead>
-                                <tr><th>Avdeling</th><th>Artikler</th><th>Salg 12m</th><th>Salg 3m</th></tr>
+                                <tr><th>Avdeling</th><th>Artikler (stk)</th><th>Salg 12m (kr)</th><th>Salg 3m (kr)</th></tr>
                             </thead>
                             <tbody>
                                 ${Object.keys(report.deptSummary).sort().map(dept => {
                                     const d = report.deptSummary[dept];
                                     return `<tr>
                                         <td>${this.escapeHtml(dept)}</td>
-                                        <td class="qty-cell">${d.itemCount}</td>
-                                        <td class="qty-cell">${this.formatNumber(Math.round(d.sales12m))}</td>
-                                        <td class="qty-cell">${this.formatNumber(Math.round(d.sales3m))}</td>
+                                        <td class="qty-cell">${this.formatUnits(d.itemCount)}</td>
+                                        <td class="qty-cell">${this.formatCurrency(d.sales12m)}</td>
+                                        <td class="qty-cell">${this.formatCurrency(d.sales3m)}</td>
                                     </tr>`;
                                 }).join('')}
                             </tbody>
@@ -1005,7 +1005,7 @@ class ReportsMode {
                         <tr>
                             <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
                             <th>Varegruppe</th><th>Leverandør</th>
-                            <th>${this.escapeHtml(salesCol)}</th><th>Salg 3m</th><th>Salg innev. kvartal</th>
+                            <th>${this.escapeHtml(salesCol)} (kr)</th><th>Salg 3m (kr)</th><th>Salg innev. kvartal (kr)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1017,9 +1017,9 @@ class ReportsMode {
                                 <td>${this.escapeHtml(r.description)}</td>
                                 <td>${this.escapeHtml(r.category)}</td>
                                 <td>${this.escapeHtml(r.supplier)}</td>
-                                <td class="qty-cell">${this.formatNumber(getSalesVal(r))}</td>
-                                <td class="qty-cell">${this.formatNumber(r.salesLast3m)}</td>
-                                <td class="qty-cell">${this.formatNumber(r.currentQuarterSales)}</td>
+                                <td class="qty-cell">${this.formatCurrency(getSalesVal(r))}</td>
+                                <td class="qty-cell">${this.formatCurrency(r.salesLast3m)}</td>
+                                <td class="qty-cell">${this.formatCurrency(r.currentQuarterSales)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -1049,7 +1049,7 @@ class ReportsMode {
                     <thead>
                         <tr>
                             <th>#</th><th>Tools nr</th><th>Beskrivelse</th>
-                            <th>${this.escapeHtml(qtyCol)}</th><th>${this.escapeHtml(salesCol)}</th>
+                            <th>${this.escapeHtml(qtyCol)} (stk)</th><th>${this.escapeHtml(salesCol)} (kr)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1058,8 +1058,8 @@ class ReportsMode {
                                 <td>${i + 1}</td>
                                 <td><strong>${this.escapeHtml(r.toolsNr)}</strong></td>
                                 <td>${this.escapeHtml(r.description)}</td>
-                                <td class="qty-cell"><strong>${this.formatNumber(getQtyVal(r))}</strong></td>
-                                <td class="qty-cell">${this.formatNumber(getSalesVal(r))}</td>
+                                <td class="qty-cell"><strong>${this.formatUnits(getQtyVal(r))}</strong></td>
+                                <td class="qty-cell">${this.formatCurrency(getSalesVal(r))}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -1115,6 +1115,21 @@ class ReportsMode {
     static formatNumber(num) {
         if (num === null || num === undefined) return '-';
         return Math.round(num).toLocaleString('nb-NO');
+    }
+
+    static formatCurrency(num) {
+        if (num === null || num === undefined) return '-';
+        return Math.round(num).toLocaleString('nb-NO') + ' kr';
+    }
+
+    static formatUnits(num) {
+        if (num === null || num === undefined) return '-';
+        return Math.round(num).toLocaleString('nb-NO') + ' stk';
+    }
+
+    static formatPercent(num) {
+        if (num === null || num === undefined) return '-';
+        return num.toFixed(1) + ' %';
     }
 
     static escapeHtml(str) {
