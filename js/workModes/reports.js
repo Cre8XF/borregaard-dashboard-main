@@ -677,6 +677,9 @@ class ReportsMode {
 
     /**
      * Export quarterly report to Excel (triggered by export button, not auto)
+     *
+     * Layout: Executive (presentation) + structured data sheets with
+     * number formats, autofilter, freeze panes, and sensible column widths.
      */
     static exportQuarterlyExcel() {
         if (!this.currentReportData) return;
@@ -698,7 +701,82 @@ class ReportsMode {
 
         const wb = XLSX.utils.book_new();
 
-        // Sheet 1: Sammendrag
+        // ── Format constants ──
+        const FMT_KR = '#,##0 "kr"';
+        const FMT_NUM = '#,##0';
+        const FMT_PCT = '0.0%';
+
+        /** Apply number format to cells in a column (0-indexed rows) */
+        const fmtCol = (ws, col, rowStart, rowEnd, fmt) => {
+            for (let r = rowStart; r <= rowEnd; r++) {
+                const ref = XLSX.utils.encode_cell({ r, c: col });
+                if (ws[ref] && typeof ws[ref].v === 'number') {
+                    ws[ref].z = fmt;
+                }
+            }
+        };
+
+        /** Format a single cell */
+        const fmtCell = (ws, row, col, fmt) => {
+            const ref = XLSX.utils.encode_cell({ r: row, c: col });
+            if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = fmt;
+        };
+
+        /** Apply freeze row 1 + autofilter to a data sheet */
+        const freezeAndFilter = (ws, colCount, totalRowCount) => {
+            const lastCol = XLSX.utils.encode_col(colCount - 1);
+            ws['!autofilter'] = { ref: `A1:${lastCol}${totalRowCount}` };
+            ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        };
+
+        // ══════════════════════════════════════════════════════
+        //  SHEET 0: Executive (presentation sheet)
+        // ══════════════════════════════════════════════════════
+        const execAoa = [
+            [`Borregaard \u2013 Kvartalsrapport ${periodLabel}`],
+            [],
+            ['Generert', new Date().toISOString().split('T')[0]],
+            ['Avdelinger', s.selectedDepartments],
+            [],
+            ['Nøkkeltall', 'Verdi'],
+            ['Omsetning', Math.round(s.totalSales12m)],
+            ['Aktive artikler', s.activeCount],
+            ['Utgående artikler', s.discontinuedCount],
+            ['SA-migrering påkrevd', s.saMigrationCount],
+            ['Total eksponering', Math.round(s.totalExposure)]
+        ];
+
+        let execCatDataStart = -1;
+        if (report.categorySummary && report.categorySummary.length > 0) {
+            execAoa.push([]);
+            execAoa.push(['Topp 5 Kategorier']);
+            execAoa.push(['Kategori', 'Salg', 'Andel']);
+            execCatDataStart = execAoa.length;
+            report.categorySummary.slice(0, 5).forEach(c => {
+                execAoa.push([c.name, c.sales, c.percentage / 100]);
+            });
+        }
+
+        const wsExec = XLSX.utils.aoa_to_sheet(execAoa);
+        wsExec['!cols'] = [{ wch: 28 }, { wch: 20 }, { wch: 12 }];
+        wsExec['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+        // KPI number formats
+        fmtCell(wsExec, 6, 1, FMT_KR);   // Omsetning
+        fmtCell(wsExec, 7, 1, FMT_NUM);   // Aktive
+        fmtCell(wsExec, 8, 1, FMT_NUM);   // Utgående
+        fmtCell(wsExec, 9, 1, FMT_NUM);   // SA-migr
+        fmtCell(wsExec, 10, 1, FMT_KR);   // Eksponering
+        // Top 5 Kategorier formats
+        if (execCatDataStart > 0) {
+            const catCount = Math.min(report.categorySummary.length, 5);
+            fmtCol(wsExec, 1, execCatDataStart, execCatDataStart + catCount - 1, FMT_KR);
+            fmtCol(wsExec, 2, execCatDataStart, execCatDataStart + catCount - 1, FMT_PCT);
+        }
+        XLSX.utils.book_append_sheet(wb, wsExec, 'Executive');
+
+        // ══════════════════════════════════════════════════════
+        //  SHEET 1: Sammendrag
+        // ══════════════════════════════════════════════════════
         const summaryData = [
             ['Kvartalsrapport'],
             ['Periode', periodLabel],
@@ -715,39 +793,77 @@ class ReportsMode {
         ];
         const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
         ws1['!cols'] = [{ wch: 30 }, { wch: 25 }];
+        // Number formats on value column (col 1)
+        fmtCell(ws1, 6, 1, FMT_NUM);   // Aktive artikler
+        fmtCell(ws1, 7, 1, FMT_KR);    // Salg
+        if (!isQ) {
+            fmtCell(ws1, 8, 1, FMT_KR);    // Salg 3m
+            fmtCell(ws1, 9, 1, FMT_NUM);   // Utgående
+            fmtCell(ws1, 10, 1, FMT_NUM);  // SA-migr
+            fmtCell(ws1, 11, 1, FMT_KR);   // Eksponering
+        } else {
+            fmtCell(ws1, 8, 1, FMT_NUM);   // Utgående
+            fmtCell(ws1, 9, 1, FMT_NUM);   // SA-migr
+            fmtCell(ws1, 10, 1, FMT_KR);   // Eksponering
+        }
         XLSX.utils.book_append_sheet(wb, ws1, 'Sammendrag');
 
-        // Sheet 2: Topp20_Verdi
+        // ══════════════════════════════════════════════════════
+        //  SHEET 2: Topp20_Verdi
+        // ══════════════════════════════════════════════════════
         const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel + ' (kr)', 'Salg 3m (kr)', 'Salg innev. kvartal (kr)'];
         const top20vData = [valueHeaders];
         report.top20Value.forEach((r, i) => {
             top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getSalesVal(r), r.salesLast3m, r.currentQuarterSales]);
         });
         const ws2 = XLSX.utils.aoa_to_sheet(top20vData);
-        ws2['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
+        ws2['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+        const vRows = report.top20Value.length;
+        freezeAndFilter(ws2, 9, vRows + 1);
+        fmtCol(ws2, 6, 1, vRows, FMT_KR);   // Salg (period)
+        fmtCol(ws2, 7, 1, vRows, FMT_KR);   // Salg 3m
+        fmtCol(ws2, 8, 1, vRows, FMT_KR);   // Salg innev. kvartal
         XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
-        // Sheet 3: Topp20_Antall (order count as primary metric)
+        // ══════════════════════════════════════════════════════
+        //  SHEET 3: Topp20_Antall
+        // ══════════════════════════════════════════════════════
         const qtyHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', qtyColLabel + ' (stk)', 'Salg 12m (kr)', 'Salg 3m (kr)'];
         const top20qData = [qtyHeaders];
         report.top20Quantity.forEach((r, i) => {
             top20qData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getQtyVal(r), r.salesLast12m, r.salesLast3m]);
         });
         const ws3 = XLSX.utils.aoa_to_sheet(top20qData);
-        ws3['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 }];
+        ws3['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+        const qRows = report.top20Quantity.length;
+        freezeAndFilter(ws3, 9, qRows + 1);
+        fmtCol(ws3, 6, 1, qRows, FMT_NUM);   // Ordrer (count)
+        fmtCol(ws3, 7, 1, qRows, FMT_KR);    // Salg 12m
+        fmtCol(ws3, 8, 1, qRows, FMT_KR);    // Salg 3m
         XLSX.utils.book_append_sheet(wb, ws3, 'Topp20_Antall');
 
-        // Sheet 4: Risiko
+        // ══════════════════════════════════════════════════════
+        //  SHEET 4: Risiko
+        // ══════════════════════════════════════════════════════
         const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager (stk)', 'Eksponering (kr)', 'Salg 3m (kr)', 'SA-migrering påkrevd'];
         const riskData = [riskHeaders];
         report.riskList.forEach(r => {
             riskData.push([r.toolsNr, r.description, r.stock, r.exposure, r.salesLast3m, r.saMigrationRequired ? 'Ja' : 'Nei']);
         });
         const ws4 = XLSX.utils.aoa_to_sheet(riskData);
-        ws4['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
+        ws4['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+        const rRows = report.riskList.length;
+        if (rRows > 0) {
+            freezeAndFilter(ws4, 6, rRows + 1);
+            fmtCol(ws4, 2, 1, rRows, FMT_NUM);   // Lager
+            fmtCol(ws4, 3, 1, rRows, FMT_KR);    // Eksponering
+            fmtCol(ws4, 4, 1, rRows, FMT_KR);    // Salg 3m
+        }
         XLSX.utils.book_append_sheet(wb, ws4, 'Risiko');
 
-        // Sheet 5: Avdelingsfordeling
+        // ══════════════════════════════════════════════════════
+        //  SHEET 5: Avdelingsfordeling
+        // ══════════════════════════════════════════════════════
         const deptHeaders = ['Avdeling', 'Artikler (stk)', 'Salg 12m (kr)', 'Salg 3m (kr)'];
         const deptData = [deptHeaders];
         const depts = Object.keys(report.deptSummary).sort();
@@ -762,30 +878,56 @@ class ReportsMode {
         deptData.push([]);
         deptData.push(['TOTALT', totalItems, Math.round(total12m), Math.round(total3m)]);
         const ws5 = XLSX.utils.aoa_to_sheet(deptData);
-        ws5['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+        ws5['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
+        const dRows = depts.length;
+        // Autofilter covers header + dept rows only (excludes TOTALT)
+        if (dRows > 0) {
+            freezeAndFilter(ws5, 4, dRows + 1);
+            fmtCol(ws5, 1, 1, dRows, FMT_NUM);   // Artikler
+            fmtCol(ws5, 2, 1, dRows, FMT_KR);    // Salg 12m
+            fmtCol(ws5, 3, 1, dRows, FMT_KR);    // Salg 3m
+        }
+        // Format TOTALT row separately
+        const totaltRow = dRows + 2;
+        fmtCell(ws5, totaltRow, 1, FMT_NUM);
+        fmtCell(ws5, totaltRow, 2, FMT_KR);
+        fmtCell(ws5, totaltRow, 3, FMT_KR);
         XLSX.utils.book_append_sheet(wb, ws5, 'Avdelingsfordeling');
 
-        // Sheet 6: Kategorifordeling (only if categoryData present)
+        // ══════════════════════════════════════════════════════
+        //  SHEET 6: Kategorifordeling (only if categoryData present)
+        // ══════════════════════════════════════════════════════
         if (report.categorySummary) {
             const catHeaders = ['Kategori', 'Salg (kr)', 'Andel (%)', 'Antall artikler (stk)'];
             const catData = [catHeaders];
             report.categorySummary.forEach(c => {
-                catData.push([c.name, c.sales, c.percentage, c.count]);
+                catData.push([c.name, c.sales, c.percentage / 100, c.count]);
             });
             const ws6 = XLSX.utils.aoa_to_sheet(catData);
-            ws6['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+            ws6['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+            const cRows = report.categorySummary.length;
+            freezeAndFilter(ws6, 4, cRows + 1);
+            fmtCol(ws6, 1, 1, cRows, FMT_KR);    // Salg
+            fmtCol(ws6, 2, 1, cRows, FMT_PCT);   // Andel (stored as decimal)
+            fmtCol(ws6, 3, 1, cRows, FMT_NUM);   // Antall
             XLSX.utils.book_append_sheet(wb, ws6, 'Kategorifordeling');
         }
 
-        // Sheet 7: Leverandørfordeling (only if categoryData present)
+        // ══════════════════════════════════════════════════════
+        //  SHEET 7: Leverandørfordeling (only if categoryData present)
+        // ══════════════════════════════════════════════════════
         if (report.supplierSummary) {
             const supHeaders = ['Leverandør', 'Salg (kr)', 'Andel (%)'];
             const supData = [supHeaders];
-            report.supplierSummary.forEach(s => {
-                supData.push([s.name, s.sales, s.percentage]);
+            report.supplierSummary.forEach(sup => {
+                supData.push([sup.name, sup.sales, sup.percentage / 100]);
             });
             const ws7 = XLSX.utils.aoa_to_sheet(supData);
-            ws7['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 10 }];
+            ws7['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 10 }];
+            const sRows = report.supplierSummary.length;
+            freezeAndFilter(ws7, 3, sRows + 1);
+            fmtCol(ws7, 1, 1, sRows, FMT_KR);    // Salg
+            fmtCol(ws7, 2, 1, sRows, FMT_PCT);   // Andel (stored as decimal)
             XLSX.utils.book_append_sheet(wb, ws7, 'Leverandørfordeling');
         }
 
