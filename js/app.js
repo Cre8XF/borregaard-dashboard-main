@@ -140,7 +140,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null };
+        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null };
 
         for (const file of files) {
             try {
@@ -165,6 +165,35 @@ class DashboardApp {
         this.setFileInput('ordersOutFile', routed.ordersOut);
         this.setFileInput('saFile', routed.sa);
         this.setFileInput('lagerplanFile', routed.lagerplan);
+
+        // Parse Kategori.xlsx if present (optional, for Reports module)
+        if (routed.kategori) {
+            try {
+                const katFile = routed.kategori;
+                const arrayBuffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => reject(new Error('Read error'));
+                    reader.readAsArrayBuffer(katFile);
+                });
+                const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const jsonRows = XLSX.utils.sheet_to_json(ws);
+                this.categoryData = jsonRows.map(row => ({
+                    toolsArticleNumber: (row['Item ID'] || '').toString().trim(),
+                    category1: (row['Item category 1'] || '').toString().trim(),
+                    category2: (row['Item category 2'] || '').toString().trim(),
+                    supplier: (row['Supplier'] || '').toString().trim(),
+                    deliveredValue: parseFloat(row['Delivered value']) || 0,
+                    deliveredQuantity: parseFloat(row['Delivered quantity']) || 0,
+                    inventoryValue: parseFloat(row['Inventory Value']) || 0
+                })).filter(r => r.toolsArticleNumber);
+                results.push({ status: 'ok', message: `Kategori: ${katFile.name} (${this.categoryData.length} rader)` });
+            } catch (e) {
+                console.warn('Failed to parse Kategori.xlsx:', e);
+                results.push({ status: 'error', message: 'Feil ved parsing av Kategori.xlsx' });
+            }
+        }
 
         // Add missing file warnings — FASE 6.1: SA is now required
         if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
@@ -197,6 +226,7 @@ class DashboardApp {
 
         // Primary: filename-based detection
         const filenameRules = [
+            { match: 'kategori',         type: 'kategori' },
             { match: 'master',           type: 'master' },
             { match: 'ordrer',           type: 'ordersOut' },
             { match: 'sa-nummer',        type: 'sa' },
@@ -236,6 +266,11 @@ class DashboardApp {
             );
             if (colSet.has('artikelnr') && hasSAColumn) {
                 return 'sa';
+            }
+
+            // Kategori: Item ID + Item category 1
+            if (colSet.has('item id') && colSet.has('item category 1')) {
+                return 'kategori';
             }
 
             // Analyse_Lagerplan: har BP og/eller EOK kolonner
@@ -323,7 +358,8 @@ class DashboardApp {
             master: 'Master',
             ordersOut: 'Ordrer (salg ut)',
             sa: 'SA-nummer',
-            lagerplan: 'Analyse Lagerplan'
+            lagerplan: 'Analyse Lagerplan',
+            kategori: 'Kategori'
         };
         return labels[type] || type;
     }
