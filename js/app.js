@@ -725,7 +725,6 @@ class DashboardApp {
                 item.stock = itemData.stock || 0;
                 item.reserved = itemData.reserved || 0;
                 item.available = itemData.available || 0;
-                item.bp = itemData.bp || 0;
                 item.max = itemData.max || 0;
                 item.status = itemData.status;
                 item.supplier = itemData.supplier;
@@ -742,11 +741,6 @@ class DashboardApp {
                 item.ordrekvantitet = itemData.ordrekvantitet ?? null;
                 item.kalkylPris = itemData.kalkylPris || 0;
                 item.estimertVerdi = itemData.estimertVerdi || 0;
-
-                // Synk bp med bestillingspunkt fra Analyse_Lagerplan
-                if (item.bestillingspunkt !== null) {
-                    item.bp = item.bestillingspunkt;
-                }
 
                 // Beregn verdier (simuler)
                 item.sales6m = itemData.sales6m || 0;

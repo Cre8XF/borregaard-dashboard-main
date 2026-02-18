@@ -713,7 +713,6 @@ class DataProcessor {
                 const bpVal = this.parseNumber(bpRaw);
                 if (bpVal > 0) {
                     item.bestillingspunkt = bpVal;
-                    item.bp = bpVal; // Bakoverkompatibilitet
                     bpCount++;
                 }
             }

@@ -149,11 +149,15 @@ class PlanningMode {
      * Sjekk om artikkel er kritisk
      */
     static isCritical(item) {
+        // Discontinued items are never critical for ordering
+        if (item.isItemDiscontinued && item.isItemDiscontinued()) return false;
+
         // Tom med salg
         if (item.stock <= 0 && (item.sales12m || 0) > 0) return true;
 
         // Under BP med høyt salg
-        if (item.bp > 0 && item.stock < item.bp && item.monthlyConsumption > 0) return true;
+        const bpVal = item.bestillingspunkt;
+        if (bpVal !== null && bpVal > 0 && item.stock < bpVal && item.monthlyConsumption > 0) return true;
 
         // Mindre enn 14 dager til tomt med aktiv etterspørsel
         if (item.daysToEmpty < 14 && item.daysToEmpty !== 999999 && item.monthlyConsumption > 0) return true;
@@ -166,9 +170,10 @@ class PlanningMode {
      */
     static calculateUrgency(item) {
         let urgency = 0;
+        const bpVal = item.bestillingspunkt || 0;
 
         if (item.stock <= 0) urgency += 5;
-        else if (item.stock < item.bp) urgency += 3;
+        else if (bpVal > 0 && item.stock < bpVal) urgency += 3;
 
         if (item.daysToEmpty < 7) urgency += 4;
         else if (item.daysToEmpty < 14) urgency += 2;
@@ -188,7 +193,8 @@ class PlanningMode {
     static getCriticalReason(item) {
         if (item.stock <= 0) return 'Tom beholdning';
         if (item.reserved > item.stock) return 'Reservert > saldo';
-        if (item.stock < item.bp) return 'Under bestillingspunkt';
+        const bpVal = item.bestillingspunkt || 0;
+        if (bpVal > 0 && item.stock < bpVal) return 'Under bestillingspunkt';
         if (item.daysToEmpty < 14) return 'Under 14 dager til tomt';
         return 'Kritisk nivå';
     }
@@ -197,18 +203,23 @@ class PlanningMode {
      * Generer bestillingsforslag
      */
     static getReorderSuggestion(item) {
+        // HARD STOP: Discontinued items NEVER generate purchase suggestions
+        if (item.isItemDiscontinued && item.isItemDiscontinued()) return null;
+
         // Kun artikler med aktivt salg
         if ((item.sales12m || 0) === 0) return null;
 
+        const bpVal = item.bestillingspunkt || 0;
+
         // Sjekk om vi bør bestille
-        const shouldReorder = item.stock <= item.bp ||
+        const shouldReorder = (bpVal > 0 && item.stock <= bpVal) ||
             item.daysToEmpty < 30 ||
             (item.available < item.monthlyConsumption * 2);
 
         if (!shouldReorder) return null;
 
         // Beregn foreslått mengde
-        const targetStock = Math.max(item.max || item.bp * 2, item.monthlyConsumption * 3);
+        const targetStock = Math.max(item.max || (bpVal > 0 ? bpVal * 2 : 0), item.monthlyConsumption * 3);
         const suggestedQty = Math.max(0, Math.ceil(targetStock - item.stock - this.getIncomingQty(item)));
 
         if (suggestedQty <= 0) return null;
@@ -216,7 +227,7 @@ class PlanningMode {
         // Bestem prioritet
         let priority = 1;
         if (item.stock <= 0) priority = 5;
-        else if (item.stock < item.bp) priority = 4;
+        else if (bpVal > 0 && item.stock < bpVal) priority = 4;
         else if (item.daysToEmpty < 14) priority = 3;
         else if (item.daysToEmpty < 30) priority = 2;
 
@@ -241,7 +252,8 @@ class PlanningMode {
      */
     static getReorderReason(item) {
         if (item.stock <= 0) return 'Tom beholdning';
-        if (item.stock < item.bp) return 'Under BP';
+        const bpVal = item.bestillingspunkt || 0;
+        if (bpVal > 0 && item.stock < bpVal) return 'Under BP';
         if (item.daysToEmpty < 30) return 'Lav dekning';
         return 'Optimalisering';
     }
@@ -272,7 +284,8 @@ class PlanningMode {
         }
 
         // Under BP uten innkommende
-        if (item.stock < item.bp && !item.hasIncomingOrders) {
+        const bpVal = item.bestillingspunkt || 0;
+        if (bpVal > 0 && item.stock < bpVal && !item.hasIncomingOrders) {
             score += 2;
             factors.push('Under BP, ingen bestillinger');
         }
@@ -392,7 +405,7 @@ class PlanningMode {
                                 <td>${item.saNumber || '-'}</td>
                                 <td>${this.truncate(item.description, 25)}</td>
                                 <td class="qty-cell ${item.stock <= 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
-                                <td class="qty-cell">${item.bp || '-'}</td>
+                                <td class="qty-cell">${item.bestillingspunkt !== null && item.bestillingspunkt > 0 ? this.formatNumber(item.bestillingspunkt) : '-'}</td>
                                 <td class="qty-cell warning">${item.daysToEmpty === 999999 ? '∞' : item.daysToEmpty}</td>
                                 <td>${item.reason}</td>
                                 <td><span class="recommendation critical">Bestill NÅ</span></td>
@@ -553,7 +566,7 @@ class PlanningMode {
                     quantity: quantity,
                     eta: eta,
                     stock: item.stock || 0,
-                    bp: item.bp || 0
+                    bestillingspunkt: item.bestillingspunkt || 0
                 });
 
                 group.totalQty += quantity;
@@ -888,7 +901,7 @@ class PlanningMode {
                     <div class="detail-section">
                         <h4>Lagerstatus</h4>
                         <div class="detail-grid">
-                            <div class="detail-item ${item.stock <= 0 ? 'critical' : item.stock < item.bp ? 'warning' : ''}">
+                            <div class="detail-item ${item.stock <= 0 ? 'critical' : (item.bestillingspunkt > 0 && item.stock < item.bestillingspunkt) ? 'warning' : ''}">
                                 <strong>Saldo</strong>
                                 ${this.formatNumber(item.stock)}
                             </div>
@@ -898,7 +911,7 @@ class PlanningMode {
                             </div>
                             <div class="detail-item">
                                 <strong>BP</strong>
-                                ${item.bp || '-'}
+                                ${item.bestillingspunkt !== null && item.bestillingspunkt > 0 ? item.bestillingspunkt : '-'}
                             </div>
                             <div class="detail-item">
                                 <strong>Max</strong>
@@ -961,7 +974,7 @@ class PlanningMode {
                 type: 'critical',
                 text: 'HASTER: Artikkelen er tom. Bestill umiddelbart eller finn alternativ.'
             });
-        } else if (item.stock < item.bp) {
+        } else if (item.bestillingspunkt > 0 && item.stock < item.bestillingspunkt) {
             advices.push({
                 type: 'warning',
                 text: 'Under bestillingspunkt. Legg inn bestilling snart.'
@@ -1032,7 +1045,7 @@ class PlanningMode {
             item.saNumber || '',
             `"${(item.description || '').replace(/"/g, '""')}"`,
             item.stock || 0,
-            item.bp || 0,
+            item.bestillingspunkt || 0,
             Math.round(item.monthlyConsumption || 0),
             item.daysToEmpty === 999999 ? 'Uendelig' : (item.daysToEmpty || 0),
             `"${(item.supplier || '').replace(/"/g, '""')}"`

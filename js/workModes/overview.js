@@ -219,7 +219,7 @@ class OverviewMode {
                 <td>${this.truncate(item.description, 35)}</td>
                 <td>${issue.message}</td>
                 <td class="qty-cell ${item.stock < 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
-                <td class="qty-cell">${item.bp || '-'}</td>
+                <td class="qty-cell">${item.bestillingspunkt || '-'}</td>
                 <td><span class="action-hint">${action}</span></td>
             </tr>
         `;
@@ -322,20 +322,25 @@ class OverviewMode {
     static renderBelowBPSection(store) {
         // FASE 6: Kun SA-artikler
         const activeItems = store.getActiveItems();
-        const items = activeItems.filter(item =>
-            item.bestillingspunkt !== null &&
-            item.bestillingspunkt > 0 &&
-            item.stock < item.bestillingspunkt
-        );
 
         // Ikke vis seksjonen dersom ingen SA-artikler har BP satt
         const anyBP = activeItems.some(i => i.bestillingspunkt !== null);
         if (!anyBP) return '';
 
+        // Collect items with BP where effective availability < BP
+        const items = [];
+        activeItems.forEach(item => {
+            if (item.bestillingspunkt === null || item.bestillingspunkt <= 0) return;
+            const ea = item.getEffectiveAvailability(store);
+            if (ea.effectiveAvailable < item.bestillingspunkt) {
+                items.push({ item, ...ea });
+            }
+        });
+
         return `
             <div class="new-section below-bp-section">
                 <h3>Under bestillingspunkt (${items.length})</h3>
-                <p class="section-description">SA-artikler der lagersaldo er under BP fra Analyse_Lagerplan.xlsx. Bør bestilles.</p>
+                <p class="section-description">SA-artikler der effektiv tilgjengelighet (inkl. innkommende og alternativ) er under BP. Bør bestilles.</p>
                 ${items.length === 0
                     ? '<div class="alert alert-success">Alle artikler er over bestillingspunkt.</div>'
                     : `
@@ -350,23 +355,25 @@ class OverviewMode {
                                     <th>BP</th>
                                     <th>Manko</th>
                                     <th>EOK</th>
-                                    <th>Status</th>
+                                    <th>BP-status</th>
+                                    <th>Alt</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${items
-                                    .sort((a, b) => (a.stock - a.bestillingspunkt) - (b.stock - b.bestillingspunkt))
+                                    .sort((a, b) => (a.item.stock - a.item.bestillingspunkt) - (b.item.stock - b.item.bestillingspunkt))
                                     .slice(0, 50)
-                                    .map(item => `
-                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${item.saNumber}')">
-                                        <td><strong>${item.toolsArticleNumber}</strong></td>
-                                        <td>${item.saNumber || '-'}</td>
-                                        <td>${this.truncate(item.description, 30)}</td>
-                                        <td class="qty-cell ${item.stock <= 0 ? 'negative' : ''}">${this.formatNumber(item.stock)}</td>
-                                        <td class="qty-cell">${this.formatNumber(item.bestillingspunkt)}</td>
-                                        <td class="qty-cell negative">${this.formatNumber(item.stock - item.bestillingspunkt)}</td>
-                                        <td class="qty-cell">${item.ordrekvantitet !== null ? this.formatNumber(item.ordrekvantitet) : '-'}</td>
-                                        <td>${item._status}</td>
+                                    .map(row => `
+                                    <tr class="severity-warning clickable" onclick="OverviewMode.showDetails('${row.item.saNumber}')">
+                                        <td><strong>${row.item.toolsArticleNumber}</strong></td>
+                                        <td>${row.item.saNumber || '-'}</td>
+                                        <td>${this.truncate(row.item.description, 30)}</td>
+                                        <td class="qty-cell ${row.item.stock <= 0 ? 'negative' : ''}">${this.formatNumber(row.item.stock)}</td>
+                                        <td class="qty-cell">${this.formatNumber(row.item.bestillingspunkt)}</td>
+                                        <td class="qty-cell negative">${this.formatNumber(row.effectiveAvailable - row.item.bestillingspunkt)}</td>
+                                        <td class="qty-cell">${row.item.ordrekvantitet !== null ? this.formatNumber(row.item.ordrekvantitet) : '-'}</td>
+                                        <td><span class="badge badge-${row.bpStatus.startsWith('Utgående') ? 'warning' : 'info'}">${row.bpStatus}</span></td>
+                                        <td>${row.altItemNo ? row.altItemNo + ' (' + row.altAvailable + ')' : '-'}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -748,7 +755,7 @@ class OverviewMode {
                             </div>
                             <div class="detail-item">
                                 <strong>BP</strong>
-                                ${item.bp || '-'}
+                                ${item.bestillingspunkt !== null ? item.bestillingspunkt : '-'}
                             </div>
                             <div class="detail-item">
                                 <strong>Max</strong>
@@ -846,7 +853,7 @@ class OverviewMode {
             `"${(issue.item.description || '').replace(/"/g, '""')}"`,
             issue.message,
             issue.item.stock,
-            issue.item.bp || '',
+            issue.item.bestillingspunkt || '',
             this.getSuggestedAction(issue)
         ]);
 

@@ -37,7 +37,6 @@ class UnifiedItem {
         this.available = 0;       // DispLagSaldo
         this.kalkylPris = 0;      // Kalkylepris per stk
         this.estimertVerdi = 0;   // kalkylPris × saldo
-        this.bp = 0;              // Bestillingspunkt (backward compat)
         this.max = 0;             // Maksimum lager
         this.status = '';         // Artikelstatus (raw value)
         this.statusText = null;   // Readable status text
@@ -209,6 +208,66 @@ class UnifiedItem {
     }
 
     /**
+     * Canonical discontinued check.
+     * Detects utgående / discontinued / inactive statuses from Master.xlsx normalization.
+     */
+    isItemDiscontinued() {
+        if (this._status === 'UTGAENDE' || this._status === 'UTGAATT') return true;
+        if (this.isDiscontinued) return true;
+        const raw = (this.status || '').toString().toLowerCase();
+        if (raw.includes('utgå') || raw.includes('discontinued') || raw.includes('avvikle')) return true;
+        if (raw === '3' || raw === '4' || raw.startsWith('3 -') || raw.startsWith('4 -')) return true;
+        return false;
+    }
+
+    /**
+     * Get effective availability for BP checks (alternative-aware).
+     *
+     * For discontinued items: resolves alternative via store and uses alt's availability.
+     * For active items: stock + bestAntLev.
+     *
+     * @param {UnifiedDataStore} [store] - Required for alternative resolution on discontinued items
+     * @returns {{ effectiveAvailable: number, altItemNo: string|null, altAvailable: number|null, bpStatus: string }}
+     */
+    getEffectiveAvailability(store) {
+        const bpVal = this.bestillingspunkt;
+        const ownAvailable = this.stock + (this.bestAntLev || 0);
+
+        if (!this.isItemDiscontinued() || !store) {
+            // Active item — straightforward
+            const bpStatus = (bpVal !== null && bpVal > 0 && ownAvailable < bpVal) ? 'Under BP' : 'OK';
+            return { effectiveAvailable: ownAvailable, altItemNo: null, altAvailable: null, bpStatus };
+        }
+
+        // Discontinued — resolve alternative
+        const altStatus = store.resolveAlternativeStatus(this);
+        if (altStatus.classification === 'NO_ALTERNATIVE' || altStatus.classification === 'NOT_IN_SA') {
+            // No usable alt — use own availability, but flag transition
+            const bpStatus = (bpVal !== null && bpVal > 0)
+                ? 'Utgående – overgang mangler' : 'Utgående';
+            return { effectiveAvailable: ownAvailable, altItemNo: null, altAvailable: null, bpStatus };
+        }
+
+        const altAvail = (altStatus.altStock || 0) + (altStatus.altBestAntLev || 0);
+
+        if (bpVal !== null && bpVal > 0 && altAvail >= bpVal) {
+            return {
+                effectiveAvailable: altAvail,
+                altItemNo: altStatus.altToolsArtNr,
+                altAvailable: altAvail,
+                bpStatus: 'Utgående – dekket av alternativ'
+            };
+        }
+
+        return {
+            effectiveAvailable: altAvail,
+            altItemNo: altStatus.altToolsArtNr,
+            altAvailable: altAvail,
+            bpStatus: (bpVal !== null && bpVal > 0) ? 'Utgående – overgang mangler' : 'Utgående'
+        };
+    }
+
+    /**
      * Sjekk om artikkelen har problemer
      */
     getIssues() {
@@ -227,8 +286,12 @@ class UnifiedItem {
             issues.push({ type: 'critical', code: 'NO_STOCK_NO_INCOMING', message: 'Ingen tilgjengelig og ingen på vei inn' });
         }
 
-        if (this.bp > 0 && this.stock < this.bp && this.stock >= 0) {
-            issues.push({ type: 'warning', code: 'BELOW_BP', message: 'Under bestillingspunkt' });
+        if (this.bestillingspunkt !== null && this.bestillingspunkt > 0 && this.stock < this.bestillingspunkt && this.stock >= 0) {
+            if (this.isItemDiscontinued()) {
+                issues.push({ type: 'warning', code: 'BELOW_BP', message: 'Under BP – utgående, overgang nødvendig' });
+            } else {
+                issues.push({ type: 'warning', code: 'BELOW_BP', message: 'Under bestillingspunkt' });
+            }
         }
 
         if (this.available > 0 && this.available < WARNING_THRESHOLD && this.sales12m > 0) {
@@ -264,7 +327,7 @@ class UnifiedItem {
             estimertVerdi: this.estimertVerdi,
             reserved: this.reserved,
             available: this.available,
-            bp: this.bp,
+            bestillingspunkt: this.bestillingspunkt,
             max: this.max,
             status: this.status,
             statusText: this.statusText,
@@ -277,7 +340,6 @@ class UnifiedItem {
             bestAntLev: this.bestAntLev,
             bestillingsNummer: this.bestillingsNummer,
             ersattAvArtikel: this.ersattAvArtikel,
-            bestillingspunkt: this.bestillingspunkt,
             ordrekvantitet: this.ordrekvantitet,
             sales6m: Math.round(this.sales6m),
             sales12m: Math.round(this.sales12m),
