@@ -1575,7 +1575,7 @@ class DemandMode {
                             </div>
                             <div class="detail-item">
                                 <strong>BP</strong>
-                                ${item.bp || '-'}
+                                ${item.bestillingspunkt !== null && item.bestillingspunkt > 0 ? item.bestillingspunkt : '-'}
                             </div>
                             <div class="detail-item">
                                 <strong>Dager til tomt</strong>
