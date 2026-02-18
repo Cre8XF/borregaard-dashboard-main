@@ -18,6 +18,7 @@ class WorkMode {
     static activeFilters = new Set(); // 'high' | 'exposure' | 'stock' | 'noSa'
     static pqSearch = '';
     static archiveExpanded = false;
+    static currentMainTab = 'drift'; // 'drift' | 'lagerstyring' | 'struktur'
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -28,45 +29,75 @@ class WorkMode {
         const stats = this.computeStats(store);
         this.priorityQueue = this.buildPriorityQueue(store);
 
+        const tab = this.currentMainTab;
+
+        const tabBtn = (id, label) => {
+            const active = tab === id;
+            return `<span onclick="WorkMode.switchMainTab('${id}')"
+                style="display:inline-block;padding:9px 20px;border:2px solid ${active ? '#1565c0' : '#bdbdbd'};border-bottom:${active ? '2px solid #fff' : '2px solid #bdbdbd'};border-radius:4px 4px 0 0;font-size:13px;font-weight:${active ? '700' : '500'};cursor:pointer;background:${active ? '#fff' : '#f5f5f5'};color:${active ? '#1565c0' : '#555'};margin-right:4px;position:relative;bottom:-2px;">${label}</span>`;
+        };
+
+        const tabNav = `
+            <div style="border-bottom:2px solid #1565c0;margin-bottom:0;padding-left:0;">
+                ${tabBtn('drift', 'Drift')}
+                ${tabBtn('lagerstyring', 'Lagerstyring')}
+                ${tabBtn('struktur', 'Struktur')}
+            </div>
+        `;
+
+        let tabContent = '';
+        if (tab === 'drift') {
+            tabContent = `
+                ${this.renderDailyWorkQueue(store)}
+                ${this.renderOperativStatus(stats)}
+                <div id="prioritySection">
+                    ${this.renderPriorityContent()}
+                </div>
+            `;
+        } else if (tab === 'lagerstyring') {
+            tabContent = `
+                <div id="maintenanceStopSection">
+                    ${this.renderMaintenanceStopSection(store)}
+                </div>
+            `;
+        } else if (tab === 'struktur') {
+            tabContent = `
+                <div style="margin-top:12px;">
+                    <div class="view-tabs" style="margin-bottom:0;">
+                        <button class="view-tab ${this.currentSubTab === 'saMigration' ? 'active' : ''}"
+                                onclick="WorkMode.switchSubTab('saMigration')">
+                            SA-migrering (${stats.saMigrationHigh})
+                        </button>
+                        <button class="view-tab ${this.currentSubTab === 'noSa' ? 'active' : ''}"
+                                onclick="WorkMode.switchSubTab('noSa')">
+                            Uten SA (${stats.noSaDriftsrelevante} aktive / ${stats.noSaArkivkandidater} arkiv)
+                        </button>
+                        <button class="view-tab ${this.currentSubTab === 'outgoing' ? 'active' : ''}"
+                                onclick="WorkMode.switchSubTab('outgoing')">
+                            Utgående (${stats.discWithStock})
+                        </button>
+                        <button class="view-tab ${this.currentSubTab === 'deadStock' ? 'active' : ''}"
+                                onclick="WorkMode.switchSubTab('deadStock')">
+                            Død lager (${stats.deadStockCount})
+                        </button>
+                    </div>
+                    <div id="workSubContent">
+                        ${this.renderSubTab(store)}
+                    </div>
+                </div>
+            `;
+        }
+
         return `
             <div class="module-header">
                 <h2>Operativ kontrollsentral</h2>
                 <p class="module-description">Prioritert arbeidsliste med samlet oversikt over SA-migrering, utgående, lager uten SA og død lager</p>
             </div>
 
-            ${this.renderOperativStatus(stats)}
+            ${tabNav}
 
-            <div id="prioritySection">
-                ${this.renderPriorityContent()}
-            </div>
-
-            <div id="maintenanceStopSection">
-                ${this.renderMaintenanceStopSection(store)}
-            </div>
-
-            <div style="margin-top:28px;border-top:2px solid #e0e0e0;padding-top:20px;">
-                <h3 style="margin:0 0 12px 0;font-size:15px;color:#555;">Detaljvisning</h3>
-                <div class="view-tabs" style="margin-bottom:0;">
-                    <button class="view-tab ${this.currentSubTab === 'saMigration' ? 'active' : ''}"
-                            onclick="WorkMode.switchSubTab('saMigration')">
-                        SA-migrering (${stats.saMigrationHigh})
-                    </button>
-                    <button class="view-tab ${this.currentSubTab === 'noSa' ? 'active' : ''}"
-                            onclick="WorkMode.switchSubTab('noSa')">
-                        Uten SA (${stats.noSaDriftsrelevante} aktive / ${stats.noSaArkivkandidater} arkiv)
-                    </button>
-                    <button class="view-tab ${this.currentSubTab === 'outgoing' ? 'active' : ''}"
-                            onclick="WorkMode.switchSubTab('outgoing')">
-                        Utgående (${stats.discWithStock})
-                    </button>
-                    <button class="view-tab ${this.currentSubTab === 'deadStock' ? 'active' : ''}"
-                            onclick="WorkMode.switchSubTab('deadStock')">
-                        Død lager (${stats.deadStockCount})
-                    </button>
-                </div>
-                <div id="workSubContent">
-                    ${this.renderSubTab(store)}
-                </div>
+            <div style="border:2px solid #1565c0;border-top:none;border-radius:0 4px 4px 4px;padding:20px;">
+                ${tabContent}
             </div>
         `;
     }
@@ -295,6 +326,214 @@ class WorkMode {
         }
 
         return queue;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  DAGENS PRIORITERTE OPPGAVER – aggregation
+    // ════════════════════════════════════════════════════
+
+    /**
+     * generateDailyWorkQueue(store)
+     *
+     * Aggregates tasks from four sources reusing existing logic:
+     *   SA (100)         – Utgående med lager/salg + erstatning mangler SA
+     *   BP_LOW (80)      – Active items: effectiveAvail < BP, high 12m sales
+     *   TRANSITION (70)  – Discontinued: alt missing or altAvail < BP
+     *   BP_HIGH (40)     – Active: stock > BP*1.5, low sales (capital binding)
+     *
+     * Sorting: priorityScore DESC → sales12m DESC → estimertVerdi DESC
+     */
+    static generateDailyWorkQueue(store) {
+        const tasks = [];
+        const items = store.getAllItems();
+
+        items.forEach(item => {
+            const isDisc = this.isDiscontinued(item);
+            const stock = item.stock || 0;
+            const bestAntLev = item.bestAntLev || 0;
+            const sales12m = item.sales12m || 0;
+            const sales3m = this.getSales3m(item);
+            const kalkylPris = item.kalkylPris || 0;
+            const bp = item.bestillingspunkt;
+            const itemNo = item.toolsArticleNumber;
+            const desc = item.description || '';
+            const estimertVerdi = item.estimertVerdi || 0;
+
+            // ── 1) SA-migrering (priority 100) ──────────────────
+            // Reuses same detection logic as buildPriorityQueue (no duplication)
+            if (isDisc) {
+                const replNr = (item.ersattAvArtikel || '').trim();
+                if (replNr && replNr !== itemNo && item.saNumber) {
+                    const replItem = store.getByToolsArticleNumber(replNr);
+                    const replSa = replItem ? replItem.saNumber : '';
+                    if (!replSa && (stock > 0 || sales3m > 0)) {
+                        tasks.push({
+                            type: 'SA',
+                            priorityScore: 100,
+                            itemNo,
+                            description: desc,
+                            sales12m,
+                            estimertVerdi,
+                            problemText: 'Erstatning mangler SA-nummer',
+                            recommendedAction: stock > 0 && sales3m > 0
+                                ? 'Flytt SA nå \u2013 selger og har lager'
+                                : stock > 0 ? 'Flytt SA \u2013 tøm lager'
+                                : 'Flytt SA (aktiv vare med salg)'
+                        });
+                        return; // highest priority wins for this item
+                    }
+                }
+            }
+
+            // ── 2) BP_LOW – active under BP with sales (priority 80) ──
+            // Uses item.bestillingspunkt (from Analyse_Lagerplan) + own stock/incoming
+            if (!isDisc && bp !== null && bp > 0) {
+                const effectiveAvail = stock + bestAntLev;
+                if (effectiveAvail < bp && sales12m > 0) {
+                    tasks.push({
+                        type: 'BP_LOW',
+                        priorityScore: 80,
+                        itemNo,
+                        description: desc,
+                        sales12m,
+                        estimertVerdi,
+                        problemText: `Under bestillingspunkt (${Math.round(effectiveAvail)} < ${Math.round(bp)})`,
+                        recommendedAction: 'Bestill umiddelbart \u2013 under BP'
+                    });
+                    return;
+                }
+            }
+
+            // ── 3) TRANSITION – discontinued without sufficient alt coverage (priority 70) ──
+            // Reuses store.resolveAlternativeStatus() – no logic duplication
+            if (isDisc) {
+                const altStatus = typeof store.resolveAlternativeStatus === 'function'
+                    ? store.resolveAlternativeStatus(item) : null;
+
+                const noAlt = !altStatus || altStatus.classification === 'NO_ALTERNATIVE';
+                const altAvail = noAlt ? 0 : ((altStatus.altStock || 0) + (altStatus.altBestAntLev || 0));
+                const bpNeeded = bp !== null && bp > 0;
+                const altSufficient = !noAlt && (!bpNeeded || altAvail >= bp);
+
+                if (!altSufficient && (stock > 0 || sales12m > 0)) {
+                    tasks.push({
+                        type: 'TRANSITION',
+                        priorityScore: 70,
+                        itemNo,
+                        description: desc,
+                        sales12m,
+                        estimertVerdi,
+                        problemText: noAlt
+                            ? 'Utgående \u2013 ingen alternativ definert'
+                            : `Utgående \u2013 alternativ dekker ikke BP (${Math.round(altAvail)} < ${Math.round(bp)})`,
+                        recommendedAction: 'Definer eller verifiser alternativ'
+                    });
+                    return;
+                }
+            }
+
+            // ── 4) BP_HIGH – capital binding (priority 40) ──
+            if (!isDisc && bp !== null && bp > 0 && stock > bp * 1.5 && sales12m < 10) {
+                tasks.push({
+                    type: 'BP_HIGH',
+                    priorityScore: 40,
+                    itemNo,
+                    description: desc,
+                    sales12m,
+                    estimertVerdi,
+                    problemText: `Lager langt over BP (${Math.round(stock)} > ${Math.round(bp * 1.5)})`,
+                    recommendedAction: 'Vurder å senke BP eller avhend overskudd'
+                });
+            }
+        });
+
+        // Sort: priorityScore DESC → sales12m DESC → estimertVerdi DESC
+        tasks.sort((a, b) =>
+            b.priorityScore - a.priorityScore ||
+            b.sales12m - a.sales12m ||
+            b.estimertVerdi - a.estimertVerdi
+        );
+
+        return tasks;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  RENDER: DAGENS PRIORITERTE OPPGAVER (top 25)
+    // ════════════════════════════════════════════════════
+
+    static typeBadge(type) {
+        const map = {
+            SA:         { label: 'SA-migrering', bg: '#ffcdd2', color: '#c62828' },
+            BP_LOW:     { label: 'Under BP',     bg: '#ffe0b2', color: '#e65100' },
+            TRANSITION: { label: 'Overgang',     bg: '#fff9c4', color: '#f57f17' },
+            BP_HIGH:    { label: 'Over BP',      bg: '#bbdefb', color: '#1565c0' }
+        };
+        const cfg = map[type] || { label: type, bg: '#f5f5f5', color: '#757575' };
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:${cfg.bg};color:${cfg.color};">${cfg.label}</span>`;
+    }
+
+    static renderDailyWorkQueue(store) {
+        const tasks = this.generateDailyWorkQueue(store);
+        const top25 = tasks.slice(0, 25);
+
+        const scoreBadge = (score) => {
+            if (score >= 100) return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">Kritisk</span>';
+            if (score >= 80)  return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffe0b2;color:#e65100;">H\u00F8y</span>';
+            if (score >= 70)  return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">Medium</span>';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#bbdefb;color:#1565c0;">Lav</span>';
+        };
+
+        const emptyHtml = `
+            <div style="margin-bottom:24px;background:#e8f5e9;border:2px solid #66bb6a;border-radius:8px;padding:16px;text-align:center;">
+                <div style="font-size:15px;font-weight:700;color:#2e7d32;margin-bottom:4px;">Ingen prioriterte oppgaver funnet</div>
+                <div style="font-size:13px;color:#558b2f;">Alle artikler ser ut til å v\u00E6re i orden. Last inn data for full analyse.</div>
+            </div>
+        `;
+
+        if (top25.length === 0) return emptyHtml;
+
+        const rows = top25.map(t => `
+            <tr class="${t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : ''}">
+                <td>${scoreBadge(t.priorityScore)}</td>
+                <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
+                <td>
+                    <strong>${this.esc(t.itemNo)}</strong>
+                    ${t.description ? `<div style="font-size:10px;color:#757575;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(t.description)}</div>` : ''}
+                </td>
+                <td style="font-size:11px;">${this.esc(t.problemText)}</td>
+                <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
+            </tr>
+        `).join('');
+
+        const overflow = tasks.length > 25
+            ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${tasks.length - 25} flere oppgaver \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
+            : '';
+
+        return `
+            <div style="margin-bottom:24px;background:#fff;border:2px solid #1565c0;border-radius:8px;overflow:hidden;">
+                <div style="background:#1565c0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+                    <h3 style="margin:0;font-size:16px;font-weight:700;color:#fff;">Dagens prioriterte oppgaver</h3>
+                    <span style="font-size:12px;color:#bbdefb;">${tasks.length} oppgave${tasks.length !== 1 ? 'r' : ''} totalt \u2014 viser topp 25</span>
+                </div>
+                <div class="table-wrapper" style="border:none;margin:0;">
+                    <table class="data-table compact" style="font-size:12px;margin:0;">
+                        <thead>
+                            <tr>
+                                <th style="width:80px;">Prioritet</th>
+                                <th style="width:110px;">Type</th>
+                                <th>Artikkel</th>
+                                <th>Problem</th>
+                                <th>Anbefalt handling</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                </div>
+                ${overflow}
+            </div>
+        `;
     }
 
     // ════════════════════════════════════════════════════
@@ -804,6 +1043,13 @@ class WorkMode {
     // ════════════════════════════════════════════════════
     //  EVENT HANDLERS
     // ════════════════════════════════════════════════════
+
+    static switchMainTab(tab) {
+        this.currentMainTab = tab;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
 
     static switchSubTab(tab) {
         this.currentSubTab = tab;
