@@ -32,7 +32,7 @@ class DataProcessor {
         orderedQty: 'BestAntLev',
         orderNumber: 'Beställningsnummer',
         replacedBy: 'Ersätts av artikel',
-        location: 'Lokasjon',
+        location: 'Lagerhylla',     // Column D in Master_Artikkelstatus.xlsx
 
         supplier: 'Företagsnamn',
         category: 'Varugrupp'
@@ -543,8 +543,10 @@ class DataProcessor {
         }
     }
 
-    // Columns that are enrichment-only and should not block processing if missing
-    static MASTER_OPTIONAL_COLUMNS = new Set(['supplier', 'category']);
+    // Columns that are enrichment-only and should not block processing if missing.
+    // 'location' is optional because older Master files use 'Lokasjon' (column BG)
+    // while current files expose 'Lagerhylla' (column D). Missing → item.location = ''.
+    static MASTER_OPTIONAL_COLUMNS = new Set(['supplier', 'category', 'location']);
 
     /**
      * Resolve Master.xlsx column names with case-insensitive matching.

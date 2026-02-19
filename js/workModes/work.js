@@ -19,6 +19,7 @@ class WorkMode {
     static pqSearch = '';
     static archiveExpanded = false;
     static currentMainTab = 'drift'; // 'drift' | 'lagerstyring' | 'struktur'
+    static segmentFilter = 'alle';   // 'alle' | 'sa' | 'bp' | 'outgoing'
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -473,8 +474,23 @@ class WorkMode {
     }
 
     static renderDailyWorkQueue(store) {
-        const tasks = this.generateDailyWorkQueue(store);
-        const top25 = tasks.slice(0, 25);
+        const allTasks = this.generateDailyWorkQueue(store);
+
+        // ── Segment filter (applied to already-generated queue, no re-scoring) ──
+        const seg = this.segmentFilter;
+        const segmented = seg === 'alle' ? allTasks
+            : seg === 'sa'       ? allTasks.filter(t => t.type === 'SA')
+            : seg === 'bp'       ? allTasks.filter(t => t.type === 'BP_LOW' || t.type === 'BP_HIGH')
+            : seg === 'outgoing' ? allTasks.filter(t => t.type === 'SA' || t.type === 'TRANSITION')
+            : allTasks;
+
+        const top25 = segmented.slice(0, 25);
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+        const dash   = '\u2013';
+        const fmt    = (n) => (n > 0) ? n.toLocaleString('no-NO') : dash;
+        const fmtKr  = (n) => (n > 0) ? n.toLocaleString('no-NO', { maximumFractionDigits: 0 }) + '\u00A0kr' : dash;
+        const trunc  = (s, max) => s && s.length > max ? s.slice(0, max) + '\u2026' : (s || dash);
 
         const scoreBadge = (score) => {
             if (score >= 100) return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">Kritisk</span>';
@@ -483,6 +499,47 @@ class WorkMode {
             return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#bbdefb;color:#1565c0;">Lav</span>';
         };
 
+        // BP-status badge — reads stock/bestAntLev/bestillingspunkt from item directly.
+        // effectiveAvailable = stock + bestAntLev (same formula used across the app).
+        // No BP logic re-implemented: only ratio → visual label.
+        const bpBadge = (itemObj) => {
+            if (!itemObj) return `<span style="color:#aaa;">${dash}</span>`;
+            const bp = itemObj.bestillingspunkt;
+            if (!bp || bp <= 0) return `<span style="color:#aaa;">${dash}</span>`;
+            const avail = (itemObj.stock || 0) + (itemObj.bestAntLev || 0);
+            const ratio = avail / bp;
+            if (ratio < 0.5)  return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700;background:#ffcdd2;color:#c62828;">\uD83D\uDD34 Kritisk under</span>';
+            if (ratio < 1.0)  return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700;background:#fff9c4;color:#f57f17;">\uD83D\uDFE1 Under BP</span>';
+            if (ratio <= 1.5) return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;background:#f5f5f5;color:#555;">\u26AA\uFE0F OK</span>';
+            return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;background:#bbdefb;color:#1565c0;">\uD83D\uDD35 Overlager</span>';
+        };
+
+        // ── Segment filter button bar ─────────────────────────────────────────
+        const segBtn = (id, label, count) => {
+            const active = seg === id;
+            const countStr = count !== null ? ` (${count})` : '';
+            return `<span onclick="WorkMode.switchDriftSegment('${id}')"
+                style="display:inline-block;padding:5px 13px;border-radius:4px;font-size:12px;cursor:pointer;border:1.5px solid;font-weight:${active ? '700' : '500'};
+                       background:${active ? '#1565c0' : '#fff'};color:${active ? '#fff' : '#555'};border-color:${active ? '#1565c0' : '#bdbdbd'};"
+            >${label}${countStr}</span>`;
+        };
+
+        const countOf = (type) => allTasks.filter(t =>
+            type === 'sa'       ? t.type === 'SA' :
+            type === 'bp'       ? (t.type === 'BP_LOW' || t.type === 'BP_HIGH') :
+            type === 'outgoing' ? (t.type === 'SA' || t.type === 'TRANSITION') : true
+        ).length;
+
+        const filterBar = `
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:#f5f5f5;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;">
+                ${segBtn('alle',     'Alle',      allTasks.length)}
+                ${segBtn('sa',       'SA',         countOf('sa'))}
+                ${segBtn('bp',       'BP',         countOf('bp'))}
+                ${segBtn('outgoing', 'Utg\u00E5ende', countOf('outgoing'))}
+            </div>
+        `;
+
+        // ── Empty state ───────────────────────────────────────────────────────
         const emptyHtml = `
             <div style="margin-bottom:24px;background:#e8f5e9;border:2px solid #66bb6a;border-radius:8px;padding:16px;text-align:center;">
                 <div style="font-size:15px;font-weight:700;color:#2e7d32;margin-bottom:4px;">Ingen prioriterte oppgaver funnet</div>
@@ -490,76 +547,79 @@ class WorkMode {
             </div>
         `;
 
-        if (top25.length === 0) return emptyHtml;
+        // ── Rows ──────────────────────────────────────────────────────────────
+        const bodyHtml = top25.length === 0 ? `
+            <div style="padding:16px;text-align:center;color:#757575;font-size:13px;">
+                Ingen oppgaver matcher valgt segment.
+            </div>
+        ` : `
+            <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
+                <table class="data-table compact" style="font-size:12px;margin:0;min-width:980px;">
+                    <thead>
+                        <tr>
+                            <th style="width:75px;">Prioritet</th>
+                            <th style="width:100px;">Type</th>
+                            <th style="width:90px;">BP-status</th>
+                            <th style="width:90px;">Tools nr</th>
+                            <th style="width:170px;">Beskrivelse</th>
+                            <th style="width:95px;">SA</th>
+                            <th style="width:75px;">Lokasjon</th>
+                            <th style="width:70px;text-align:right;">Lager (stk)</th>
+                            <th style="width:80px;text-align:right;">Eksponering</th>
+                            <th style="width:60px;text-align:right;">Salg 3m</th>
+                            <th>Problem</th>
+                            <th>Anbefalt handling</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${top25.map(t => {
+                            // Display-only lookup — uses existing store reverse-lookup.
+                            // Zero business logic re-implemented here.
+                            const itemObj  = store.getByToolsArticleNumber(t.itemNo);
+                            const saNum    = itemObj ? (itemObj.saNumber   || '') : '';
+                            const location = itemObj ? (itemObj.location   || '') : '';
+                            const stock    = itemObj ? (itemObj.stock      || 0)  : 0;
+                            const kp       = itemObj ? (itemObj.kalkylPris || 0)  : 0;
+                            const exposure = kp > 0 && stock > 0 ? Math.round(kp * stock) : 0;
+                            const sales3m  = itemObj ? this.getSales3m(itemObj) : 0;
+                            const rowClass = t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : '';
 
-        // Helpers for compact display cells
-        const dash = '\u2013'; // –
-        const fmt = (n) => n > 0 ? n.toLocaleString('no-NO') : dash;
-        const fmtKr = (n) => n > 0 ? n.toLocaleString('no-NO', { maximumFractionDigits: 0 }) + '\u00A0kr' : dash;
-        const trunc = (s, max) => s && s.length > max ? s.slice(0, max) + '\u2026' : (s || dash);
+                            return `
+                                <tr class="${rowClass}">
+                                    <td style="white-space:nowrap;">${scoreBadge(t.priorityScore)}</td>
+                                    <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
+                                    <td style="white-space:nowrap;">${bpBadge(itemObj)}</td>
+                                    <td style="white-space:nowrap;font-size:11px;font-weight:700;">${this.esc(t.itemNo)}</td>
+                                    <td style="font-size:11px;" title="${this.esc(t.description || '')}">${this.esc(trunc(t.description, 40))}</td>
+                                    <td style="font-size:11px;white-space:nowrap;color:${saNum ? 'inherit' : '#aaa'};">${saNum ? this.esc(saNum) : dash}</td>
+                                    <td style="font-size:11px;white-space:nowrap;color:${location ? 'inherit' : '#aaa'};">${location ? this.esc(location) : dash}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(stock)}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmtKr(exposure)}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(sales3m)}</td>
+                                    <td style="font-size:11px;">${this.esc(t.problemText)}</td>
+                                    <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
 
-        const rows = top25.map(t => {
-            // Look up live item for display-only fields.
-            // Uses existing store.getByToolsArticleNumber() – zero logic duplication.
-            const itemObj = store.getByToolsArticleNumber(t.itemNo);
-            const saNum    = itemObj ? (itemObj.saNumber  || '') : '';
-            const location = itemObj ? (itemObj.location  || '') : '';
-            const stock    = itemObj ? (itemObj.stock     || 0)  : 0;
-            const kp       = itemObj ? (itemObj.kalkylPris || 0) : 0;
-            const exposure = kp > 0 && stock > 0 ? Math.round(kp * stock) : 0;
-            const sales3m  = itemObj ? this.getSales3m(itemObj) : 0;
-
-            const rowClass = t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : '';
-
-            return `
-                <tr class="${rowClass}">
-                    <td style="white-space:nowrap;">${scoreBadge(t.priorityScore)}</td>
-                    <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
-                    <td style="white-space:nowrap;font-size:11px;font-weight:700;">${this.esc(t.itemNo)}</td>
-                    <td style="font-size:11px;max-width:160px;" title="${this.esc(t.description || '')}">${this.esc(trunc(t.description, 30))}</td>
-                    <td style="font-size:11px;white-space:nowrap;color:${saNum ? 'inherit' : '#aaa'};">${saNum ? this.esc(saNum) : dash}</td>
-                    <td style="font-size:11px;white-space:nowrap;color:${location ? 'inherit' : '#aaa'};">${location ? this.esc(location) : dash}</td>
-                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(stock)}</td>
-                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmtKr(exposure)}</td>
-                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(sales3m)}</td>
-                    <td style="font-size:11px;">${this.esc(t.problemText)}</td>
-                    <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
-                </tr>
-            `;
-        }).join('');
-
-        const overflow = tasks.length > 25
-            ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${tasks.length - 25} flere oppgaver \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
+        const overflow = segmented.length > 25
+            ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${segmented.length - 25} flere oppgaver i dette segmentet \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
             : '';
+
+        if (allTasks.length === 0) return emptyHtml;
 
         return `
             <div style="margin-bottom:24px;background:#fff;border:2px solid #1565c0;border-radius:8px;overflow:hidden;">
                 <div style="background:#1565c0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
                     <h3 style="margin:0;font-size:16px;font-weight:700;color:#fff;">Dagens prioriterte oppgaver</h3>
-                    <span style="font-size:12px;color:#bbdefb;">${tasks.length} oppgave${tasks.length !== 1 ? 'r' : ''} totalt \u2014 viser topp 25</span>
+                    <span style="font-size:12px;color:#bbdefb;">${segmented.length} oppgave${segmented.length !== 1 ? 'r' : ''} i segmentet \u2014 viser topp 25</span>
                 </div>
-                <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
-                    <table class="data-table compact" style="font-size:12px;margin:0;min-width:900px;">
-                        <thead>
-                            <tr>
-                                <th style="width:75px;">Prioritet</th>
-                                <th style="width:100px;">Type</th>
-                                <th style="width:90px;">Tools nr</th>
-                                <th style="width:160px;">Beskrivelse</th>
-                                <th style="width:90px;">SA</th>
-                                <th style="width:75px;">Lokasjon</th>
-                                <th style="width:70px;text-align:right;">Lager (stk)</th>
-                                <th style="width:80px;text-align:right;">Eksponering</th>
-                                <th style="width:60px;text-align:right;">Salg 3m</th>
-                                <th>Problem</th>
-                                <th>Anbefalt handling</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows}
-                        </tbody>
-                    </table>
-                </div>
+                ${filterBar}
+                ${bodyHtml}
                 ${overflow}
             </div>
         `;
@@ -1075,6 +1135,13 @@ class WorkMode {
 
     static switchMainTab(tab) {
         this.currentMainTab = tab;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
+
+    static switchDriftSegment(seg) {
+        this.segmentFilter = seg;
         if (window.app && window.app.dataStore) {
             window.app.renderCurrentModule();
         }
