@@ -492,18 +492,41 @@ class WorkMode {
 
         if (top25.length === 0) return emptyHtml;
 
-        const rows = top25.map(t => `
-            <tr class="${t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : ''}">
-                <td>${scoreBadge(t.priorityScore)}</td>
-                <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
-                <td>
-                    <strong>${this.esc(t.itemNo)}</strong>
-                    ${t.description ? `<div style="font-size:10px;color:#757575;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(t.description)}</div>` : ''}
-                </td>
-                <td style="font-size:11px;">${this.esc(t.problemText)}</td>
-                <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
-            </tr>
-        `).join('');
+        // Helpers for compact display cells
+        const dash = '\u2013'; // –
+        const fmt = (n) => n > 0 ? n.toLocaleString('no-NO') : dash;
+        const fmtKr = (n) => n > 0 ? n.toLocaleString('no-NO', { maximumFractionDigits: 0 }) + '\u00A0kr' : dash;
+        const trunc = (s, max) => s && s.length > max ? s.slice(0, max) + '\u2026' : (s || dash);
+
+        const rows = top25.map(t => {
+            // Look up live item for display-only fields.
+            // Uses existing store.getByToolsArticleNumber() – zero logic duplication.
+            const itemObj = store.getByToolsArticleNumber(t.itemNo);
+            const saNum    = itemObj ? (itemObj.saNumber  || '') : '';
+            const location = itemObj ? (itemObj.location  || '') : '';
+            const stock    = itemObj ? (itemObj.stock     || 0)  : 0;
+            const kp       = itemObj ? (itemObj.kalkylPris || 0) : 0;
+            const exposure = kp > 0 && stock > 0 ? Math.round(kp * stock) : 0;
+            const sales3m  = itemObj ? this.getSales3m(itemObj) : 0;
+
+            const rowClass = t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : '';
+
+            return `
+                <tr class="${rowClass}">
+                    <td style="white-space:nowrap;">${scoreBadge(t.priorityScore)}</td>
+                    <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
+                    <td style="white-space:nowrap;font-size:11px;font-weight:700;">${this.esc(t.itemNo)}</td>
+                    <td style="font-size:11px;max-width:160px;" title="${this.esc(t.description || '')}">${this.esc(trunc(t.description, 30))}</td>
+                    <td style="font-size:11px;white-space:nowrap;color:${saNum ? 'inherit' : '#aaa'};">${saNum ? this.esc(saNum) : dash}</td>
+                    <td style="font-size:11px;white-space:nowrap;color:${location ? 'inherit' : '#aaa'};">${location ? this.esc(location) : dash}</td>
+                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(stock)}</td>
+                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmtKr(exposure)}</td>
+                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(sales3m)}</td>
+                    <td style="font-size:11px;">${this.esc(t.problemText)}</td>
+                    <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
+                </tr>
+            `;
+        }).join('');
 
         const overflow = tasks.length > 25
             ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${tasks.length - 25} flere oppgaver \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
@@ -515,13 +538,19 @@ class WorkMode {
                     <h3 style="margin:0;font-size:16px;font-weight:700;color:#fff;">Dagens prioriterte oppgaver</h3>
                     <span style="font-size:12px;color:#bbdefb;">${tasks.length} oppgave${tasks.length !== 1 ? 'r' : ''} totalt \u2014 viser topp 25</span>
                 </div>
-                <div class="table-wrapper" style="border:none;margin:0;">
-                    <table class="data-table compact" style="font-size:12px;margin:0;">
+                <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
+                    <table class="data-table compact" style="font-size:12px;margin:0;min-width:900px;">
                         <thead>
                             <tr>
-                                <th style="width:80px;">Prioritet</th>
-                                <th style="width:110px;">Type</th>
-                                <th>Artikkel</th>
+                                <th style="width:75px;">Prioritet</th>
+                                <th style="width:100px;">Type</th>
+                                <th style="width:90px;">Tools nr</th>
+                                <th style="width:160px;">Beskrivelse</th>
+                                <th style="width:90px;">SA</th>
+                                <th style="width:75px;">Lokasjon</th>
+                                <th style="width:70px;text-align:right;">Lager (stk)</th>
+                                <th style="width:80px;text-align:right;">Eksponering</th>
+                                <th style="width:60px;text-align:right;">Salg 3m</th>
                                 <th>Problem</th>
                                 <th>Anbefalt handling</th>
                             </tr>
