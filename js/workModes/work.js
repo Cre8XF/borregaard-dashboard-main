@@ -554,19 +554,23 @@ class WorkMode {
             </div>
         ` : `
             <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
-                <table class="data-table compact" style="font-size:12px;margin:0;min-width:980px;">
+                <table class="data-table compact" style="font-size:12px;margin:0;min-width:1200px;">
                     <thead>
                         <tr>
                             <th style="width:75px;">Prioritet</th>
                             <th style="width:100px;">Type</th>
                             <th style="width:90px;">BP-status</th>
                             <th style="width:90px;">Tools nr</th>
-                            <th style="width:170px;">Beskrivelse</th>
-                            <th style="width:95px;">SA</th>
-                            <th style="width:75px;">Lokasjon</th>
-                            <th style="width:70px;text-align:right;">Lager (stk)</th>
-                            <th style="width:80px;text-align:right;">Eksponering</th>
-                            <th style="width:60px;text-align:right;">Salg 3m</th>
+                            <th style="width:160px;">Beskrivelse</th>
+                            <th style="width:90px;">SA</th>
+                            <th style="width:70px;">Lokasjon</th>
+                            <th style="width:60px;text-align:right;">Lager</th>
+                            <th style="width:65px;text-align:right;">Innkomm.</th>
+                            <th style="width:75px;text-align:right;">Eksponering</th>
+                            <th style="width:55px;text-align:right;">Salg 3m</th>
+                            <th style="width:45px;text-align:right;" title="Gjeldende bestillingspunkt">BP</th>
+                            <th style="width:60px;text-align:right;" title="Anbefalt BP = ceil(snitt 3m × 2)">Anb. BP</th>
+                            <th style="width:50px;text-align:right;" title="Avvik = Anbefalt BP − Gjeldende BP">Avvik</th>
                             <th>Problem</th>
                             <th>Anbefalt handling</th>
                         </tr>
@@ -575,13 +579,34 @@ class WorkMode {
                         ${top25.map(t => {
                             // Display-only lookup — uses existing store reverse-lookup.
                             // Zero business logic re-implemented here.
-                            const itemObj  = store.getByToolsArticleNumber(t.itemNo);
-                            const saNum    = itemObj ? (itemObj.saNumber   || '') : '';
-                            const location = itemObj ? (itemObj.location   || '') : '';
-                            const stock    = itemObj ? (itemObj.stock      || 0)  : 0;
-                            const kp       = itemObj ? (itemObj.kalkylPris || 0)  : 0;
-                            const exposure = kp > 0 && stock > 0 ? Math.round(kp * stock) : 0;
-                            const sales3m  = itemObj ? this.getSales3m(itemObj) : 0;
+                            const itemObj    = store.getByToolsArticleNumber(t.itemNo);
+                            const saNum      = itemObj ? (itemObj.saNumber    || '') : '';
+                            const location   = itemObj ? (itemObj.location    || '') : '';
+                            const stock      = itemObj ? (itemObj.stock       || 0)  : 0;
+                            const bestAntLev = itemObj ? (itemObj.bestAntLev  || 0)  : 0;
+                            const kp         = itemObj ? (itemObj.kalkylPris  || 0)  : 0;
+                            const exposure   = kp > 0 && stock > 0 ? Math.round(kp * stock) : 0;
+                            const sales3m    = itemObj ? this.getSales3m(itemObj) : 0;
+                            const bp         = itemObj ? (itemObj.bestillingspunkt || null) : null;
+
+                            // "Anbefalt BP" + "Avvik" — view-only decision support.
+                            // Formula: monthlyAvg = sales3m / 3 → anbefaltBp = ceil(avg × 2).
+                            // Only shown when BP exists and there are recent sales. Not persisted.
+                            let anbefaltBp = null;
+                            let avvik      = null;
+                            if (bp !== null && bp > 0 && sales3m > 0) {
+                                const monthlyAvg = sales3m / 3;
+                                anbefaltBp = Math.ceil(monthlyAvg * 2);
+                                avvik      = anbefaltBp - bp;
+                            }
+
+                            const avvikCell = avvik === null ? dash
+                                : avvik > 0
+                                    ? `<span style="color:#c62828;font-weight:700;">+${avvik}</span>`
+                                    : avvik < 0
+                                        ? `<span style="color:#1565c0;">−${Math.abs(avvik)}</span>`
+                                        : `<span style="color:#388e3c;">0</span>`;
+
                             const rowClass = t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : '';
 
                             return `
@@ -594,8 +619,12 @@ class WorkMode {
                                     <td style="font-size:11px;white-space:nowrap;color:${saNum ? 'inherit' : '#aaa'};">${saNum ? this.esc(saNum) : dash}</td>
                                     <td style="font-size:11px;white-space:nowrap;color:${location ? 'inherit' : '#aaa'};">${location ? this.esc(location) : dash}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(stock)}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;color:${bestAntLev > 0 ? 'inherit' : '#aaa'};">${fmt(bestAntLev)}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmtKr(exposure)}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(sales3m)}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;color:${bp ? 'inherit' : '#aaa'};">${bp ? bp : dash}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;color:${anbefaltBp !== null ? 'inherit' : '#aaa'};">${anbefaltBp !== null ? anbefaltBp : dash}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${avvikCell}</td>
                                     <td style="font-size:11px;">${this.esc(t.problemText)}</td>
                                     <td style="font-size:11px;font-weight:600;">${this.esc(t.recommendedAction)}</td>
                                 </tr>
