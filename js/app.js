@@ -18,14 +18,15 @@ class DashboardApp {
     constructor() {
         // Datakilder (4 filer — 3 påkrevd, 1 valgfri)
         this.files = {
-            master: null,       // Master.xlsx (REQUIRED)
-            ordersOut: null,    // Ordrer_Jeeves.xlsx (REQUIRED)
-            sa: null,           // SA-nummer.xlsx (REQUIRED — FASE 6.1)
-            lagerplan: null     // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
+            master: null,           // Master.xlsx (REQUIRED)
+            ordersOut: null,        // Ordrer_Jeeves.xlsx (REQUIRED)
+            sa: null,               // SA-nummer.xlsx (REQUIRED — FASE 6.1)
+            lagerplan: null,        // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
+            artikkelstatus: null    // Master_Artikkelstatus.xlsx (OPTIONAL — Lagerhylla override)
         };
 
         // Pending files from drag-and-drop (replaces DOM file inputs)
-        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null };
+        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null };
 
         // Samlet datastruktur
         this.dataStore = null;
@@ -140,7 +141,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null };
+        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null };
 
         for (const file of files) {
             try {
@@ -165,6 +166,7 @@ class DashboardApp {
         if (routed.ordersOut) this.pendingFiles.ordersOut = routed.ordersOut;
         if (routed.sa) this.pendingFiles.sa = routed.sa;
         if (routed.lagerplan) this.pendingFiles.lagerplan = routed.lagerplan;
+        if (routed.artikkelstatus) this.pendingFiles.artikkelstatus = routed.artikkelstatus;
 
         // Parse Kategori.xlsx if present (optional, for Reports module)
         if (routed.kategori) {
@@ -228,9 +230,14 @@ class DashboardApp {
         const name = file.name.toLowerCase();
 
         // Primary: filename-based detection
+        // NOTE: 'master_artikkelstatus' / 'artikkelstatus' MUST come before 'master'
+        // so that Master_Artikkelstatus.xlsx is routed to its own slot and not treated
+        // as a plain Master.xlsx replacement.
         const filenameRules = [
-            { match: 'kategori',         type: 'kategori' },
-            { match: 'master',           type: 'master' },
+            { match: 'kategori',              type: 'kategori' },
+            { match: 'master_artikkelstatus', type: 'artikkelstatus' },
+            { match: 'artikkelstatus',        type: 'artikkelstatus' },
+            { match: 'master',                type: 'master' },
             { match: 'ordrer',           type: 'ordersOut' },
             { match: 'sa-nummer',        type: 'sa' },
             { match: 'sa_nummer',        type: 'sa' },
@@ -348,7 +355,8 @@ class DashboardApp {
             ordersOut: 'Ordrer (salg ut)',
             sa: 'SA-nummer',
             lagerplan: 'Analyse Lagerplan',
-            kategori: 'Kategori'
+            kategori: 'Kategori',
+            artikkelstatus: 'Artikkelstatus (hylleinfo)'
         };
         return labels[type] || type;
     }
@@ -364,6 +372,7 @@ class DashboardApp {
         const ordersOutFile = this.pendingFiles.ordersOut;
         const saFile = this.pendingFiles.sa || null;
         const lagerplanFile = this.pendingFiles.lagerplan || null;
+        const artikkelstatusFile = this.pendingFiles.artikkelstatus || null;
 
         // FASE 6.1: Valider alle 3 påkrevde filer
         const missing = [];
@@ -385,7 +394,8 @@ class DashboardApp {
                 master: masterFile,
                 ordersOut: ordersOutFile,
                 sa: saFile,
-                lagerplan: lagerplanFile
+                lagerplan: lagerplanFile,
+                artikkelstatus: artikkelstatusFile
             }, (status) => this.showStatus(status, 'info'));
 
             console.log(`[FASE 6.1] Prosessert: ${this.dataStore.items.size} SA-artikler`);
@@ -770,7 +780,8 @@ class DashboardApp {
                 master: null,
                 ordersOut: null,
                 sa: null,
-                lagerplan: null
+                lagerplan: null,
+                artikkelstatus: null
             };
             this.dataStore = null;
 
@@ -778,7 +789,7 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV3');
 
             // Nullstill pending files og drop-status
-            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null };
+            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null };
             const dropStatus = document.getElementById('dropStatus');
             if (dropStatus) dropStatus.innerHTML = '';
 
