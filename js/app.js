@@ -168,6 +168,15 @@ class DashboardApp {
         if (routed.lagerplan) this.pendingFiles.lagerplan = routed.lagerplan;
         if (routed.artikkelstatus) this.pendingFiles.artikkelstatus = routed.artikkelstatus;
 
+        // Slot assignment debug log — helps diagnose "mangler" false positives
+        console.log('FILE SLOTS after drop:', {
+            master:        this.pendingFiles.master?.name        ?? '(tom)',
+            ordersOut:     this.pendingFiles.ordersOut?.name     ?? '(tom)',
+            sa:            this.pendingFiles.sa?.name            ?? '(tom)',
+            lagerplan:     this.pendingFiles.lagerplan?.name     ?? '(tom)',
+            artikkelstatus:this.pendingFiles.artikkelstatus?.name ?? '(tom)'
+        });
+
         // Parse Kategori.xlsx if present (optional, for Reports module)
         if (routed.kategori) {
             try {
@@ -230,13 +239,16 @@ class DashboardApp {
         const name = file.name.toLowerCase();
 
         // Primary: filename-based detection
-        // NOTE: 'master_artikkelstatus' / 'artikkelstatus' MUST come before 'master'
-        // so that Master_Artikkelstatus.xlsx is routed to its own slot and not treated
-        // as a plain Master.xlsx replacement.
+        // IMPORTANT rule ordering:
+        //   'master_artikkelstatus' → type 'master'  (it IS the master file; Lagerhylla is
+        //      read from it via MASTER_COLUMNS.location = 'Lagerhylla')
+        //   A standalone 'artikkelstatus' file (no 'master' in name) → 'artikkelstatus' slot
+        //      (runs as a post-master location-only override pass)
+        //   Generic 'master' → type 'master'
         const filenameRules = [
             { match: 'kategori',              type: 'kategori' },
-            { match: 'master_artikkelstatus', type: 'artikkelstatus' },
-            { match: 'artikkelstatus',        type: 'artikkelstatus' },
+            { match: 'master_artikkelstatus', type: 'master' },       // FIX: IS the master file
+            { match: 'artikkelstatus',        type: 'artikkelstatus' }, // standalone enrichment only
             { match: 'master',                type: 'master' },
             { match: 'ordrer',           type: 'ordersOut' },
             { match: 'sa-nummer',        type: 'sa' },
