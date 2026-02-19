@@ -243,7 +243,27 @@ class DataProcessor {
                 console.log('[FASE 6.1] Analyse_Lagerplan.xlsx: Ikke lastet (valgfri)');
             }
 
-            // ── 5. Calculate derived values ──
+            // ── 5. Load and process Master_Artikkelstatus.xlsx (OPTIONAL — Lagerhylla override) ──
+            // Runs AFTER processMasterData so its location value always wins.
+            if (files.artikkelstatus) {
+                statusCallback('Laster Master_Artikkelstatus.xlsx (hyllelokasjon)...');
+                try {
+                    const asData = await this.loadFile(files.artikkelstatus);
+                    console.log(`[FASE 6.1] Master_Artikkelstatus.xlsx lastet:`);
+                    console.log(`  Filnavn: ${files.artikkelstatus.name}`);
+                    console.log(`  Kolonner (${asData.columns.length}): ${asData.columns.join(', ')}`);
+                    console.log(`  Rader: ${asData.rowCount}`);
+
+                    this.processArtikkelstatusData(asData.data, asData.columns, store);
+                } catch (asError) {
+                    console.warn('[FASE 6.1] Master_Artikkelstatus.xlsx kunne ikke prosesseres:', asError.message);
+                    // Optional — do not throw
+                }
+            } else {
+                console.log('[FASE 6.1] Master_Artikkelstatus.xlsx: Ikke lastet (valgfri)');
+            }
+
+            // ── 6. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
@@ -737,6 +757,66 @@ class DataProcessor {
         if (unmatchedCount > 0) {
             console.log(`  Ikke matchet (ignorert): ${unmatchedCount}`);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  MASTER_ARTIKKELSTATUS.XLSX — location enrichment only
+    // ════════════════════════════════════════════════════
+
+    /**
+     * processArtikkelstatusData(data, columns, store)
+     *
+     * Reads ONLY the "Lagerhylla" (column D) value from Master_Artikkelstatus.xlsx
+     * and writes it to item.location, overriding whatever processMasterData() set.
+     *
+     * Deliberately minimal: no other fields touched, no logic changed.
+     */
+    static processArtikkelstatusData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('[FASE 6.1] Master_Artikkelstatus.xlsx: ingen rader, hopper over');
+            return;
+        }
+
+        // Case-insensitive column lookup
+        const colLower = columns.map(c => c.trim().toLowerCase());
+        const lagerhyllaCol = columns[colLower.indexOf('lagerhylla')] || null;
+        const articleCol    = columns[colLower.indexOf('artikelnr')]  || null;
+
+        if (!lagerhyllaCol) {
+            console.warn('[FASE 6.1] Master_Artikkelstatus.xlsx: kolonne "Lagerhylla" ikke funnet — lokasjon oppdateres ikke');
+            console.warn(`  Tilgjengelige kolonner: ${columns.join(', ')}`);
+            return;
+        }
+        if (!articleCol) {
+            console.warn('[FASE 6.1] Master_Artikkelstatus.xlsx: kolonne "Artikelnr" ikke funnet — kan ikke matche artikler');
+            return;
+        }
+
+        let matched = 0;
+        let withLocation = 0;
+
+        data.forEach(row => {
+            const artNr = row[articleCol];
+            if (!artNr) return;
+
+            const item = store.getByToolsArticleNumber(artNr.toString().trim());
+            if (!item) return;
+
+            matched++;
+
+            const rawVal = row[lagerhyllaCol];
+            if (rawVal !== undefined && rawVal !== null) {
+                const val = rawVal.toString().trim();
+                if (val) {
+                    item.location = val;   // Override — same property, no new field
+                    withLocation++;
+                }
+            }
+        });
+
+        console.log(`[FASE 6.1] Master_Artikkelstatus.xlsx (Lagerhylla) prosessert:`);
+        console.log(`  Matchet SA-artikler: ${matched}`);
+        console.log(`  Oppdatert item.location (Lagerhylla): ${withLocation}`);
     }
 
     /**
