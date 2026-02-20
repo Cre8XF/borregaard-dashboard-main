@@ -21,6 +21,10 @@ class WorkMode {
     static currentMainTab = 'drift'; // 'drift' | 'lagerstyring' | 'struktur'
     static segmentFilter = 'alle';   // 'alle' | 'sa' | 'bp' | 'outgoing'
 
+    // Done-task persistence (UI only — never written to store or data model)
+    static doneTasks = {};           // mirror of localStorage['borregaard_done_tasks']
+    static showDone  = false;        // whether completed rows are visible
+
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
     // ════════════════════════════════════════════════════
@@ -484,7 +488,15 @@ class WorkMode {
             : seg === 'outgoing' ? allTasks.filter(t => t.type === 'SA' || t.type === 'TRANSITION')
             : allTasks;
 
-        const top25 = segmented.slice(0, 25);
+        // ── Done-task filter (UI-only; localStorage; does not touch store or scoring) ──
+        const doneTasks     = this.loadDoneTasks();
+        this.doneTasks      = doneTasks;                  // keep in sync for handlers
+        const showDone      = this.showDone;
+        const doneInSegment = segmented.filter(t => !!doneTasks[t.itemNo]).length;
+        const doneTotal     = Object.keys(doneTasks).length;
+        const visible       = showDone ? segmented : segmented.filter(t => !doneTasks[t.itemNo]);
+
+        const top25 = visible.slice(0, 25);
 
         // ── Helpers ──────────────────────────────────────────────────────────
         const dash   = '\u2013';
@@ -530,12 +542,33 @@ class WorkMode {
             type === 'outgoing' ? (t.type === 'SA' || t.type === 'TRANSITION') : true
         ).length;
 
+        const btnBase = 'display:inline-block;padding:5px 13px;border-radius:4px;font-size:12px;cursor:pointer;border:1.5px solid;';
+
+        const showDoneBtn = `<span onclick="WorkMode.toggleShowDone()"
+            style="${btnBase}font-weight:${showDone ? '700' : '500'};
+                   background:${showDone ? '#e8f5e9' : '#fff'};
+                   color:${showDone ? '#2e7d32' : '#555'};
+                   border-color:${showDone ? '#66bb6a' : '#bdbdbd'};"
+            title="${showDone ? 'Skjul ferdige oppgaver' : 'Vis ferdige oppgaver'}"
+        >${showDone ? '\u2713 Skjul ferdige' : `Vis ferdige\u00A0(${doneInSegment})`}</span>`;
+
+        const resetBtn = doneTotal > 0
+            ? `<span onclick="WorkMode.resetDoneTasks()"
+                style="${btnBase}font-weight:500;background:#fff;color:#c62828;border-color:#ef9a9a;margin-left:4px;"
+                title="Slett alle fullf\u00F8rte markeringer"
+               >Nullstill fremdrift</span>`
+            : '';
+
         const filterBar = `
             <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:#f5f5f5;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;">
                 ${segBtn('alle',     'Alle',      allTasks.length)}
                 ${segBtn('sa',       'SA',         countOf('sa'))}
                 ${segBtn('bp',       'BP',         countOf('bp'))}
                 ${segBtn('outgoing', 'Utg\u00E5ende', countOf('outgoing'))}
+                <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                    ${showDoneBtn}
+                    ${resetBtn}
+                </span>
             </div>
         `;
 
@@ -550,13 +583,20 @@ class WorkMode {
         // ── Rows ──────────────────────────────────────────────────────────────
         const bodyHtml = top25.length === 0 ? `
             <div style="padding:16px;text-align:center;color:#757575;font-size:13px;">
-                Ingen oppgaver matcher valgt segment.
+                ${showDone || doneInSegment === 0
+                    ? 'Ingen oppgaver matcher valgt segment.'
+                    : `Alle ${doneInSegment} oppgave${doneInSegment !== 1 ? 'r' : ''} i dette segmentet er fullf\u00F8rt. Klikk <em>Vis ferdige</em> for \u00E5 se dem.`}
             </div>
         ` : `
+            <style>
+                .task-done td { opacity:0.45; text-decoration:line-through; }
+                .task-done td:first-child { text-decoration:none; opacity:1; }
+            </style>
             <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
-                <table class="data-table compact" style="font-size:12px;margin:0;min-width:1200px;">
+                <table class="data-table compact" style="font-size:12px;margin:0;min-width:1260px;">
                     <thead>
                         <tr>
+                            <th style="width:36px;text-align:center;" title="Merk som ferdig">Ferdig</th>
                             <th style="width:75px;">Prioritet</th>
                             <th style="width:100px;">Type</th>
                             <th style="width:90px;">BP-status</th>
@@ -577,6 +617,8 @@ class WorkMode {
                     </thead>
                     <tbody>
                         ${top25.map(t => {
+                            const isDone = !!doneTasks[t.itemNo];
+
                             // Display-only lookup — uses existing store reverse-lookup.
                             // Zero business logic re-implemented here.
                             const itemObj    = store.getByToolsArticleNumber(t.itemNo);
@@ -607,10 +649,21 @@ class WorkMode {
                                         ? `<span style="color:#1565c0;">−${Math.abs(avvik)}</span>`
                                         : `<span style="color:#388e3c;">0</span>`;
 
-                            const rowClass = t.priorityScore >= 100 ? 'row-critical' : t.priorityScore >= 70 ? 'row-warning' : '';
+                            // Done rows override priority-based colour; undone rows keep it.
+                            const rowClass = isDone
+                                ? 'task-done'
+                                : t.priorityScore >= 100 ? 'row-critical'
+                                : t.priorityScore >= 70  ? 'row-warning'
+                                : '';
 
                             return `
                                 <tr class="${rowClass}">
+                                    <td style="text-align:center;padding:4px 2px;">
+                                        <input type="checkbox" ${isDone ? 'checked' : ''}
+                                            onchange="WorkMode.toggleTaskDone('${this.esc(t.itemNo)}','${seg}')"
+                                            style="cursor:pointer;width:15px;height:15px;"
+                                            title="${isDone ? 'Merk som ikke ferdig' : 'Merk som ferdig'}">
+                                    </td>
                                     <td style="white-space:nowrap;">${scoreBadge(t.priorityScore)}</td>
                                     <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
                                     <td style="white-space:nowrap;">${bpBadge(itemObj)}</td>
@@ -635,8 +688,8 @@ class WorkMode {
             </div>
         `;
 
-        const overflow = segmented.length > 25
-            ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${segmented.length - 25} flere oppgaver i dette segmentet \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
+        const overflow = visible.length > 25
+            ? `<div style="padding:8px 16px;background:#f5f5f5;font-size:12px;color:#757575;border-top:1px solid #e0e0e0;">+ ${visible.length - 25} flere oppgaver i dette segmentet \u2014 bruk <strong>Lagerstyring</strong> og <strong>Struktur</strong>-fanene for full oversikt</div>`
             : '';
 
         if (allTasks.length === 0) return emptyHtml;
@@ -645,7 +698,11 @@ class WorkMode {
             <div style="margin-bottom:24px;background:#fff;border:2px solid #1565c0;border-radius:8px;overflow:hidden;">
                 <div style="background:#1565c0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
                     <h3 style="margin:0;font-size:16px;font-weight:700;color:#fff;">Dagens prioriterte oppgaver</h3>
-                    <span style="font-size:12px;color:#bbdefb;">${segmented.length} oppgave${segmented.length !== 1 ? 'r' : ''} i segmentet \u2014 viser topp 25</span>
+                    <span style="font-size:12px;color:#bbdefb;">
+                        ${visible.length} oppgave${visible.length !== 1 ? 'r' : ''} i segmentet
+                        ${doneInSegment > 0 && !showDone ? `\u00B7 ${doneInSegment} skjult (ferdig)` : ''}
+                        \u2014 viser topp 25
+                    </span>
                 </div>
                 ${filterBar}
                 ${bodyHtml}
@@ -1156,6 +1213,73 @@ class WorkMode {
             </div>
             <div class="table-footer"><p class="text-muted">Viser ${rows.length} artikler</p></div>
         `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  EVENT HANDLERS
+    // ════════════════════════════════════════════════════
+
+    // ════════════════════════════════════════════════════
+    //  DONE-TASK PERSISTENCE  (localStorage only, UI layer)
+    // ════════════════════════════════════════════════════
+
+    static loadDoneTasks() {
+        try {
+            const raw = localStorage.getItem('borregaard_done_tasks');
+            return raw ? JSON.parse(raw) : {};
+        } catch {
+            return {};
+        }
+    }
+
+    static saveDoneTasks() {
+        try {
+            localStorage.setItem('borregaard_done_tasks', JSON.stringify(this.doneTasks));
+        } catch (e) {
+            console.warn('WorkMode: kunne ikke lagre fremdrift til localStorage:', e);
+        }
+    }
+
+    /**
+     * Toggle a task done/undone, persist, and re-render.
+     * Called from checkbox onchange in renderDailyWorkQueue rows.
+     * @param {string} itemNo  — tools article number (task identifier)
+     * @param {string} segment — active segment at time of click
+     */
+    static toggleTaskDone(itemNo, segment) {
+        this.doneTasks = this.loadDoneTasks();
+        if (this.doneTasks[itemNo]) {
+            delete this.doneTasks[itemNo];
+        } else {
+            this.doneTasks[itemNo] = {
+                done: true,
+                date: new Date().toISOString(),
+                segment: segment || this.segmentFilter
+            };
+        }
+        this.saveDoneTasks();
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
+
+    static toggleShowDone() {
+        this.showDone = !this.showDone;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
+
+    static resetDoneTasks() {
+        const count = Object.keys(this.loadDoneTasks()).length;
+        if (count === 0) return;
+        if (confirm(`Er du sikker på at du vil nullstille fremdrift?\n${count} fullført${count !== 1 ? 'e' : ''} oppgave${count !== 1 ? 'r' : ''} slettes.`)) {
+            this.doneTasks = {};
+            localStorage.removeItem('borregaard_done_tasks');
+            if (window.app && window.app.dataStore) {
+                window.app.renderCurrentModule();
+            }
+        }
     }
 
     // ════════════════════════════════════════════════════
