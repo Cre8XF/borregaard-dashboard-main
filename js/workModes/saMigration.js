@@ -32,6 +32,14 @@ class SAMigrationMode {
     static toggleExposureOnly = false;
     static toggleBorregaardOnly = false;
 
+    // Part 4 — Additional filter toggles
+    static toggleHarSaldo = false;
+    static toggleHarBestilling = false;
+    static toggleUtenLagerOgBestilling = false;
+
+    // Part 2 — Panel state: store last analysis rows for panel lookup
+    static _lastRows = [];
+
     /**
      * Render SA-migration view
      * @param {UnifiedDataStore} store
@@ -82,6 +90,9 @@ class SAMigrationMode {
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHighOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHighOnly', this.checked)"> Kun HØY hastegrad</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleExposureOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleExposureOnly', this.checked)"> Kun eksponering &gt; 0</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleBorregaardOnly ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleBorregaardOnly', this.checked)"> Kun 424186 (Borregaard)</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHarSaldo ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHarSaldo', this.checked)"> Kun har saldo</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHarBestilling ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHarBestilling', this.checked)"> Kun har bestilling</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleUtenLagerOgBestilling ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleUtenLagerOgBestilling', this.checked)"> Kun uten lager og uten bestilling</label>
             </div>
 
             <div id="saMigrationContent">
@@ -136,6 +147,8 @@ class SAMigrationMode {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
                 description: item.description || '',
+                bp: item.bestillingspunkt,          // Part 1: BP from Analyse_Lagerplan
+                lagerplass: item.location || '',    // Part 1: Warehouse location
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 status: this.getStatusLabel(item),
@@ -173,6 +186,9 @@ class SAMigrationMode {
             if (item.stock > 0) withStockCount++;
             totalEstimertVerdi += item.estimertVerdi || 0;
         });
+
+        // Store full rows for panel lookup (Part 2)
+        this._lastRows = rows;
 
         // Default sort: saMigrationRequired first, then urgency desc, then exposure desc
         rows.sort((a, b) =>
@@ -477,8 +493,11 @@ class SAMigrationMode {
                         <tr>
                             ${this.renderSortableHeader('Tools Nr', 'toolsNr')}
                             ${this.renderSortableHeader('SA', 'saNumber')}
+                            ${this.renderSortableHeader('BP', 'bp', 'Bestillingspunkt fra Analyse_Lagerplan')}
+                            ${this.renderSortableHeader('Lagerplass', 'lagerplass', 'Lagerlokasjon')}
                             ${this.renderSortableHeader('Saldo', 'stock', 'Lagersaldo (TotLagSaldo)')}
                             ${this.renderSortableHeader('Innkommende', 'bestAntLev', 'Bestilt antall leverandør')}
+                            ${this.renderSortableHeader('Estimert verdi', 'estimertVerdi', 'Estimert verdi (kalkylpris × saldo)')}
                             ${this.renderSortableHeader('Eksponering (lager + innkjøp)', 'oldExposure', 'Totaleksponering = lagersaldo + innkommende bestillinger')}
                             ${this.renderSortableHeader('Status', 'status')}
                             ${this.renderSortableHeader('Erstatning', 'replacementNr')}
@@ -518,11 +537,17 @@ class SAMigrationMode {
         const hoverTitle = `Q1: ${row.quarterlySales.Q1} | Q2: ${row.quarterlySales.Q2} | Q3: ${row.quarterlySales.Q3} | Q4: ${row.quarterlySales.Q4}${deptTooltip ? ' || Dept: ' + deptTooltip : ''}`;
 
         return `
-            <tr class="${rowClass}" title="${this.escapeHtml(hoverTitle)}">
+            <tr class="${rowClass} sa-migration-row" title="${this.escapeHtml(hoverTitle)}"
+                data-toolsnr="${this.escapeHtml(row.toolsNr)}"
+                style="cursor:pointer;"
+                onclick="SAMigrationMode.openPanel(this.dataset.toolsnr)">
                 <td><strong>${this.escapeHtml(row.toolsNr)}</strong></td>
                 <td>${this.escapeHtml(row.saNumber)}</td>
+                <td class="qty-cell">${row.bp !== null && row.bp !== undefined ? this.formatNumber(row.bp) : '-'}</td>
+                <td>${this.escapeHtml(row.lagerplass) || '-'}</td>
                 <td class="qty-cell">${this.formatNumber(row.stock)}</td>
                 <td class="qty-cell">${row.bestAntLev > 0 ? this.formatNumber(row.bestAntLev) : '-'}</td>
+                <td class="qty-cell">${this.formatNumber(Math.round(row.estimertVerdi))} kr</td>
                 <td class="qty-cell">${this.formatNumber(row.oldExposure)}</td>
                 <td>${this.renderStatusBadge(row.status)}</td>
                 <td><strong>${this.escapeHtml(row.replacementNr)}</strong></td>
@@ -611,6 +636,17 @@ class SAMigrationMode {
                 const dept = r.salesByDepartment || {};
                 return Object.keys(dept).some(k => k.startsWith('424186'));
             });
+        }
+
+        // Part 4 — Additional filter toggles
+        if (this.toggleHarSaldo) {
+            filtered = filtered.filter(r => r.stock > 0);
+        }
+        if (this.toggleHarBestilling) {
+            filtered = filtered.filter(r => r.bestAntLev > 0);
+        }
+        if (this.toggleUtenLagerOgBestilling) {
+            filtered = filtered.filter(r => r.stock === 0 && r.bestAntLev === 0);
         }
 
         // Text search
@@ -702,6 +738,300 @@ class SAMigrationMode {
     }
 
     // ════════════════════════════════════════════════════
+    //  PART 2 — SIDE PANEL
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Ensure the side panel and overlay DOM elements exist (created once, reused).
+     * Injects panel styles and HTML scaffolding into document.body if not present.
+     */
+    static _ensurePanelDOM() {
+        if (document.getElementById('saMigration-side-panel')) return;
+
+        // Inject panel styles once
+        if (!document.getElementById('saMigration-panel-styles')) {
+            const style = document.createElement('style');
+            style.id = 'saMigration-panel-styles';
+            style.textContent = `
+                #saMigration-panel-overlay {
+                    position: fixed; top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.28);
+                    z-index: 1000;
+                    display: none;
+                }
+                #saMigration-panel-overlay.open { display: block; }
+
+                #saMigration-side-panel {
+                    position: fixed; top: 0; right: 0;
+                    width: 480px; max-width: 96vw;
+                    height: 100vh;
+                    background: #fff;
+                    box-shadow: -4px 0 24px rgba(0,0,0,0.18);
+                    z-index: 1001;
+                    transform: translateX(100%);
+                    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+                    overflow-y: auto;
+                    display: flex; flex-direction: column;
+                }
+                #saMigration-side-panel.open { transform: translateX(0); }
+
+                .sa-panel-header {
+                    background: #1a237e;
+                    color: #fff;
+                    padding: 16px 20px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    position: sticky; top: 0; z-index: 1;
+                    flex-shrink: 0;
+                }
+                .sa-panel-header h2 {
+                    margin: 0; font-size: 14px;
+                    font-weight: 700; letter-spacing: 1.2px;
+                    text-transform: uppercase;
+                }
+                .sa-panel-close {
+                    background: transparent; border: none;
+                    color: #fff; font-size: 22px;
+                    cursor: pointer; padding: 0 2px; line-height: 1;
+                    opacity: 0.8;
+                }
+                .sa-panel-close:hover { opacity: 1; }
+
+                .sa-panel-body { padding: 16px; flex: 1; }
+
+                .sa-panel-section {
+                    margin-bottom: 14px;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    overflow: hidden;
+                }
+                .sa-panel-section-title {
+                    background: #f5f5f5;
+                    margin: 0; padding: 9px 14px;
+                    font-size: 11px; font-weight: 700;
+                    color: #424242;
+                    border-bottom: 1px solid #e0e0e0;
+                    text-transform: uppercase; letter-spacing: 0.6px;
+                }
+                .sa-panel-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    padding: 10px 14px; gap: 2px 8px;
+                }
+                .sa-panel-grid dt {
+                    font-size: 10px; color: #757575;
+                    font-weight: 700; text-transform: uppercase;
+                    padding-top: 6px; letter-spacing: 0.3px;
+                }
+                .sa-panel-grid dd {
+                    font-size: 14px; color: #212121;
+                    font-weight: 500; padding-top: 6px;
+                }
+
+                .sa-checklist-progress {
+                    padding: 7px 14px;
+                    font-size: 11px; color: #757575;
+                    border-bottom: 1px solid #eeeeee;
+                    font-weight: 600;
+                }
+                .sa-checklist-item {
+                    display: flex; align-items: center; gap: 10px;
+                    padding: 9px 14px; cursor: pointer;
+                    border-bottom: 1px solid #f5f5f5;
+                    font-size: 13px; color: #212121;
+                    transition: background 0.1s;
+                }
+                .sa-checklist-item:last-child { border-bottom: none; }
+                .sa-checklist-item:hover { background: #fafafa; }
+                .sa-checklist-item input[type=checkbox] {
+                    width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;
+                    accent-color: #1a237e;
+                }
+                .sa-checklist-item.done span {
+                    text-decoration: line-through; color: #9e9e9e;
+                }
+                .sa-migration-row:hover td { background: rgba(26,35,126,0.04); }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'saMigration-panel-overlay';
+        overlay.addEventListener('click', () => SAMigrationMode.closePanel());
+        document.body.appendChild(overlay);
+
+        // Panel shell
+        const panel = document.createElement('div');
+        panel.id = 'saMigration-side-panel';
+        panel.innerHTML = '<div id="saMigration-panel-inner"></div>';
+        document.body.appendChild(panel);
+    }
+
+    /**
+     * Open side panel for a given article (by toolsNr).
+     * Looks up row data from _lastRows (populated during analyze).
+     */
+    static openPanel(toolsNr) {
+        const row = this._lastRows.find(r => r.toolsNr === toolsNr);
+        if (!row) return;
+
+        this._ensurePanelDOM();
+
+        const inner = document.getElementById('saMigration-panel-inner');
+        if (inner) {
+            inner.innerHTML = this.renderPanelContent(row);
+        }
+
+        document.getElementById('saMigration-side-panel').classList.add('open');
+        document.getElementById('saMigration-panel-overlay').classList.add('open');
+    }
+
+    /** Close the side panel */
+    static closePanel() {
+        const panel = document.getElementById('saMigration-side-panel');
+        const overlay = document.getElementById('saMigration-panel-overlay');
+        if (panel) panel.classList.remove('open');
+        if (overlay) overlay.classList.remove('open');
+    }
+
+    /**
+     * Render the full HTML content for the side panel.
+     * All values come from the row object built in analyze().
+     */
+    static renderPanelContent(row) {
+        return `
+            <div class="sa-panel-header">
+                <h2>SA-ENDRING &#8211; ARBEIDSKORT</h2>
+                <button class="sa-panel-close" onclick="SAMigrationMode.closePanel()" title="Lukk">&#10005;</button>
+            </div>
+            <div class="sa-panel-body">
+
+                <div class="sa-panel-section">
+                    <p class="sa-panel-section-title">Artikkelinformasjon</p>
+                    <dl class="sa-panel-grid">
+                        <dt>Art.nr</dt>
+                        <dd>${this.escapeHtml(row.toolsNr)}</dd>
+                        <dt>SA-nummer</dt>
+                        <dd>${this.escapeHtml(row.saNumber) || '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>BP</dt>
+                        <dd>${row.bp !== null && row.bp !== undefined ? this.formatNumber(row.bp) : '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>Lagerplass</dt>
+                        <dd>${this.escapeHtml(row.lagerplass) || '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>Saldo</dt>
+                        <dd>${this.formatNumber(row.stock)}</dd>
+                        <dt>Innkommende</dt>
+                        <dd>${row.bestAntLev > 0 ? this.formatNumber(row.bestAntLev) : '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>Eksponering</dt>
+                        <dd>${this.formatNumber(row.oldExposure)}</dd>
+                        <dt>Estimert verdi</dt>
+                        <dd>${this.formatNumber(Math.round(row.estimertVerdi))} kr</dd>
+                        <dt>Status</dt>
+                        <dd>${this.renderStatusBadge(row.status)}</dd>
+                    </dl>
+                </div>
+
+                <div class="sa-panel-section">
+                    <p class="sa-panel-section-title">Erstatningsartikkel</p>
+                    <dl class="sa-panel-grid">
+                        <dt>Erstattes av</dt>
+                        <dd><strong>${this.escapeHtml(row.replacementNr)}</strong></dd>
+                        <dt>Erstatning SA</dt>
+                        <dd>${row.replacementSaNumber ? this.escapeHtml(row.replacementSaNumber) : '<span class="badge badge-warning" style="font-size:11px;">Mangler</span>'}</dd>
+                        <dt>Erstatning saldo</dt>
+                        <dd>${this.formatNumber(row.replacementStock)}</dd>
+                        <dt>Erstatning innkommende</dt>
+                        <dd>${row.replacementBestAntLev > 0 ? this.formatNumber(row.replacementBestAntLev) : '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>Erstatning eksponering</dt>
+                        <dd>${this.formatNumber(row.replacementExposure)}</dd>
+                    </dl>
+                </div>
+
+                <div class="sa-panel-section">
+                    <p class="sa-panel-section-title">Arbeidssteg</p>
+                    <div id="sa-panel-checklist">
+                        ${this.renderChecklist(row.toolsNr)}
+                    </div>
+                </div>
+
+            </div>
+        `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  PART 3 — WORKFLOW CHECKLIST (LOCALSTORAGE)
+    // ════════════════════════════════════════════════════
+
+    static _checklistItems = [
+        'Notert SA/BP/Lager',
+        'Fjernet i Jeeves',
+        'Lagt inn ny',
+        'Sendt Morten',
+        'Sendt E-handel',
+        'FreshService sendt'
+    ];
+
+    /** Build the localStorage key for a given article number */
+    static getChecklistKey(toolsNr) {
+        return `saMigrationProgress_${toolsNr}`;
+    }
+
+    /** Load checklist state from localStorage. Returns object { 0: bool, 1: bool, ... } */
+    static loadChecklist(toolsNr) {
+        try {
+            const raw = localStorage.getItem(this.getChecklistKey(toolsNr));
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /** Persist a single checklist step change to localStorage */
+    static saveChecklist(toolsNr, idx, checked) {
+        const state = this.loadChecklist(toolsNr);
+        state[idx] = checked;
+        localStorage.setItem(this.getChecklistKey(toolsNr), JSON.stringify(state));
+    }
+
+    /** Render checklist HTML for the panel */
+    static renderChecklist(toolsNr) {
+        const state = this.loadChecklist(toolsNr);
+        const completed = this._checklistItems.filter((_, i) => !!state[i]).length;
+        const total = this._checklistItems.length;
+        const escapedNr = this.escapeHtml(toolsNr);
+
+        const items = this._checklistItems.map((label, idx) => {
+            const done = !!state[idx];
+            return `
+                <label class="sa-checklist-item${done ? ' done' : ''}">
+                    <input type="checkbox" ${done ? 'checked' : ''}
+                        onchange="SAMigrationMode.handleChecklistChange('${escapedNr}', ${idx}, this.checked)">
+                    <span>${this.escapeHtml(label)}</span>
+                </label>
+            `;
+        }).join('');
+
+        return `
+            <div class="sa-checklist-progress">${completed} / ${total} steg fullf&#248;rt</div>
+            ${items}
+        `;
+    }
+
+    /**
+     * Handle a checklist checkbox change:
+     * persists to localStorage, then re-renders only the checklist section.
+     */
+    static handleChecklistChange(toolsNr, idx, checked) {
+        this.saveChecklist(toolsNr, idx, checked);
+        const checklistEl = document.getElementById('sa-panel-checklist');
+        if (checklistEl) {
+            checklistEl.innerHTML = this.renderChecklist(toolsNr);
+        }
+    }
+
+    // ════════════════════════════════════════════════════
     //  CSV EXPORT
     // ════════════════════════════════════════════════════
 
@@ -721,6 +1051,8 @@ class SAMigrationMode {
             'Tools Nr',
             'SA-nummer',
             'Beskrivelse',
+            'BP',
+            'Lagerplass',
             'Saldo',
             'Innkommende',
             'Eksponering',
@@ -754,6 +1086,8 @@ class SAMigrationMode {
                 r.toolsNr,
                 r.saNumber,
                 `"${(r.description || '').replace(/"/g, '""')}"`,
+                r.bp !== null && r.bp !== undefined ? r.bp : '',
+                `"${(r.lagerplass || '').replace(/"/g, '""')}"`,
                 r.stock,
                 r.bestAntLev,
                 r.oldExposure,
