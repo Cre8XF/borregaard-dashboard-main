@@ -37,8 +37,13 @@ class SAMigrationMode {
     static toggleHarBestilling = false;
     static toggleUtenLagerOgBestilling = false;
 
-    // Part 2 — Panel state: store last analysis rows for panel lookup
+    // Panel state: store last analysis rows for panel lookup
     static _lastRows = [];
+
+    // Multi-select state (Part 1–4)
+    static selectedArticles = new Set(); // Set of toolsNr strings
+    static _lastFilteredRows = [];       // Tracks current visible rows for select-all
+    static _reportTexts = {};            // { morten, ehandel, fresh } — plain text for clipboard
 
     /**
      * Render SA-migration view
@@ -93,6 +98,18 @@ class SAMigrationMode {
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHarSaldo ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHarSaldo', this.checked)"> Kun har saldo</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleHarBestilling ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleHarBestilling', this.checked)"> Kun har bestilling</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleUtenLagerOgBestilling ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleUtenLagerOgBestilling', this.checked)"> Kun uten lager og uten bestilling</label>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;padding:6px 0 2px;flex-wrap:wrap;">
+                <span id="sa-selection-count" style="font-size:14px;color:#555;min-width:120px;">
+                    Valgt: ${this.selectedArticles.size} artikler
+                </span>
+                <button id="sa-report-btn"
+                    onclick="SAMigrationMode.openReportModal()"
+                    ${this.selectedArticles.size === 0 ? 'disabled' : ''}
+                    style="background:#1a237e;color:#fff;border:none;padding:7px 16px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;opacity:${this.selectedArticles.size === 0 ? '0.45' : '1'};">
+                    Generer SA-rapport (${this.selectedArticles.size})
+                </button>
             </div>
 
             <div id="saMigrationContent">
@@ -482,15 +499,27 @@ class SAMigrationMode {
         let filtered = this.filterResults(analysis.rows);
         filtered = this.sortResults(filtered);
 
+        // Track for select-all support without full re-render
+        this._lastFilteredRows = filtered;
+
         if (filtered.length === 0) {
             return `<div class="alert alert-info">Ingen utgående artikler med erstatning funnet med gjeldende filter.</div>`;
         }
+
+        // Determine if all visible rows are currently selected
+        const allSelected = filtered.length > 0 && filtered.every(r => this.selectedArticles.has(r.toolsNr));
 
         return `
             <div class="table-wrapper">
                 <table class="data-table compact alt-analysis-table">
                     <thead>
                         <tr>
+                            <th style="width:36px;text-align:center;">
+                                <input type="checkbox" id="sa-select-all"
+                                    ${allSelected ? 'checked' : ''}
+                                    onchange="SAMigrationMode.handleSelectAll(this.checked)"
+                                    title="Velg alle synlige rader">
+                            </th>
                             ${this.renderSortableHeader('Tools Nr', 'toolsNr')}
                             ${this.renderSortableHeader('SA', 'saNumber')}
                             ${this.renderSortableHeader('BP', 'bp', 'Bestillingspunkt fra Analyse_Lagerplan')}
@@ -541,6 +570,12 @@ class SAMigrationMode {
                 data-toolsnr="${this.escapeHtml(row.toolsNr)}"
                 style="cursor:pointer;"
                 onclick="SAMigrationMode.openPanel(this.dataset.toolsnr)">
+                <td style="text-align:center;" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="sa-row-checkbox"
+                        data-toolsnr="${this.escapeHtml(row.toolsNr)}"
+                        ${this.selectedArticles.has(row.toolsNr) ? 'checked' : ''}
+                        onchange="SAMigrationMode.handleSelectRow(this.dataset.toolsnr, this.checked)">
+                </td>
                 <td><strong>${this.escapeHtml(row.toolsNr)}</strong></td>
                 <td>${this.escapeHtml(row.saNumber)}</td>
                 <td class="qty-cell">${row.bp !== null && row.bp !== undefined ? this.formatNumber(row.bp) : '-'}</td>
@@ -728,6 +763,36 @@ class SAMigrationMode {
     static handleToggle(prop, checked) {
         this[prop] = checked;
         this.refreshAll();
+    }
+
+    /** Toggle a single row's selection without full re-render */
+    static handleSelectRow(toolsNr, checked) {
+        if (checked) this.selectedArticles.add(toolsNr);
+        else this.selectedArticles.delete(toolsNr);
+        this._updateSelectionBar();
+    }
+
+    /** Select or deselect all currently visible rows without full re-render */
+    static handleSelectAll(checked) {
+        this._lastFilteredRows.forEach(r => {
+            if (checked) this.selectedArticles.add(r.toolsNr);
+            else this.selectedArticles.delete(r.toolsNr);
+        });
+        document.querySelectorAll('.sa-row-checkbox').forEach(cb => { cb.checked = checked; });
+        this._updateSelectionBar();
+    }
+
+    /** Update the selection count label and report button state in-place */
+    static _updateSelectionBar() {
+        const count = this.selectedArticles.size;
+        const countEl = document.getElementById('sa-selection-count');
+        if (countEl) countEl.textContent = `Valgt: ${count} artikler`;
+        const btn = document.getElementById('sa-report-btn');
+        if (btn) {
+            btn.textContent = `Generer SA-rapport (${count})`;
+            btn.disabled = count === 0;
+            btn.style.opacity = count === 0 ? '0.45' : '1';
+        }
     }
 
     static refreshAll() {
@@ -1032,6 +1097,227 @@ class SAMigrationMode {
     }
 
     // ════════════════════════════════════════════════════
+    //  PART 2–4 — REPORT MODAL
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Inject modal DOM scaffolding + styles into document.body (once).
+     */
+    static _ensureReportModalDOM() {
+        if (document.getElementById('sa-report-modal')) return;
+
+        if (!document.getElementById('sa-report-modal-styles')) {
+            const style = document.createElement('style');
+            style.id = 'sa-report-modal-styles';
+            style.textContent = `
+                #sa-report-modal-backdrop {
+                    position: fixed; top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.5);
+                    z-index: 1100; display: none;
+                }
+                #sa-report-modal-backdrop.open { display: block; }
+                #sa-report-modal {
+                    position: fixed; top: 50%; left: 50%;
+                    transform: translate(-50%, -50%);
+                    width: 700px; max-width: 96vw;
+                    max-height: 90vh;
+                    background: #fff;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 40px rgba(0,0,0,0.24);
+                    z-index: 1101;
+                    display: none; flex-direction: column;
+                    overflow: hidden;
+                }
+                #sa-report-modal.open { display: flex; }
+                .sa-modal-header {
+                    background: #1a237e; color: #fff;
+                    padding: 16px 20px;
+                    display: flex; justify-content: space-between; align-items: center;
+                    flex-shrink: 0;
+                }
+                .sa-modal-header h2 {
+                    margin: 0; font-size: 14px; font-weight: 700;
+                    letter-spacing: 1.2px; text-transform: uppercase;
+                }
+                .sa-modal-close {
+                    background: transparent; border: none;
+                    color: #fff; font-size: 22px;
+                    cursor: pointer; padding: 0 2px; opacity: 0.8;
+                }
+                .sa-modal-close:hover { opacity: 1; }
+                .sa-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+                .sa-report-block { margin-bottom: 20px; }
+                .sa-report-block-header {
+                    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+                }
+                .sa-report-block-title {
+                    font-size: 13px; font-weight: 700;
+                    color: #1a237e; text-transform: uppercase;
+                    letter-spacing: 0.5px; flex: 1;
+                }
+                .sa-copy-btn {
+                    background: #1a237e; color: #fff; border: none;
+                    padding: 5px 14px; border-radius: 4px;
+                    cursor: pointer; font-size: 12px; font-weight: 600;
+                    white-space: nowrap;
+                }
+                .sa-copy-btn:hover { background: #283593; }
+                .sa-copy-confirm {
+                    font-size: 12px; color: #2e7d32; font-weight: 600;
+                    opacity: 0; transition: opacity 0.3s; white-space: nowrap;
+                }
+                .sa-report-textarea {
+                    width: 100%; height: 210px;
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 12px; line-height: 1.65;
+                    border: 1px solid #e0e0e0; border-radius: 4px;
+                    padding: 10px; resize: vertical;
+                    color: #212121; background: #fafafa;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        const backdrop = document.createElement('div');
+        backdrop.id = 'sa-report-modal-backdrop';
+        backdrop.addEventListener('click', () => SAMigrationMode.closeReportModal());
+        document.body.appendChild(backdrop);
+
+        const modal = document.createElement('div');
+        modal.id = 'sa-report-modal';
+        modal.innerHTML = '<div id="sa-report-modal-inner"></div>';
+        document.body.appendChild(modal);
+    }
+
+    /**
+     * Build text blocks for selected rows, populate and open the modal.
+     */
+    static openReportModal() {
+        const selected = this._lastRows.filter(r => this.selectedArticles.has(r.toolsNr));
+        if (!selected.length) return;
+
+        this._reportTexts = {
+            morten:  this.generateMortenText(selected),
+            ehandel: this.generateEhandelText(selected),
+            fresh:   this.generateFreshServiceText(selected)
+        };
+
+        this._ensureReportModalDOM();
+        const inner = document.getElementById('sa-report-modal-inner');
+        if (inner) inner.innerHTML = this.renderReportModalContent();
+
+        document.getElementById('sa-report-modal').classList.add('open');
+        document.getElementById('sa-report-modal-backdrop').classList.add('open');
+    }
+
+    /** Close the report modal */
+    static closeReportModal() {
+        const modal = document.getElementById('sa-report-modal');
+        const backdrop = document.getElementById('sa-report-modal-backdrop');
+        if (modal) modal.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('open');
+    }
+
+    /**
+     * Render the modal content HTML using pre-computed _reportTexts.
+     */
+    static renderReportModalContent() {
+        const block = (id, title, key) => `
+            <div class="sa-report-block">
+                <div class="sa-report-block-header">
+                    <span class="sa-report-block-title">${title}</span>
+                    <button class="sa-copy-btn"
+                        onclick="SAMigrationMode.copyToClipboard('${key}', '${id}-confirm')">
+                        Kopier tekst
+                    </button>
+                    <span id="${id}-confirm" class="sa-copy-confirm">&#10004; Kopiert</span>
+                </div>
+                <textarea id="${id}-text" class="sa-report-textarea" readonly
+                    >${this.escapeHtml(this._reportTexts[key])}</textarea>
+            </div>
+        `;
+        return `
+            <div class="sa-modal-header">
+                <h2>SA-MIGRERING &#8211; GENERERT RAPPORT</h2>
+                <button class="sa-modal-close"
+                    onclick="SAMigrationMode.closeReportModal()" title="Lukk">&#10005;</button>
+            </div>
+            <div class="sa-modal-body">
+                ${block('morten',  'Til Morten',      'morten')}
+                ${block('ehandel', 'Til E-handel',    'ehandel')}
+                ${block('fresh',   'Til FreshService', 'fresh')}
+            </div>
+        `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  TEXT GENERATORS
+    // ════════════════════════════════════════════════════
+
+    /** Plain-text message block for Morten */
+    static generateMortenText(selected) {
+        const articleBlocks = selected.map(r => {
+            const bp = r.bp !== null && r.bp !== undefined ? String(r.bp) : '-';
+            return [
+                `Art.nr: ${r.toolsNr}`,
+                `SA: ${r.saNumber || '-'}`,
+                `BP: ${bp}`,
+                `Lagerplass: ${r.lagerplass || '-'}`,
+                `Erstattes av: ${r.replacementNr}`
+            ].join('\n');
+        }).join('\n\n');
+
+        return [
+            'Hei,',
+            'Følgende artikler er migrert fra utgående til inngående SA:',
+            '',
+            articleBlocks,
+            '',
+            'Gi beskjed dersom noe må justeres.',
+            'Mvh',
+            'Roger'
+        ].join('\n');
+    }
+
+    /** Plain-text message block for E-handel */
+    static generateEhandelText(selected) {
+        const pairs = selected.map(r => `${r.toolsNr} → ${r.replacementNr}`).join('\n');
+        return [
+            'Hei,',
+            'Ber om oppdatering i E-handel.',
+            'Kundenr:',
+            '424186',
+            '449930',
+            'Utgående → Inngående:',
+            pairs,
+            'Prisliste:',
+            'LA-14145',
+            'Mvh',
+            'Roger'
+        ].join('\n');
+    }
+
+    /** Plain-text message block for FreshService */
+    static generateFreshServiceText(selected) {
+        const artOut = selected.map(r => r.toolsNr).join('\n');
+        const artIn  = selected.map(r => r.replacementNr).join('\n');
+        return [
+            'SA-migrering utført.',
+            'Kundenr:',
+            '424186',
+            '449930',
+            'Prisliste:',
+            'LA-14145',
+            'Art.nr. ut:',
+            artOut,
+            'Art.nr. inn:',
+            artIn,
+            'Pris lagt inn i Jeeves.'
+        ].join('\n');
+    }
+
+    // ════════════════════════════════════════════════════
     //  CSV EXPORT
     // ════════════════════════════════════════════════════
 
@@ -1153,6 +1439,28 @@ class SAMigrationMode {
 
     static sumField(rows, quarter) {
         return this.formatNumber(rows.reduce((sum, r) => sum + (r.quarterlySales[quarter] || 0), 0));
+    }
+
+    /**
+     * Copy pre-computed report text to clipboard.
+     * Shows a brief "✔ Kopiert" confirmation next to the button.
+     *
+     * @param {string} key         - Key in _reportTexts ('morten'|'ehandel'|'fresh')
+     * @param {string} confirmElId - DOM id of the confirmation <span>
+     */
+    static copyToClipboard(key, confirmElId) {
+        const text = this._reportTexts[key] || '';
+        navigator.clipboard.writeText(text).then(() => {
+            const el = document.getElementById(confirmElId);
+            if (!el) return;
+            el.style.opacity = '1';
+            clearTimeout(el._saHideTimer);
+            el._saHideTimer = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+        }).catch(() => {
+            // Clipboard API unavailable — select textarea content as fallback
+            const textarea = document.getElementById(key + '-text');
+            if (textarea) { textarea.select(); }
+        });
     }
 }
 
