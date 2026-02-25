@@ -9,11 +9,11 @@
  *
  * FASE 6.1: Re-keyed til SA-nummer som primær identitet.
  *
- * Primærnøkkel: saNumber (Kunds artikkelnummer fra SA-Nummer.xlsx)
+ * Primærnøkkel: saNumber (Kundens artnr fra SA-fil)
  * Sekundær:     toolsArticleNumber (Artikelnr fra Master.xlsx)
  *
  * FAST DATAANSVAR (4 kilder):
- *   1. SA-Nummer.xlsx (REQUIRED) → oppretter items, definerer operativt univers
+ *   1. SA-fil (REQUIRED) → oppretter items, definerer operativt univers
  *   2. Master.xlsx (REQUIRED) → lagersaldo, status, kalkylpris, alternativer, leverandør
  *   3. Ordrer_Jeeves.xlsx (REQUIRED) → salgshistorikk (KUN salg)
  *   4. Analyse_Lagerplan.xlsx (OPTIONAL) → bestillingspunkt (BP), ordrekvantitet (EOK)
@@ -74,8 +74,8 @@ class UnifiedItem {
         this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan
         this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan
 
-        // ── SA-Nummer.xlsx: hylleplassering ──
-        this.lagerplass = null;   // Artikelbeskrivning fra SA-Nummer.xlsx
+        // ── SA-fil: hylleplassering ──
+        this.lagerplass = null;   // Kundens artbeskr. fra SA-fil (data (4).xlsx)
 
         // ── SA-avtaleinformasjon (from SA-nummer file) ──
         this.saType = null;

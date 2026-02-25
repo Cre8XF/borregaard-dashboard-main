@@ -229,7 +229,8 @@ class DashboardApp {
      * Recognizes:
      *   master    → filename contains 'master'
      *   ordersOut → filename contains 'ordrer'
-     *   sa        → filename contains 'sa-nummer' or 'sa_nummer' or 'sanummer'
+     *   sa        → filename contains 'sa-nummer', 'sa_nummer', 'sanummer', or 'data ('
+     *               (also column-based: varenr + kundens artnr, or artikelnr + sa-nummer)
      *   lagerplan → filename contains 'lagerplan'
      *
      * @param {File} file
@@ -254,6 +255,7 @@ class DashboardApp {
             { match: 'sa-nummer',        type: 'sa' },
             { match: 'sa_nummer',        type: 'sa' },
             { match: 'sanummer',         type: 'sa' },
+            { match: 'data (',           type: 'sa' },  // data (4).xlsx export format
             { match: 'analyse_lagerplan', type: 'lagerplan' },
             { match: 'analyse-lagerplan', type: 'lagerplan' },
             { match: 'analyselagerplan',  type: 'lagerplan' },
@@ -281,12 +283,18 @@ class DashboardApp {
                 return 'ordersOut';
             }
 
-            // SA-nummer: Artikelnr + SA-nummer/SA nummer/Kunds artikkelnummer
+            // SA-fil: old format (Artikelnr + SA-/Kunds-column) or
+            //         new data (4).xlsx format (VareNr + Kundens artnr)
             const hasSAColumn = [...colSet].some(c =>
                 c.includes('sa-nummer') || c.includes('sa nummer') || c === 'sa' ||
-                c.includes('sanummer') || c.includes('kunds artikkelnummer') || c.includes('kunds art.nr')
+                c.includes('sanummer') || c.includes('kunds artikkelnummer') ||
+                c.includes('kunds art.nr') || c.includes('kundens artnr')
             );
             if (colSet.has('artikelnr') && hasSAColumn) {
+                return 'sa';
+            }
+            // New format: VareNr + Kundens artnr (without Artikelnr)
+            if (colSet.has('varenr') && [...colSet].some(c => c.includes('kundens artnr'))) {
                 return 'sa';
             }
 

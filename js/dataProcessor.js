@@ -94,14 +94,17 @@ class DataProcessor {
         ]
     };
 
-    // ── Column variants for SA-nummer file (REQUIRED — creates items) ──
+    // ── Column variants for SA-fil (REQUIRED — creates items) ──
+    // Supports both old SA-Nummer.xlsx format and new data (4).xlsx format.
     static SA_COLUMN_VARIANTS = {
+        // data (4).xlsx: VareNr — old format: Artikelnr / Varenr
         articleNumber: [
-            'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
+            'VareNr', 'Artikelnr', 'Artikelnummer', 'Tools art.nr', 'Tools artnr',
             'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
         ],
+        // data (4).xlsx: Kundens artnr — old format: Kunds artikkelnummer
         saNummer: [
-            'Kunds artikkelnummer', 'Kunds art.nr', 'Kunds artnr',
+            'Kundens artnr', 'Kunds artikkelnummer', 'Kunds art.nr', 'Kunds artnr',
             'SA-nummer', 'SA nummer', 'SA Number', 'SA-nr', 'SAnummer',
             'SA', 'SAnr', 'SA-Nummer'
         ],
@@ -116,11 +119,13 @@ class DataProcessor {
             'Gyldig til', 'GyldigTil', 'Valid to', 'Til dato', 'Sluttdato',
             'Til', 'Slutt'
         ],
-        // Hylleplassering — second 'Artikelbeskrivning' column in SA-Nummer.xlsx.
-        // Excel parsers may append '.1' when the same column name appears twice.
+        // data (4).xlsx: Artikelbeskrivning → item.description (initial value; Master overrides)
+        description: [
+            'Artikelbeskrivning', 'Artikelbeskrivelse', 'Description', 'Beskrivelse'
+        ],
+        // data (4).xlsx: Kundens artbeskr. → item.lagerplass
         lagerplass: [
-            'Artikelbeskrivning.1',
-            'Artikelbeskrivning',
+            'Kundens artbeskr.', 'Kundens artbeskrivelse', 'Kundebeskr',
             'Hylleplass', 'Lagerplass', 'Shelf', 'Location'
         ]
     };
@@ -168,24 +173,24 @@ class DataProcessor {
             console.log('FASE 6.1: Datavalidering starter');
             console.log('========================================');
 
-            // ── 1. Load and process SA-Nummer.xlsx (REQUIRED — creates items) ──
+            // ── 1. Load and process SA-fil (REQUIRED — creates items) ──
             if (!files.sa) {
-                throw new Error('SA-Nummer.xlsx er påkrevd! Denne filen definerer det operative universet av artikler.');
+                throw new Error('SA-filen er påkrevd! Denne filen definerer det operative universet av artikler.');
             }
 
-            statusCallback('Laster SA-Nummer.xlsx (oppretter artikler)...');
+            statusCallback('Laster SA-fil (oppretter artikler)...');
             const saData = await this.loadFile(files.sa);
-            console.log(`[FASE 6.1] SA-Nummer.xlsx lastet:`);
+            console.log(`[FASE 6.1] SA-fil lastet:`);
             console.log(`  Filnavn: ${files.sa.name}`);
             console.log(`  Kolonner (${saData.columns.length}): ${saData.columns.join(', ')}`);
             console.log(`  Rader: ${saData.rowCount}`);
 
             this.processSAData(saData.data, saData.columns, store);
             const saArticleCount = store.items.size;
-            console.log(`[FASE 6.1] SA-Nummer.xlsx prosessert: ${saArticleCount} SA-artikler opprettet`);
+            console.log(`[FASE 6.1] SA-fil prosessert: ${saArticleCount} SA-artikler opprettet`);
 
             if (saArticleCount === 0) {
-                throw new Error('SA-Nummer.xlsx inneholdt ingen gyldige artikler. Sjekk kolonnenavn (trenger "Kunds artikkelnummer" og "Artikelnr").');
+                throw new Error('SA-filen inneholdt ingen gyldige artikler. Sjekk kolonnenavn (trenger "Kundens artnr" og "VareNr", eller "Kunds artikkelnummer" og "Artikelnr").');
             }
 
             // ── 2. Load and process Master.xlsx (REQUIRED — enrichment) ──
@@ -333,7 +338,7 @@ class DataProcessor {
      */
     static processSAData(data, columns, store) {
         if (!data || data.length === 0) {
-            throw new Error('SA-Nummer.xlsx er tom — ingen artikler kan opprettes.');
+            throw new Error('SA-filen er tom — ingen artikler kan opprettes.');
         }
 
         let createdCount = 0;
@@ -372,12 +377,17 @@ class DataProcessor {
             };
             item.setSAData(saData);
 
-            // Lagerplass from SA-Nummer.xlsx Artikelbeskrivning column.
-            // Graceful: stays null if column is absent or row value is empty.
-            const lagerplass = this.getSAColumnValue(row, columns, 'lagerplass');
-            if (lagerplass) {
-                item.lagerplass = lagerplass;
+            // Description from SA file (Artikelbeskrivning).
+            // Acts as initial value — Master.xlsx overrides if it has a description.
+            const saDescription = this.getSAColumnValue(row, columns, 'description');
+            if (saDescription) {
+                item.description = saDescription;
             }
+
+            // Lagerplass from SA file (Kundens artbeskr.).
+            // Graceful: null if column is absent or row value is empty.
+            const lagerplass = this.getSAColumnValue(row, columns, 'lagerplass');
+            item.lagerplass = lagerplass || null;
         });
 
         console.log(`[FASE 6.1] SA-nummer resultat:`);
