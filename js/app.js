@@ -744,6 +744,7 @@ class DashboardApp {
 
                 item.description = itemData.description;
                 item.location = itemData.location;
+                item.lagerplass = itemData.lagerplass ?? null;
                 item.stock = itemData.stock || 0;
                 item.reserved = itemData.reserved || 0;
                 item.available = itemData.available || 0;

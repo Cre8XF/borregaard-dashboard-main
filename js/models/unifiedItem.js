@@ -74,6 +74,9 @@ class UnifiedItem {
         this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan
         this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan
 
+        // ── SA-Nummer.xlsx: hylleplassering ──
+        this.lagerplass = null;   // Artikelbeskrivning fra SA-Nummer.xlsx
+
         // ── SA-avtaleinformasjon (from SA-nummer file) ──
         this.saType = null;
         this.saGyldigFra = null;

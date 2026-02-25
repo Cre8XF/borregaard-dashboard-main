@@ -704,8 +704,8 @@ class OverviewMode {
                                 ${item.supplier || '-'}
                             </div>
                             <div class="detail-item">
-                                <strong>Lokasjon</strong>
-                                ${item.location || '-'}
+                                <strong>Lagerplass</strong>
+                                ${item.lagerplass || '-'}
                             </div>
                             <div class="detail-item">
                                 <strong>Status</strong>
