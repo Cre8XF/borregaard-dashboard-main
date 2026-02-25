@@ -164,8 +164,8 @@ class SAMigrationMode {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
                 description: item.description || '',
-                bp: item.bestillingspunkt,          // Part 1: BP from Analyse_Lagerplan
-                lagerplass: item.location || '',    // Part 1: Warehouse location
+                bp: item.bestillingspunkt,          // BP from Analyse_Lagerplan
+                lagerplass: item.lagerplass || '',  // Hylleplassering fra SA-Nummer.xlsx
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 status: this.getStatusLabel(item),

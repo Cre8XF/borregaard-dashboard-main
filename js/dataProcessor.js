@@ -115,6 +115,13 @@ class DataProcessor {
         gyldigTil: [
             'Gyldig til', 'GyldigTil', 'Valid to', 'Til dato', 'Sluttdato',
             'Til', 'Slutt'
+        ],
+        // Hylleplassering — second 'Artikelbeskrivning' column in SA-Nummer.xlsx.
+        // Excel parsers may append '.1' when the same column name appears twice.
+        lagerplass: [
+            'Artikelbeskrivning.1',
+            'Artikelbeskrivning',
+            'Hylleplass', 'Lagerplass', 'Shelf', 'Location'
         ]
     };
 
@@ -364,6 +371,13 @@ class DataProcessor {
                 saGyldigTil: this.parseDate(this.getSAColumnValue(row, columns, 'gyldigTil'))
             };
             item.setSAData(saData);
+
+            // Lagerplass from SA-Nummer.xlsx Artikelbeskrivning column.
+            // Graceful: stays null if column is absent or row value is empty.
+            const lagerplass = this.getSAColumnValue(row, columns, 'lagerplass');
+            if (lagerplass) {
+                item.lagerplass = lagerplass;
+            }
         });
 
         console.log(`[FASE 6.1] SA-nummer resultat:`);
