@@ -1257,63 +1257,49 @@ class SAMigrationMode {
 
     /** Plain-text message block for Morten */
     static generateMortenText(selected) {
-        const articleBlocks = selected.map(r => {
-            const bp = r.bp !== null && r.bp !== undefined ? String(r.bp) : '-';
+        return selected.map(r => {
+            const pris = (r._item && r._item.kalkylPris != null)
+                ? r._item.kalkylPris.toFixed(2)
+                : '-';
             return [
                 `Art.nr: ${r.toolsNr}`,
                 `SA: ${r.saNumber || '-'}`,
-                `BP: ${bp}`,
-                `Lagerplass: ${r.lagerplass || '-'}`,
-                `Erstattes av: ${r.replacementNr}`
+                `Pris: ${pris}`
             ].join('\n');
         }).join('\n\n');
-
-        return [
-            'Hei,',
-            'Følgende artikler er migrert fra utgående til inngående SA:',
-            '',
-            articleBlocks,
-            '',
-            'Gi beskjed dersom noe må justeres.',
-            'Mvh',
-            'Roger'
-        ].join('\n');
     }
 
     /** Plain-text message block for E-handel */
     static generateEhandelText(selected) {
         const pairs = selected.map(r => `${r.toolsNr} → ${r.replacementNr}`).join('\n');
         return [
-            'Hei,',
-            'Ber om oppdatering i E-handel.',
             'Kundenr:',
             '424186',
             '449930',
+            '',
             'Utgående → Inngående:',
-            pairs,
-            'Prisliste:',
-            'LA-14145',
-            'Mvh',
-            'Roger'
+            pairs
         ].join('\n');
     }
 
     /** Plain-text message block for FreshService */
     static generateFreshServiceText(selected) {
-        const artOut = selected.map(r => r.toolsNr).join('\n');
-        const artIn  = selected.map(r => r.replacementNr).join('\n');
+        const pairs = selected.map(r => {
+            const pris = (r._item && r._item.kalkylPris != null)
+                ? r._item.kalkylPris.toFixed(2)
+                : '-';
+            return `${r.toolsNr} → ${r.replacementNr} (${pris})`;
+        }).join('\n');
         return [
-            'SA-migrering utført.',
             'Kundenr:',
             '424186',
             '449930',
+            '',
             'Prisliste:',
             'LA-14145',
-            'Art.nr. ut:',
-            artOut,
-            'Art.nr. inn:',
-            artIn,
-            'Pris lagt inn i Jeeves.'
+            '',
+            'Utgående → Inngående:',
+            pairs
         ].join('\n');
     }
 
