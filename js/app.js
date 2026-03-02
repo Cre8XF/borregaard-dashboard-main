@@ -16,17 +16,18 @@
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (4 filer — 3 påkrevd, 1 valgfri)
+        // Datakilder (5 filer — 3 påkrevd, 2 valgfri)
         this.files = {
             master: null,           // Master.xlsx (REQUIRED)
             ordersOut: null,        // Ordrer_Jeeves.xlsx (REQUIRED)
             sa: null,               // SA-nummer.xlsx (REQUIRED — FASE 6.1)
             lagerplan: null,        // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
-            artikkelstatus: null    // Master_Artikkelstatus.xlsx (OPTIONAL — Lagerhylla override)
+            artikkelstatus: null,   // Master_Artikkelstatus.xlsx (OPTIONAL — Lagerhylla override)
+            agreement: null         // Avtalefil/katalog (OPTIONAL — inAgreement, pris, leverandør)
         };
 
         // Pending files from drag-and-drop (replaces DOM file inputs)
-        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null };
+        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null };
 
         // Samlet datastruktur
         this.dataStore = null;
@@ -141,7 +142,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null };
+        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null, agreement: null };
 
         for (const file of files) {
             try {
@@ -167,6 +168,7 @@ class DashboardApp {
         if (routed.sa) this.pendingFiles.sa = routed.sa;
         if (routed.lagerplan) this.pendingFiles.lagerplan = routed.lagerplan;
         if (routed.artikkelstatus) this.pendingFiles.artikkelstatus = routed.artikkelstatus;
+        if (routed.agreement) this.pendingFiles.agreement = routed.agreement;
 
         // Slot assignment debug log — helps diagnose "mangler" false positives
         console.log('FILE SLOTS after drop:', {
@@ -174,7 +176,8 @@ class DashboardApp {
             ordersOut:     this.pendingFiles.ordersOut?.name     ?? '(tom)',
             sa:            this.pendingFiles.sa?.name            ?? '(tom)',
             lagerplan:     this.pendingFiles.lagerplan?.name     ?? '(tom)',
-            artikkelstatus:this.pendingFiles.artikkelstatus?.name ?? '(tom)'
+            artikkelstatus:this.pendingFiles.artikkelstatus?.name ?? '(tom)',
+            agreement:     this.pendingFiles.agreement?.name     ?? '(tom)'
         });
 
         // Parse Kategori.xlsx if present (optional, for Reports module)
@@ -214,6 +217,7 @@ class DashboardApp {
         if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
         if (!routed.sa) results.push({ status: 'warning', message: 'SA-nummer.xlsx mangler (påkrevd)' });
         if (!routed.lagerplan) results.push({ status: 'info', message: 'Analyse_Lagerplan.xlsx ikke funnet (valgfri)' });
+        if (!routed.agreement) results.push({ status: 'info', message: 'Avtalefil ikke funnet (valgfri)' });
 
         this.updateDropStatus(results);
 
@@ -248,18 +252,22 @@ class DashboardApp {
         //   Generic 'master' → type 'master'
         const filenameRules = [
             { match: 'kategori',              type: 'kategori' },
-            { match: 'master_artikkelstatus', type: 'master' },       // FIX: IS the master file
+            { match: 'master_artikkelstatus', type: 'master' },         // IS the master file
             { match: 'artikkelstatus',        type: 'artikkelstatus' }, // standalone enrichment only
             { match: 'master',                type: 'master' },
-            { match: 'ordrer',           type: 'ordersOut' },
-            { match: 'sa-nummer',        type: 'sa' },
-            { match: 'sa_nummer',        type: 'sa' },
-            { match: 'sanummer',         type: 'sa' },
-            { match: 'data (',           type: 'sa' },  // data (4).xlsx export format
-            { match: 'analyse_lagerplan', type: 'lagerplan' },
-            { match: 'analyse-lagerplan', type: 'lagerplan' },
-            { match: 'analyselagerplan',  type: 'lagerplan' },
-            { match: 'lagerplan',         type: 'lagerplan' }
+            { match: 'ordrer',                type: 'ordersOut' },
+            { match: 'sa-nummer',             type: 'sa' },
+            { match: 'sa_nummer',             type: 'sa' },
+            { match: 'sanummer',              type: 'sa' },
+            { match: 'data (',                type: 'sa' },             // data (4).xlsx export format
+            { match: 'analyse_lagerplan',     type: 'lagerplan' },
+            { match: 'analyse-lagerplan',     type: 'lagerplan' },
+            { match: 'analyselagerplan',      type: 'lagerplan' },
+            { match: 'lagerplan',             type: 'lagerplan' },
+            { match: 'agreement',             type: 'agreement' },      // Avtalefil/katalog
+            { match: 'avtale',                type: 'agreement' },
+            { match: 'katalog',               type: 'agreement' },
+            { match: 'prisliste',             type: 'agreement' }
         ];
 
         for (const rule of filenameRules) {
@@ -301,6 +309,17 @@ class DashboardApp {
             // Kategori: Item ID + Item category 1
             if (colSet.has('item id') && colSet.has('item category 1')) {
                 return 'kategori';
+            }
+
+            // Agreement/katalog: har Tools art.nr + Kalkylpris bas + Varugrupp
+            const hasAgreementArticleCol = colSet.has('tools art.nr') || colSet.has('artikelnr');
+            const hasAgreementPriceCol = colSet.has('kalkylpris bas') || colSet.has('kalkylpris');
+            const hasAgreementCatCol = colSet.has('varugrupp') || colSet.has('varegruppe');
+            if (hasAgreementArticleCol && (hasAgreementPriceCol || hasAgreementCatCol)) {
+                // Ikke master (master har TotLagSaldo) — sjekk at det ikke er master
+                if (!colSet.has('totlagsaldo') && !colSet.has('artikelstatus')) {
+                    return 'agreement';
+                }
             }
 
             // Analyse_Lagerplan: har BP og/eller EOK kolonner
@@ -376,7 +395,8 @@ class DashboardApp {
             sa: 'SA-nummer',
             lagerplan: 'Analyse Lagerplan',
             kategori: 'Kategori',
-            artikkelstatus: 'Artikkelstatus (hylleinfo)'
+            artikkelstatus: 'Artikkelstatus (hylleinfo)',
+            agreement: 'Avtale/Katalog'
         };
         return labels[type] || type;
     }
@@ -393,6 +413,7 @@ class DashboardApp {
         const saFile = this.pendingFiles.sa || null;
         const lagerplanFile = this.pendingFiles.lagerplan || null;
         const artikkelstatusFile = this.pendingFiles.artikkelstatus || null;
+        const agreementFile = this.pendingFiles.agreement || null;
 
         // FASE 6.1: Valider alle 3 påkrevde filer
         const missing = [];
@@ -415,7 +436,8 @@ class DashboardApp {
                 ordersOut: ordersOutFile,
                 sa: saFile,
                 lagerplan: lagerplanFile,
-                artikkelstatus: artikkelstatusFile
+                artikkelstatus: artikkelstatusFile,
+                agreement: agreementFile
             }, (status) => this.showStatus(status, 'info'));
 
             console.log(`[FASE 6.1] Prosessert: ${this.dataStore.items.size} SA-artikler`);
@@ -772,6 +794,12 @@ class DashboardApp {
                 item.ordrekvantitet = itemData.ordrekvantitet ?? null;
                 item.kalkylPris = itemData.kalkylPris || 0;
                 item.estimertVerdi = itemData.estimertVerdi || 0;
+                // Avtalefil-felt (agreement)
+                item.inAgreement = itemData.inAgreement || false;
+                item.agreementPrice = itemData.agreementPrice ?? null;
+                item.agreementSupplier = itemData.agreementSupplier ?? null;
+                item.agreementVarugrupp = itemData.agreementVarugrupp ?? null;
+                item.agreementStatus = itemData.agreementStatus ?? null;
 
                 // Beregn verdier (simuler)
                 item.sales6m = itemData.sales6m || 0;
@@ -802,7 +830,8 @@ class DashboardApp {
                 ordersOut: null,
                 sa: null,
                 lagerplan: null,
-                artikkelstatus: null
+                artikkelstatus: null,
+                agreement: null
             };
             this.dataStore = null;
 
@@ -810,7 +839,7 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV3');
 
             // Nullstill pending files og drop-status
-            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null };
+            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null };
             const dropStatus = document.getElementById('dropStatus');
             if (dropStatus) dropStatus.innerHTML = '';
 
