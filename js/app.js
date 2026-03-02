@@ -593,6 +593,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'lagerLookup':
+                if (typeof LagerLookupMode !== 'undefined') {
+                    contentDiv.innerHTML = LagerLookupMode.render(this.dataStore);
+                }
+                break;
+
             case 'reports':
                 if (typeof ReportsMode !== 'undefined') {
                     contentDiv.innerHTML = ReportsMode.render(this.dataStore);

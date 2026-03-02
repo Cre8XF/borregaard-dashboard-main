@@ -3426,3 +3426,27 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===================================
+   LAGEROPPSLAG — LAGERSTATUS-FARGER
+   Brukes i lagerLookup.js for å vise
+   lagerstatus visuelt per rad.
+   =================================== */
+
+/* Grønn: stockQty > 0 */
+.stock-green {
+  color: #1e8c3a;
+  background-color: #eafaf1;
+}
+
+/* Gul: stockQty === 0 og orderQty > 0 */
+.stock-yellow {
+  color: #7d5c00;
+  background-color: #fef9e7;
+}
+
+/* Rød: stockQty === 0 og orderQty === 0 */
+.stock-red {
+  color: #c0392b;
+  background-color: #fdf2f2;
+}
