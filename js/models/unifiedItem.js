@@ -82,6 +82,13 @@ class UnifiedItem {
         this.saGyldigFra = null;
         this.saGyldigTil = null;
 
+        // ── Avtalefil/katalog (agreement, valgfri) ──
+        this.inAgreement = false;       // Finnes i avtalefil (Tools art.nr matchet)
+        this.agreementPrice = null;     // Kalkylpris bas fra avtalefil
+        this.agreementSupplier = null;  // Leverantör fra avtalefil
+        this.agreementVarugrupp = null; // Varugrupp fra avtalefil
+        this.agreementStatus = null;    // Artikelstatus fra avtalefil
+
         // ── Metadata ──
         this.hasIncomingOrders = false;
         this.hasOutgoingOrders = false;
@@ -354,6 +361,11 @@ class UnifiedItem {
             saType: this.saType,
             saGyldigFra: this.saGyldigFra,
             saGyldigTil: this.saGyldigTil,
+            inAgreement: this.inAgreement,
+            agreementPrice: this.agreementPrice,
+            agreementSupplier: this.agreementSupplier,
+            agreementVarugrupp: this.agreementVarugrupp,
+            agreementStatus: this.agreementStatus,
             incomingOrderCount: this.incomingOrders.length,
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             issues: this.getIssues()

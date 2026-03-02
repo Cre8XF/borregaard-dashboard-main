@@ -130,6 +130,26 @@ class DataProcessor {
         ]
     };
 
+    // ── Column variants for Agreement/katalog file (OPTIONAL) ──
+    static AGREEMENT_COLUMN_VARIANTS = {
+        articleNumber: [
+            'Tools art.nr', 'Artikelnr', 'Artikelnummer', 'VareNr',
+            'Artikkelnr', 'Article No', 'ArticleNo', 'Varenr'
+        ],
+        price: [
+            'Kalkylpris bas', 'Kalkylpris', 'Pris bas', 'Pris', 'Price'
+        ],
+        supplier: [
+            'Leverantör', 'Leverandør', 'Supplier', 'Firma', 'Leverandørnavn'
+        ],
+        varugrupp: [
+            'Varugrupp', 'Varegruppe', 'Category', 'Kategori', 'Varekategori'
+        ],
+        articleStatus: [
+            'Artikelstatus', 'Artikkelstatus', 'Status', 'Articlestatus'
+        ]
+    };
+
     // ── Column variants for Analyse_Lagerplan.xlsx ──
     static LAGERPLAN_COLUMN_VARIANTS = {
         articleNumber: [
@@ -154,8 +174,10 @@ class DataProcessor {
      *   2. Master.xlsx (REQUIRED)    → beriker items
      *   3. Ordrer_Jeeves.xlsx (REQUIRED) → salgsdata
      *   4. Analyse_Lagerplan.xlsx (OPTIONAL) → BP/EOK
+     *   5. Master_Artikkelstatus.xlsx (OPTIONAL) → Lagerhylla override
+     *   6. Agreement/katalog (OPTIONAL) → inAgreement, pris, leverandør, varugrupp
      *
-     * @param {Object} files - { master: File, ordersOut: File, sa: File, lagerplan?: File }
+     * @param {Object} files - { master, ordersOut, sa, lagerplan?, artikkelstatus?, agreement? }
      * @param {Function} statusCallback
      * @returns {Promise<UnifiedDataStore>}
      */
@@ -275,7 +297,26 @@ class DataProcessor {
                 console.log('[FASE 6.1] Master_Artikkelstatus.xlsx: Ikke lastet (valgfri)');
             }
 
-            // ── 6. Calculate derived values ──
+            // ── 6. Load and process Agreement/katalog file (OPTIONAL) ──
+            if (files.agreement) {
+                statusCallback('Laster avtalefil (agreement/katalog)...');
+                try {
+                    const agreementData = await this.loadFile(files.agreement);
+                    console.log(`[Agreement] Avtalefil lastet:`);
+                    console.log(`  Filnavn: ${files.agreement.name}`);
+                    console.log(`  Kolonner (${agreementData.columns.length}): ${agreementData.columns.join(', ')}`);
+                    console.log(`  Rader: ${agreementData.rowCount}`);
+
+                    this.processAgreementData(agreementData.data, agreementData.columns, store);
+                } catch (agError) {
+                    console.warn('[Agreement] Avtalefil kunne ikke prosesseres:', agError.message);
+                    // Valgfri — ikke kast feil
+                }
+            } else {
+                console.log('[Agreement] Avtalefil: Ikke lastet (valgfri)');
+            }
+
+            // ── 7. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
@@ -293,6 +334,7 @@ class DataProcessor {
             console.log(`  Med bestillingspunkt (BP): ${store.getAllItems().filter(i => i.bestillingspunkt !== null).length}`);
             console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
             console.log(`  Med estimert verdi > 0: ${store.getAllItems().filter(i => i.estimertVerdi > 0).length}`);
+            console.log(`  I avtalefil (inAgreement): ${store.getAllItems().filter(i => i.inAgreement).length}`);
             console.log('────────────────────────────────────────');
             console.log(`  FASE 6.1: Alle ${quality.totalArticles} items ER SA-artikler`);
             console.log(`  Ingen items uten SA-nummer eksisterer`);
@@ -841,6 +883,100 @@ class DataProcessor {
         console.log(`[FASE 6.1] Master_Artikkelstatus.xlsx (Lagerhylla) prosessert:`);
         console.log(`  Matchet SA-artikler: ${matched}`);
         console.log(`  Oppdatert item.location (Lagerhylla): ${withLocation}`);
+    }
+
+    // ════════════════════════════════════════════════════
+    //  AGREEMENT/KATALOG — ENRICHMENT ONLY (VALGFRI)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser avtalefil (katalog/prisliste) — BERIKER eksisterende SA-artikler.
+     * Oppretter INGEN nye items. Filen er valgfri — systemet fungerer uten den.
+     *
+     * Kolonner:
+     *   Tools art.nr / Artikelnr → koblingsnøkkel (toolsArticleNumber)
+     *   Kalkylpris bas           → item.agreementPrice
+     *   Leverantör               → item.agreementSupplier
+     *   Varugrupp                → item.agreementVarugrupp
+     *   Artikelstatus            → item.agreementStatus
+     *
+     * Console-sammendrag:
+     *   Totalt i avtale   – SA-artikler som ble matchet
+     *   I avtale uten SA  – rader i avtalefil som ikke fantes i SA-universet
+     *   SA uten avtale    – SA-artikler som ikke finnes i avtalefil
+     */
+    static processAgreementData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('[Agreement] Avtalefil er tom, hopper over');
+            return;
+        }
+
+        let matchedCount = 0;
+        let unmatchedCount = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getAgreementColumnValue(row, columns, 'articleNumber');
+            if (!articleNo) return;
+
+            // Slå opp via toolsArticleNumber (FASE 6.1: beriker kun SA-artikler)
+            const item = store.getByToolsArticleNumber(articleNo.toString().trim());
+            if (!item) {
+                unmatchedCount++;
+                return;
+            }
+
+            matchedCount++;
+            item.inAgreement = true;
+
+            const price = this.getAgreementColumnValue(row, columns, 'price');
+            if (price) {
+                const priceNum = this.parseNumber(price);
+                if (priceNum > 0) item.agreementPrice = priceNum;
+            }
+
+            const supplier = this.getAgreementColumnValue(row, columns, 'supplier');
+            if (supplier) item.agreementSupplier = supplier;
+
+            const varugrupp = this.getAgreementColumnValue(row, columns, 'varugrupp');
+            if (varugrupp) item.agreementVarugrupp = varugrupp;
+
+            const status = this.getAgreementColumnValue(row, columns, 'articleStatus');
+            if (status) item.agreementStatus = status;
+        });
+
+        // Console-sammendrag
+        const allItems = store.getAllItems();
+        const saWithoutAgreement = allItems.filter(i => !i.inAgreement).length;
+
+        console.log('[Agreement] Avtalefil prosessert:');
+        console.log(`  Totalt i avtale:    ${matchedCount}  (SA-artikler matchet fra avtalefil)`);
+        console.log(`  I avtale uten SA:   ${unmatchedCount}  (avtalerader uten SA-match – ignorert)`);
+        console.log(`  SA uten avtale:     ${saWithoutAgreement}  (SA-artikler ikke i avtalefil)`);
+    }
+
+    /**
+     * Hent kolonneverdi fra avtalefil med fleksibel matching (case-insensitiv)
+     */
+    static getAgreementColumnValue(row, columns, fieldName) {
+        const variants = this.AGREEMENT_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Eksakt match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+            // Case-insensitiv match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+        return '';
     }
 
     /**
