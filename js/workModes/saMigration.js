@@ -37,6 +37,12 @@ class SAMigrationMode {
     static toggleHarBestilling = false;
     static toggleUtenLagerOgBestilling = false;
 
+    // Forsyningsrisiko-filtre (nye)
+    static toggleOnlyWithSA = false;
+    static toggleOnlyEmptyUtgaende = false;
+    static toggleOnlyEmptyWithSA = false;
+    static toggleOnlyHighRisk = false;
+
     // Panel state: store last analysis rows for panel lookup
     static _lastRows = [];
 
@@ -55,7 +61,7 @@ class SAMigrationMode {
 
         const analysis = this.analyze(store);
 
-        console.log('=== SA-migrering – utgående med erstatning ===');
+        console.log('=== SA-migrering – Forsyningskritisk prioritering ===');
         console.log(`  Totalt utgående med erstatning: ${analysis.totalItems}`);
         console.log(`  SA-migrering påkrevd: ${analysis.migrationRequiredCount}`);
         console.log(`  Hastegrad HØY: ${analysis.highCount}`);
@@ -64,8 +70,8 @@ class SAMigrationMode {
 
         return `
             <div class="module-header">
-                <h2>SA-migrering – Utgående med erstatning</h2>
-                <p class="module-description">Operativ kontroll: Utgående artikler med erstatningsartikkel og SA-migreringsstatus</p>
+                <h2>SA-migrering – Forsyningskritisk prioritering</h2>
+                <p class="module-description">Forsyningsrisiko-basert prioritering: Tom saldo + SA-nummer vises først – erstatning må bestilles</p>
             </div>
 
             ${this.renderSummaryCards(analysis)}
@@ -100,6 +106,14 @@ class SAMigrationMode {
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleUtenLagerOgBestilling ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleUtenLagerOgBestilling', this.checked)"> Kun uten lager og uten bestilling</label>
             </div>
 
+            <div class="module-controls" style="padding-top:0;gap:16px;flex-wrap:wrap;border-top:1px solid #e8eaf6;margin-top:4px;padding-top:8px;">
+                <strong style="font-size:12px;color:#1a237e;text-transform:uppercase;letter-spacing:0.5px;">Forsyningsrisiko:</strong>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyWithSA ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyWithSA', this.checked)"> Vis kun artikler med SA-nummer</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyEmptyUtgaende ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyEmptyUtgaende', this.checked)"> Kun tomme utgående</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyEmptyWithSA ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyEmptyWithSA', this.checked)"> Kun tomme med SA</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyHighRisk ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyHighRisk', this.checked)"> Kun høy risiko (nivå 1 og 2)</label>
+            </div>
+
             <div style="display:flex;align-items:center;gap:12px;padding:6px 0 2px;flex-wrap:wrap;">
                 <span id="sa-selection-count" style="font-size:14px;color:#555;min-width:120px;">
                     Valgt: ${this.selectedArticles.size} artikler
@@ -116,6 +130,40 @@ class SAMigrationMode {
                 ${this.renderTable(analysis)}
             </div>
         `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  FORSYNINGSRISIKO (NY LOGIKK)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Beregn forsyningsrisiko for en utgående artikkel.
+     * Alle items i SA-migrering er allerede utgående (isUtgaende = true).
+     *   1 = KRITISK  – Tom saldo og har SA-nummer (erstatning må bestilles nå)
+     *   2 = Høy      – Lav beholdning (≤5) med aktivt salg siste 3 mnd
+     *   3 = Kapital  – Lager finnes (kapitalbinding)
+     *   4 = Lav      – Ingen lager, ingen salg
+     *
+     * @param {number} stock        - Lagersaldo
+     * @param {string} saNumber     - SA-nummer (tomt = ikke i SA)
+     * @param {number} salesLast3m  - Solgt siste 3 måneder
+     * @returns {number} 1–4
+     */
+    static calculateSupplyRisk(stock, saNumber, salesLast3m) {
+        if (stock === 0 && saNumber) return 1;
+        if (stock <= 5 && salesLast3m > 0) return 2;
+        if (stock > 0) return 3;
+        return 4;
+    }
+
+    /** Lesbar etikett for forsyningsrisiko-nivå */
+    static getSupplyRiskLabel(risk) {
+        return {
+            1: 'KRITISK – Tom og utgående',
+            2: 'Høy risiko – Lav beholdning',
+            3: 'Kapitalbinding',
+            4: 'Lav'
+        }[risk] || 'Ukjent';
     }
 
     // ════════════════════════════════════════════════════
@@ -160,6 +208,13 @@ class SAMigrationMode {
             const oldExposure = (item.stock || 0) + (item.bestAntLev || 0);
             const replacementExposure = (replacement.stock || 0) + (replacement.bestAntLev || 0);
 
+            // Beregn forsyningsrisiko (ny logikk)
+            const supplyRisk = this.calculateSupplyRisk(
+                item.stock || 0,
+                item.saNumber || '',
+                salesData.salesLast3m
+            );
+
             const row = {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
@@ -188,6 +243,9 @@ class SAMigrationMode {
                 urgencyLevel: urgencyLevel,
                 // Sort helper: HIGH=3, MEDIUM=2, LOW=1
                 urgencySort: urgencyLevel === 'HIGH' ? 3 : urgencyLevel === 'MEDIUM' ? 2 : 1,
+                // Forsyningsrisiko (ny): 1=KRITISK → 4=Lav
+                supplyRisk: supplyRisk,
+                supplyRiskLabel: this.getSupplyRiskLabel(supplyRisk),
                 recommendation: '', // set below after row creation
                 _item: item
             };
@@ -207,12 +265,11 @@ class SAMigrationMode {
         // Store full rows for panel lookup (Part 2)
         this._lastRows = rows;
 
-        // Default sort: saMigrationRequired first, then urgency desc, then exposure desc
-        rows.sort((a, b) =>
-            (b.saMigrationRequired ? 1 : 0) - (a.saMigrationRequired ? 1 : 0) ||
-            b.urgencySort - a.urgencySort ||
-            b.oldExposure - a.oldExposure
-        );
+        // Ny default: forsyningsrisiko (1=KRITISK → 4=Lav), deretter lavest saldo
+        rows.sort((a, b) => {
+            if (a.supplyRisk !== b.supplyRisk) return a.supplyRisk - b.supplyRisk;
+            return a.stock - b.stock;
+        });
 
         return {
             rows,
@@ -538,6 +595,7 @@ class SAMigrationMode {
                             ${this.renderSortableHeader('Salg 3m', 'salesLast3m', 'Utgående ordrer siste 3 måneder')}
                             ${this.renderSortableHeader('Erst. salg 12m', 'replacementSalesLast12m')}
                             ${this.renderSortableHeader('Erst. salg 3m', 'replacementSalesLast3m')}
+                            ${this.renderSortableHeader('Forsyningsrisiko', 'supplyRisk', 'Forsyningsrisiko: 1=KRITISK (tom+SA), 2=Høy (lav saldo), 3=Kapitalbinding, 4=Lav')}
                             ${this.renderSortableHeader('Hastegrad', 'urgencySort')}
                             ${this.renderSortableHeader('SA-migr.', 'saMigrationRequired')}
                             ${this.renderSortableHeader('Anbefalt handling', 'recommendation')}
@@ -594,6 +652,7 @@ class SAMigrationMode {
                 <td class="qty-cell">${this.formatNumber(row.salesLast3m)}</td>
                 <td class="qty-cell">${this.formatNumber(row.replacementSalesLast12m)}</td>
                 <td class="qty-cell">${this.formatNumber(row.replacementSalesLast3m)}</td>
+                <td>${this.renderSupplyRiskBadge(row.supplyRisk, row.supplyRiskLabel)}</td>
                 <td>${this.renderUrgencyBadge(row.urgencyLevel)}</td>
                 <td>${row.saMigrationRequired ? '<span class="badge badge-critical">JA</span>' : '<span class="badge badge-ok">Nei</span>'}</td>
                 <td>${this.renderRecommendationBadge(row.recommendation)}</td>
@@ -626,6 +685,14 @@ class SAMigrationMode {
         if (rec.startsWith('Flytt SA nå')) return `<span style="color:#d32f2f;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
         if (rec.includes('tøm lager')) return `<span style="color:#e65100;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
         return `<span style="color:#1565c0;">${this.escapeHtml(rec)}</span>`;
+    }
+
+    /** Render forsyningsrisiko-badge med farge og etikett */
+    static renderSupplyRiskBadge(risk, label) {
+        if (risk === 1) return `<span class="badge badge-critical" style="color:#d32f2f;font-weight:bold;" title="${this.escapeHtml(label)}">1 – KRITISK</span>`;
+        if (risk === 2) return `<span class="badge badge-warning" style="color:#e65100;font-weight:bold;" title="${this.escapeHtml(label)}">2 – Høy</span>`;
+        if (risk === 3) return `<span class="badge badge-info" title="${this.escapeHtml(label)}">3 – Kapital</span>`;
+        return `<span class="badge badge-ok" style="color:#9e9e9e;" title="${this.escapeHtml(label)}">4 – Lav</span>`;
     }
 
     static renderSortableHeader(label, key, tooltip) {
@@ -684,6 +751,24 @@ class SAMigrationMode {
             filtered = filtered.filter(r => r.stock === 0 && r.bestAntLev === 0);
         }
 
+        // Forsyningsrisiko-filtre (nye)
+        if (this.toggleOnlyWithSA) {
+            // Kun artikler med SA-nummer (bør alltid true i FASE 6.1, men beholdes for sikkerhet)
+            filtered = filtered.filter(r => r.saNumber);
+        }
+        if (this.toggleOnlyEmptyUtgaende) {
+            // Kun tomme utgående (alle i denne visningen er utgående)
+            filtered = filtered.filter(r => r.stock === 0);
+        }
+        if (this.toggleOnlyEmptyWithSA) {
+            // Kun tomme artikler som har SA-nummer (kritisk: erstatning må bestilles)
+            filtered = filtered.filter(r => r.stock === 0 && r.saNumber);
+        }
+        if (this.toggleOnlyHighRisk) {
+            // Kun høy risiko: supplyRisk 1 (KRITISK) og 2 (Høy)
+            filtered = filtered.filter(r => r.supplyRisk <= 2);
+        }
+
         // Text search
         if (this.searchTerm) {
             const term = this.searchTerm.toLowerCase();
@@ -701,13 +786,12 @@ class SAMigrationMode {
     }
 
     static sortResults(rows) {
-        // No explicit column → use default multi-key sort
+        // Ingen eksplisitt kolonne → ny default: forsyningsrisiko (1=KRITISK → 4=Lav), deretter lavest saldo
         if (!this.sortColumn) {
-            return [...rows].sort((a, b) =>
-                (b.saMigrationRequired ? 1 : 0) - (a.saMigrationRequired ? 1 : 0) ||
-                b.urgencySort - a.urgencySort ||
-                b.oldExposure - a.oldExposure
-            );
+            return [...rows].sort((a, b) => {
+                if (a.supplyRisk !== b.supplyRisk) return a.supplyRisk - b.supplyRisk;
+                return a.stock - b.stock;
+            });
         }
 
         const col = this.sortColumn;
@@ -1345,6 +1429,8 @@ class SAMigrationMode {
             'Q2',
             'Q3',
             'Q4',
+            'Forsyningsrisiko',
+            'Forsyningsrisiko-label',
             'Hastegrad',
             'SA-migrering påkrevd',
             'Anbefalt handling',
@@ -1380,6 +1466,8 @@ class SAMigrationMode {
                 r.quarterlySales.Q2,
                 r.quarterlySales.Q3,
                 r.quarterlySales.Q4,
+                r.supplyRisk,
+                `"${(r.supplyRiskLabel || '').replace(/"/g, '""')}"`,
                 r.urgencyLevel,
                 r.saMigrationRequired ? 'JA' : 'NEI',
                 `"${r.recommendation}"`
