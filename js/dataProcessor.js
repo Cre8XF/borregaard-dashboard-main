@@ -18,24 +18,39 @@
  */
 class DataProcessor {
 
-    // ── Hard-bound Master.xlsx column names (NO autodetection) ──
+    // ── Master.xlsx column variants (case-insensitive, first match wins) ──
+    // Replaces hard-bound MASTER_COLUMNS to handle minor header changes in exports.
+    static MASTER_COLUMN_VARIANTS = {
+        articleNumber:  ['Artikelnr', 'Item ID', 'VareNr', 'Artikkelnr',
+                         'Article No', 'ArticleNo', 'Tools art.nr', 'Tools artnr'],
+        description:    ['Artikelbeskrivning', 'Item', 'Artikelbeskrivelse',
+                         'Beskrivelse', 'Description', 'Artikelbeskr'],
+        articleStatus:  ['Artikelstatus', 'Item status', 'Artikkelstatus', 'Status'],
+        totalStock:     ['TotLagSaldo', 'Lagersaldo', 'Stock', 'Saldo'],
+        availableStock: ['DispLagSaldo', 'Available', 'Disponibelt', 'Disp. Lagsaldo'],
+        reserved:       ['ReservAnt', 'Reserved', 'Reserverat', 'Reservert'],
+        kalkylPris:     ['Kalkylpris bas', 'Beräknat kalkylpris', 'Calc price',
+                         'Kalkylpris', 'Kalkyle pris'],
+        orderedQty:     ['BestAntLev', 'On order', 'I bestilling', 'Bestilt ant.',
+                         'BestAnt', 'Ordered Qty'],
+        orderNumber:    ['Beställningsnummer', 'Order No', 'Ordrenr', 'Bestillingsnr'],
+        replacedBy:     ['Ersätts av artikel', 'Ersatts av artnr', 'ErsattsAvArtNr',
+                         'ReplacedBy', 'Replaced by'],
+        location:       ['Lagerhylla', 'Location', 'Hylle', 'Lagerhylle', 'Lokasjon'],
+        supplier:       ['Företagsnamn', 'Supplier Name', 'Supplier', 'Leverandør',
+                         'Leverantör', 'Leverandørnavn'],
+        category:       ['Varugrupp', 'Varegruppe', 'Category', 'Kategori']
+    };
+
+    // Kept for backward compat — code that references MASTER_COLUMNS still works.
+    // Each entry resolves to the first matched actual column at runtime.
     static MASTER_COLUMNS = {
-        articleNumber: 'Artikelnr',
-        description: 'Artikelbeskrivning',
-        articleStatus: 'Artikelstatus',
-        totalStock: 'TotLagSaldo',
-        availableStock: 'DispLagSaldo',
-        reserved: 'ReservAnt',
-
-        kalkylPris: 'Kalkylpris bas',
-
-        orderedQty: 'BestAntLev',
-        orderNumber: 'Beställningsnummer',
-        replacedBy: 'Ersätts av artikel',
-        location: 'Lagerhylla',     // Column D in Master_Artikkelstatus.xlsx
-
-        supplier: 'Företagsnamn',
-        category: 'Varugrupp'
+        articleNumber: 'Artikelnr', description: 'Artikelbeskrivning',
+        articleStatus: 'Artikelstatus', totalStock: 'TotLagSaldo',
+        availableStock: 'DispLagSaldo', reserved: 'ReservAnt',
+        kalkylPris: 'Kalkylpris bas', orderedQty: 'BestAntLev',
+        orderNumber: 'Beställningsnummer', replacedBy: 'Ersätts av artikel',
+        location: 'Lagerhylla', supplier: 'Företagsnamn', category: 'Varugrupp'
     };
 
 
@@ -148,6 +163,15 @@ class DataProcessor {
         articleStatus: [
             'Artikelstatus', 'Artikkelstatus', 'Status', 'Articlestatus'
         ]
+    };
+
+    // ── Column variants for data(4).xlsx / replacement+status file ──
+    static REPLACEMENT_COLUMN_VARIANTS = {
+        articleNumber: ['VareNr', 'VarNr', 'Item ID', 'Artikelnr'],
+        replacedBy:    ['ErsattsAvArtNr', 'ErsattAvArtNr', 'Ersatts av artnr', 'ReplacedBy',
+                        'Ersätts av artikel', 'Ersatt av'],
+        alternatives:  ['Alternativ(er)', 'Alternativ', 'Alternatives', 'AlternativArtNr'],
+        vareStatus:    ['VareStatus', 'VarStatus', 'Status']
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -316,7 +340,26 @@ class DataProcessor {
                 console.log('[Agreement] Avtalefil: Ikke lastet (valgfri)');
             }
 
-            // ── 7. Calculate derived values ──
+            // ── 7. Load and process Replacement file (data(4).xlsx — OPTIONAL) ──
+            if (files.replacement) {
+                statusCallback('Laster erstatnings-/varestatusfil (data(4))...');
+                try {
+                    const replData = await this.loadFile(files.replacement);
+                    console.log(`[Replacement] Erstatningsfil lastet:`);
+                    console.log(`  Filnavn: ${files.replacement.name}`);
+                    console.log(`  Kolonner (${replData.columns.length}): ${replData.columns.join(', ')}`);
+                    console.log(`  Rader: ${replData.rowCount}`);
+
+                    this.processReplacementData(replData.data, replData.columns, store);
+                } catch (replError) {
+                    console.warn('[Replacement] Erstatningsfil kunne ikke prosesseres:', replError.message);
+                    // Valgfri — ikke kast feil
+                }
+            } else {
+                console.log('[Replacement] Erstatningsfil (data(4)): Ikke lastet (valgfri)');
+            }
+
+            // ── 8. Calculate derived values ──
             statusCallback('Beregner verdier...');
             store.calculateAll();
 
@@ -335,6 +378,8 @@ class DataProcessor {
             console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
             console.log(`  Med estimert verdi > 0: ${store.getAllItems().filter(i => i.estimertVerdi > 0).length}`);
             console.log(`  I avtalefil (inAgreement): ${store.getAllItems().filter(i => i.inAgreement).length}`);
+            console.log(`  Med replacedByArticle:     ${store.getAllItems().filter(i => i.replacedByArticle).length}`);
+            console.log(`  Med vareStatus satt:       ${store.getAllItems().filter(i => i.vareStatus).length}`);
             console.log('────────────────────────────────────────');
             console.log(`  FASE 6.1: Alle ${quality.totalArticles} items ER SA-artikler`);
             console.log(`  Ingen items uten SA-nummer eksisterer`);
@@ -485,13 +530,8 @@ class DataProcessor {
             throw new Error('Master.xlsx inneholder ingen data!');
         }
 
-        // ── Resolve actual header names (case-insensitive) ──
+        // ── Resolve actual header names via MASTER_COLUMN_VARIANTS ──
         const colMap = this.resolveMasterColumns(columns);
-
-        console.log('=== Master.xlsx: Hard-bound kolonnemapping ===');
-        for (const [logical, actual] of Object.entries(colMap)) {
-            console.log(`  ${logical} → "${actual}"`);
-        }
 
         // ── Build alternative articles mapping ──
         if (!store.alternativeArticles) {
@@ -630,32 +670,40 @@ class DataProcessor {
     }
 
     // Columns that are enrichment-only and should not block processing if missing.
-    // 'location' is optional because older Master files use 'Lokasjon' (column BG)
-    // while current files expose 'Lagerhylla' (column D). Missing → item.location = ''.
-    static MASTER_OPTIONAL_COLUMNS = new Set(['supplier', 'category', 'location']);
+    static MASTER_OPTIONAL_COLUMNS = new Set([
+        'supplier', 'category', 'location', 'replacedBy', 'orderNumber', 'availableStock', 'reserved'
+    ]);
 
     /**
-     * Resolve Master.xlsx column names with case-insensitive matching.
-     * Fails loudly if any required column is missing.
-     * Optional columns (supplier, category) log a warning instead.
+     * Resolve Master.xlsx column names using MASTER_COLUMN_VARIANTS (case-insensitive, first match).
+     * Required columns (articleNumber, description, articleStatus, totalStock,
+     *   kalkylPris, orderedQty) throw if missing.
+     * Optional columns log a warning and resolve to null (safe default in getMasterValue).
      */
     static resolveMasterColumns(columns) {
         const result = {};
         const missing = [];
+        const colLower = columns.map(c => c.trim().toLowerCase());
 
-        for (const [logical, expected] of Object.entries(this.MASTER_COLUMNS)) {
-            // Case-insensitive exact match
-            const actual = columns.find(c =>
-                c.trim().toLowerCase() === expected.toLowerCase()
-            );
+        for (const [logical, variants] of Object.entries(this.MASTER_COLUMN_VARIANTS)) {
+            let found = null;
 
-            if (actual) {
-                result[logical] = actual;
+            for (const variant of variants) {
+                // Exact case-insensitive match
+                const idx = colLower.indexOf(variant.toLowerCase().trim());
+                if (idx !== -1) {
+                    found = columns[idx];
+                    break;
+                }
+            }
+
+            if (found) {
+                result[logical] = found;
             } else if (this.MASTER_OPTIONAL_COLUMNS.has(logical)) {
-                console.warn(`Master.xlsx: Valgfri kolonne "${expected}" (${logical}) ikke funnet — hopper over`);
+                console.warn(`Master.xlsx: Valgfri kolonne "${variants[0]}" (${logical}) ikke funnet — hopper over`);
                 result[logical] = null;
             } else {
-                missing.push(`"${expected}" (${logical})`);
+                missing.push(`"${variants[0]}" (${logical})`);
             }
         }
 
@@ -663,9 +711,14 @@ class DataProcessor {
             const errorMsg = `Master.xlsx: Følgende påkrevde kolonner mangler!\n` +
                 `  Mangler: ${missing.join(', ')}\n` +
                 `  Tilgjengelige kolonner: ${columns.join(', ')}\n` +
-                `  ALLE påkrevde kolonner i Master.xlsx mangler. Ingen fallback tillatt.`;
+                `  Sjekk at kolonnenavn stemmer med MASTER_COLUMN_VARIANTS.`;
             console.error(errorMsg);
             throw new Error(errorMsg);
+        }
+
+        console.log('=== Master.xlsx: Kolonnemapping (variants) ===');
+        for (const [logical, actual] of Object.entries(result)) {
+            if (actual) console.log(`  ${logical} → "${actual}"`);
         }
 
         return result;
@@ -979,6 +1032,92 @@ class DataProcessor {
         return '';
     }
 
+    // ════════════════════════════════════════════════════
+    //  REPLACEMENT FILE (data(4).xlsx) — ENRICHMENT ONLY
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser erstatnings-/varestatus-fil (data(4).xlsx) — BERIKER eksisterende SA-artikler.
+     *
+     * Setter på SA-items:
+     *   item.replacedByArticle      ← ErsattsAvArtNr
+     *   item.alternativeArticlesRaw ← Alternativ(er)
+     *   item.vareStatus             ← VareStatus (Sellable/Planned Discontinued/Discontinued)
+     *
+     * Oppretter INGEN nye items. Rader uten SA-match hoppes over (stille).
+     *
+     * Import-sammendrag logges etter prosessering.
+     */
+    static processReplacementData(data, columns, store) {
+        if (!data || data.length === 0) {
+            console.warn('[Replacement] Erstatningsfil er tom, hopper over');
+            return;
+        }
+
+        let matchedCount = 0;
+        let skippedCount = 0;
+        let withReplacedBy = 0;
+        let withVareStatus = 0;
+
+        data.forEach(row => {
+            const articleNo = this.getReplacementColumnValue(row, columns, 'articleNumber');
+            if (!articleNo) return;
+
+            const item = store.getByToolsArticleNumber(articleNo.toString().trim());
+            if (!item) {
+                skippedCount++;
+                return;
+            }
+
+            matchedCount++;
+
+            const replacedBy = this.getReplacementColumnValue(row, columns, 'replacedBy');
+            if (replacedBy && replacedBy !== articleNo) {
+                item.replacedByArticle = replacedBy.trim();
+                withReplacedBy++;
+            }
+
+            const alternatives = this.getReplacementColumnValue(row, columns, 'alternatives');
+            if (alternatives) item.alternativeArticlesRaw = alternatives.trim();
+
+            const vareStatus = this.getReplacementColumnValue(row, columns, 'vareStatus');
+            if (vareStatus) {
+                item.vareStatus = vareStatus.trim();
+                withVareStatus++;
+            }
+        });
+
+        console.log('[Replacement] data(4).xlsx prosessert:');
+        console.log(`  Rader lest:               ${data.length}`);
+        console.log(`  Matchet SA-artikler:       ${matchedCount}`);
+        console.log(`  Hoppet over (ikke i SA):  ${skippedCount}`);
+        console.log(`  Med erstatning satt:       ${withReplacedBy}`);
+        console.log(`  Med VareStatus satt:       ${withVareStatus}`);
+    }
+
+    /**
+     * Hent kolonneverdi fra erstatningsfil med fleksibel matching (case-insensitiv)
+     */
+    static getReplacementColumnValue(row, columns, fieldName) {
+        const variants = this.REPLACEMENT_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant].toString().trim();
+            }
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key].toString().trim();
+                    }
+                }
+            }
+        }
+        return '';
+    }
+
     /**
      * Get value from Lagerplan file row using flexible column matching
      */
@@ -1050,6 +1189,63 @@ class DataProcessor {
         }
 
         return '';
+    }
+
+    // ════════════════════════════════════════════════════
+    //  SA-MIGRERING: PRIORITETSSCORE
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Beregn migrationPriorityScore og migrationPriorityLabel for et item.
+     *
+     * Forutsetning: item er utgående (isDiscontinuing eller isDiscontinued).
+     * Returnerer score = 0 hvis ikke utgående.
+     *
+     * Prioriteringslogikk (score 4 = høyest prioritet):
+     *   P1 (score 4): Utgående + tom (stock=0, onOrder=0) + har erstatning
+     *     → Kritisk: erstatning kan bestilles nå
+     *   P2 (score 3): Utgående + tom (stock=0, onOrder=0) + mangler erstatning
+     *     → Kritisk: må avklares, ingenting å bestille
+     *   P3 (score 2): Utgående + tom (stock=0) + innkommende bestilling
+     *     → Medium: stopp/overvåk bestilling
+     *   P4 (score 1): Utgående + har saldo (stock>0)
+     *     → Lav: planlegg overgang
+     *   Ikke utgående → score 0
+     *
+     * P1 er over P2 fordi P1 er handlingsbar (erstatning kan bestilles).
+     * P2 krever avklaring først — like kritisk, men ikke handlingsbar uten videre.
+     *
+     * @param {UnifiedItem} item
+     * @returns {{ score: number, label: string }}
+     */
+    static computeMigrationPriority(item) {
+        // Sjekk om utgående (fra Master _status eller vareStatus fra data(4))
+        const masterDisc = item._status === 'UTGAENDE' || item._status === 'UTGAATT' ||
+            item.isDiscontinued;
+        const vareStatusDisc = (() => {
+            const vs = (item.vareStatus || '').toLowerCase();
+            return vs === 'discontinued' || vs.includes('planned discontinued');
+        })();
+
+        if (!masterDisc && !vareStatusDisc) {
+            return { score: 0, label: '' };
+        }
+
+        const stock = item.stock || 0;
+        const onOrder = item.bestAntLev || 0;
+        const hasReplacement = !!((item.replacedByArticle || item.ersattAvArtikel || '').trim());
+
+        if (stock === 0 && onOrder === 0 && hasReplacement) {
+            return { score: 4, label: 'P1 – Kritisk: bestill erstatning' };
+        }
+        if (stock === 0 && onOrder === 0 && !hasReplacement) {
+            return { score: 3, label: 'P2 – Kritisk: avklar erstatning' };
+        }
+        if (stock === 0 && onOrder > 0) {
+            return { score: 2, label: 'P3 – Medium: overvåk bestilling' };
+        }
+        // stock > 0
+        return { score: 1, label: 'P4 – Lav: planlegg overgang' };
     }
 
     /**
