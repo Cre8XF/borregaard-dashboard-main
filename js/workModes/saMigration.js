@@ -189,7 +189,8 @@ class SAMigrationMode {
             if (!this.isDiscontinued(item)) return;
 
             // Filter: must have a replacement article defined (and not self-reference)
-            const replacementNr = (item.ersattAvArtikel || '').trim();
+            // data(4).xlsx replacedByArticle is primary; fall back to Master ersattAvArtikel
+            const replacementNr = (item.replacedByArticle || item.ersattAvArtikel || '').trim();
             if (!replacementNr || replacementNr === item.toolsArticleNumber) return;
 
             // Resolve replacement article data
@@ -215,6 +216,11 @@ class SAMigrationMode {
                 salesData.salesLast3m
             );
 
+            // Beregn migrasjons-prioritet (P1=4 … P4=1, 0=aktiv)
+            const priority = (typeof DataProcessor !== 'undefined')
+                ? DataProcessor.computeMigrationPriority(item)
+                : { score: 0, label: '' };
+
             const row = {
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
@@ -224,8 +230,11 @@ class SAMigrationMode {
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 status: this.getStatusLabel(item),
+                vareStatus: item.vareStatus || '',  // fra data(4).xlsx
                 estimertVerdi: item.estimertVerdi || 0,
                 oldExposure: oldExposure,
+                migrationPriorityScore: priority.score,
+                migrationPriorityLabel: priority.label,
                 replacementNr: replacementNr,
                 replacementDescription: replacement.description || '',
                 replacementStock: replacement.stock,
@@ -265,8 +274,11 @@ class SAMigrationMode {
         // Store full rows for panel lookup (Part 2)
         this._lastRows = rows;
 
-        // Ny default: forsyningsrisiko (1=KRITISK → 4=Lav), deretter lavest saldo
+        // Default: migrationPriorityScore desc (4=høyest), deretter supplyRisk asc, deretter lavest saldo
         rows.sort((a, b) => {
+            if (b.migrationPriorityScore !== a.migrationPriorityScore) {
+                return b.migrationPriorityScore - a.migrationPriorityScore;
+            }
             if (a.supplyRisk !== b.supplyRisk) return a.supplyRisk - b.supplyRisk;
             return a.stock - b.stock;
         });
@@ -285,6 +297,7 @@ class SAMigrationMode {
 
     /**
      * Check if item is discontinued (UTGAENDE or UTGAATT)
+     * Also checks vareStatus from data(4).xlsx (Planned Discontinued / Discontinued)
      */
     static isDiscontinued(item) {
         if (item._status === 'UTGAENDE' || item._status === 'UTGAATT') return true;
@@ -292,6 +305,9 @@ class SAMigrationMode {
         const raw = (item.status || '').toString().toLowerCase();
         if (raw.includes('utgå') || raw.includes('discontinued') || raw.includes('avvikle')) return true;
         if (raw === '3' || raw === '4' || raw.startsWith('3 -') || raw.startsWith('4 -')) return true;
+        // Also check vareStatus from data(4).xlsx
+        const vs = (item.vareStatus || '').toLowerCase();
+        if (vs === 'discontinued' || vs.includes('planned discontinued')) return true;
         return false;
     }
 
@@ -597,6 +613,7 @@ class SAMigrationMode {
                             ${this.renderSortableHeader('Erst. salg 3m', 'replacementSalesLast3m')}
                             ${this.renderSortableHeader('Forsyningsrisiko', 'supplyRisk', 'Forsyningsrisiko: 1=KRITISK (tom+SA), 2=Høy (lav saldo), 3=Kapitalbinding, 4=Lav')}
                             ${this.renderSortableHeader('Hastegrad', 'urgencySort')}
+                            ${this.renderSortableHeader('Prioritet', 'migrationPriorityScore', 'Migreringsprioritet: P1=4 (kritisk, bestill nå) … P4=1 (lav, planlegg). Sortert P1 øverst som standard.')}
                             ${this.renderSortableHeader('SA-migr.', 'saMigrationRequired')}
                             ${this.renderSortableHeader('Anbefalt handling', 'recommendation')}
                         </tr>
@@ -654,6 +671,7 @@ class SAMigrationMode {
                 <td class="qty-cell">${this.formatNumber(row.replacementSalesLast3m)}</td>
                 <td>${this.renderSupplyRiskBadge(row.supplyRisk, row.supplyRiskLabel)}</td>
                 <td>${this.renderUrgencyBadge(row.urgencyLevel)}</td>
+                <td>${this.renderPriorityBadge(row.migrationPriorityScore, row.migrationPriorityLabel)}</td>
                 <td>${row.saMigrationRequired ? '<span class="badge badge-critical">JA</span>' : '<span class="badge badge-ok">Nei</span>'}</td>
                 <td>${this.renderRecommendationBadge(row.recommendation)}</td>
             </tr>
@@ -685,6 +703,16 @@ class SAMigrationMode {
         if (rec.startsWith('Flytt SA nå')) return `<span style="color:#d32f2f;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
         if (rec.includes('tøm lager')) return `<span style="color:#e65100;font-weight:bold;">${this.escapeHtml(rec)}</span>`;
         return `<span style="color:#1565c0;">${this.escapeHtml(rec)}</span>`;
+    }
+
+    /** Render migrasjons-prioritet badge (P1=4=kritisk … P4=1=lav) */
+    static renderPriorityBadge(score, label) {
+        if (!score || score === 0) return `<span style="color:#9e9e9e;">-</span>`;
+        const title = this.escapeHtml(label || '');
+        if (score === 4) return `<span class="badge badge-critical" style="color:#d32f2f;font-weight:bold;" title="${title}">P1</span>`;
+        if (score === 3) return `<span class="badge badge-critical" style="color:#b71c1c;" title="${title}">P2</span>`;
+        if (score === 2) return `<span class="badge badge-warning" style="color:#e65100;" title="${title}">P3</span>`;
+        return `<span class="badge badge-info" style="color:#1565c0;" title="${title}">P4</span>`;
     }
 
     /** Render forsyningsrisiko-badge med farge og etikett */
@@ -786,9 +814,12 @@ class SAMigrationMode {
     }
 
     static sortResults(rows) {
-        // Ingen eksplisitt kolonne → ny default: forsyningsrisiko (1=KRITISK → 4=Lav), deretter lavest saldo
+        // Ingen eksplisitt kolonne → default: migrationPriorityScore desc (4=P1 høyest)
         if (!this.sortColumn) {
             return [...rows].sort((a, b) => {
+                if (b.migrationPriorityScore !== a.migrationPriorityScore) {
+                    return b.migrationPriorityScore - a.migrationPriorityScore;
+                }
                 if (a.supplyRisk !== b.supplyRisk) return a.supplyRisk - b.supplyRisk;
                 return a.stock - b.stock;
             });
