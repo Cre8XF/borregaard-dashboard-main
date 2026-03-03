@@ -89,6 +89,11 @@ class UnifiedItem {
         this.agreementVarugrupp = null; // Varugrupp fra avtalefil
         this.agreementStatus = null;    // Artikelstatus fra avtalefil
 
+        // ── Replacement file / data(4).xlsx (valgfri) ──
+        this.replacedByArticle = '';         // ErsattsAvArtNr fra data(4).xlsx (primær kilde)
+        this.alternativeArticlesRaw = '';    // Alternativ(er) fra data(4).xlsx (råstreng)
+        this.vareStatus = '';                // VareStatus: Sellable / Planned Discontinued / Discontinued
+
         // ── Metadata ──
         this.hasIncomingOrders = false;
         this.hasOutgoingOrders = false;
@@ -366,6 +371,10 @@ class UnifiedItem {
             agreementSupplier: this.agreementSupplier,
             agreementVarugrupp: this.agreementVarugrupp,
             agreementStatus: this.agreementStatus,
+            // Replacement file fields
+            replacedByArticle: this.replacedByArticle || '',
+            alternativeArticlesRaw: this.alternativeArticlesRaw || '',
+            vareStatus: this.vareStatus || '',
             incomingOrderCount: this.incomingOrders.length,
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             issues: this.getIssues()
@@ -526,7 +535,8 @@ class UnifiedDataStore {
      * @returns {Object} Komplett alternativ-status
      */
     resolveAlternativeStatus(item) {
-        const altToolsArtNr = (item.ersattAvArtikel || '').trim();
+        // data(4).xlsx replacedByArticle is the primary source; fall back to Master ersattAvArtikel
+        const altToolsArtNr = (item.replacedByArticle || item.ersattAvArtikel || '').trim();
 
         // ── Ingen alternativ definert ──
         if (!altToolsArtNr) {
