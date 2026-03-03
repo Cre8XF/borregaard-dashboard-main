@@ -42,6 +42,7 @@ class SAMigrationMode {
     static toggleOnlyEmptyUtgaende = false;
     static toggleOnlyEmptyWithSA = false;
     static toggleOnlyHighRisk = false;
+    static toggleOnlyWithoutReplacement = false; // Kun utgående uten erstatning
 
     // Panel state: store last analysis rows for panel lookup
     static _lastRows = [];
@@ -61,8 +62,8 @@ class SAMigrationMode {
 
         const analysis = this.analyze(store);
 
-        console.log('=== SA-migrering – Forsyningskritisk prioritering ===');
-        console.log(`  Totalt utgående med erstatning: ${analysis.totalItems}`);
+        console.log('=== SA-migrering – Utgående artikler (med og uten erstatning) ===');
+        console.log(`  Totalt utgående: ${analysis.totalItems}`);
         console.log(`  SA-migrering påkrevd: ${analysis.migrationRequiredCount}`);
         console.log(`  Hastegrad HØY: ${analysis.highCount}`);
         console.log(`  Hastegrad MEDIUM: ${analysis.mediumCount}`);
@@ -70,8 +71,8 @@ class SAMigrationMode {
 
         return `
             <div class="module-header">
-                <h2>SA-migrering – Forsyningskritisk prioritering</h2>
-                <p class="module-description">Forsyningsrisiko-basert prioritering: Tom saldo + SA-nummer vises først – erstatning må bestilles</p>
+                <h2>SA-migrering – Utgående artikler (med og uten erstatning)</h2>
+                <p class="module-description">Forsyningsrisiko-basert prioritering: P1 (tom, har erstatning) vises øverst – artikler uten erstatning vises med rød badge</p>
             </div>
 
             ${this.renderSummaryCards(analysis)}
@@ -112,6 +113,7 @@ class SAMigrationMode {
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyEmptyUtgaende ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyEmptyUtgaende', this.checked)"> Kun tomme utgående</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyEmptyWithSA ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyEmptyWithSA', this.checked)"> Kun tomme med SA</label>
                 <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyHighRisk ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyHighRisk', this.checked)"> Kun høy risiko (nivå 1 og 2)</label>
+                <label style="cursor:pointer;"><input type="checkbox" ${this.toggleOnlyWithoutReplacement ? 'checked' : ''} onchange="SAMigrationMode.handleToggle('toggleOnlyWithoutReplacement', this.checked)"> Kun uten erstatning</label>
             </div>
 
             <div style="display:flex;align-items:center;gap:12px;padding:6px 0 2px;flex-wrap:wrap;">
@@ -191,7 +193,7 @@ class SAMigrationMode {
             // Filter: must have a replacement article defined (and not self-reference)
             // data(4).xlsx replacedByArticle is primary; fall back to Master ersattAvArtikel
             const replacementNr = (item.replacedByArticle || item.ersattAvArtikel || '').trim();
-            if (!replacementNr || replacementNr === item.toolsArticleNumber) return;
+            if (replacementNr === item.toolsArticleNumber) return; // self-reference → skip
 
             // Resolve replacement article data
             const replacement = this.resolveReplacement(store, replacementNr);
@@ -317,6 +319,20 @@ class SAMigrationMode {
      * Also calculates replacement sales (3m/12m) from outgoingOrders.
      */
     static resolveReplacement(store, replacementToolsNr) {
+        // Empty replacementNr — return safe default (no error)
+        if (!replacementToolsNr) {
+            return {
+                description: '',
+                stock: 0,
+                bestAntLev: 0,
+                saNumber: '',
+                statusLabel: 'Ingen erstatning',
+                isDiscontinued: false,
+                salesLast12m: 0,
+                salesLast3m: 0
+            };
+        }
+
         // Try SA universe first
         const saItem = store.getByToolsArticleNumber(replacementToolsNr);
         if (saItem) {
@@ -660,8 +676,8 @@ class SAMigrationMode {
                 <td class="qty-cell">${this.formatNumber(Math.round(row.estimertVerdi))} kr</td>
                 <td class="qty-cell">${this.formatNumber(row.oldExposure)}</td>
                 <td>${this.renderStatusBadge(row.status)}</td>
-                <td><strong>${this.escapeHtml(row.replacementNr)}</strong></td>
-                <td>${row.replacementSaNumber ? this.escapeHtml(row.replacementSaNumber) : '<span class="badge badge-warning">Mangler</span>'}</td>
+                <td>${row.replacementNr ? `<strong>${this.escapeHtml(row.replacementNr)}</strong>` : '<span class="badge badge-critical">MANGLER ERSTATNING</span>'}</td>
+                <td>${row.replacementNr ? (row.replacementSaNumber ? this.escapeHtml(row.replacementSaNumber) : '<span class="badge badge-warning">Mangler</span>') : '-'}</td>
                 <td class="qty-cell">${this.formatNumber(row.replacementStock)}</td>
                 <td class="qty-cell">${row.replacementBestAntLev > 0 ? this.formatNumber(row.replacementBestAntLev) : '-'}</td>
                 <td class="qty-cell">${this.formatNumber(row.replacementExposure)}</td>
@@ -795,6 +811,9 @@ class SAMigrationMode {
         if (this.toggleOnlyHighRisk) {
             // Kun høy risiko: supplyRisk 1 (KRITISK) og 2 (Høy)
             filtered = filtered.filter(r => r.supplyRisk <= 2);
+        }
+        if (this.toggleOnlyWithoutReplacement) {
+            filtered = filtered.filter(r => !r.replacementNr);
         }
 
         // Text search
