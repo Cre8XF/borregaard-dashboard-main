@@ -95,6 +95,7 @@ class SAMigrationMode {
                            onkeyup="SAMigrationMode.handleSearch(this.value)">
                 </div>
                 <button onclick="SAMigrationMode.exportCSV()" class="btn-export">Eksporter CSV</button>
+                <button onclick="SAMigrationMode.exportExcelReport()" class="btn-export" style="background:#1a6b2c;">Eksporter Excel</button>
             </div>
 
             <div class="module-controls" style="padding-top:0;gap:16px;flex-wrap:wrap;">
@@ -1435,6 +1436,102 @@ class SAMigrationMode {
             'Utgående → Inngående:',
             pairs
         ].join('\n');
+    }
+
+    // ════════════════════════════════════════════════════
+    //  EXCEL EXPORT (multi-sheet)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Export a multi-sheet Excel workbook using this._lastRows (full, unfiltered data).
+     *
+     * Sheet 1 "Full analyse"     – all rows, sorted by migrationPriorityScore DESC
+     * Sheet 2 "P1_P2_Operativ"  – rows with migrationPriorityScore >= 3 (P1 + P2)
+     * Sheet 3 "Mangler erstatning" – rows without replacementNr
+     * Sheet 4 "Oppsummering"    – summary stats table
+     */
+    static exportExcelReport() {
+        if (!this._lastRows || !this._lastRows.length) {
+            alert('Ingen data å eksportere. Kjør analysen først.');
+            return;
+        }
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke tilgjengelig.');
+            return;
+        }
+
+        const fileDate = new Date().toISOString().slice(0, 10);
+        const wb = XLSX.utils.book_new();
+
+        // Map a row object to a flat Excel record with Norwegian column headers
+        const toExcelObj = r => ({
+            'Tools Art.nr':          r.toolsNr,
+            'SA-nummer':             r.saNumber,
+            'Beskrivelse':           r.description,
+            'Artikelstatus':         r.status,
+            'VareStatus':            r.vareStatus,
+            'Lagersaldo':            r.stock,
+            'I bestilling':          r.bestAntLev,
+            'R12 salg':              r.salesLast12m,
+            'R3 salg':               r.salesLast3m,
+            'Erstatning':            r.replacementNr,
+            'Erstatning saldo':      r.replacementStock,
+            'Erstatning innk.':      r.replacementBestAntLev,
+            'Erstatning status':     r.replacementStatus,
+            'Erstatning salg 12m':   r.replacementSalesLast12m,
+            'Prioritet':             r.migrationPriorityLabel,
+            'Forsyningsrisiko':      r.supplyRiskLabel,
+            'Hastegrad':             r.urgencyLevel,
+            'SA-migrering påkrevd':  r.saMigrationRequired ? 'JA' : 'NEI',
+            'Anbefalt handling':     r.recommendation,
+        });
+
+        // Sort helper: migrationPriorityScore DESC, supplyRisk ASC, stock ASC
+        const sorted = [...this._lastRows].sort((a, b) => {
+            if (b.migrationPriorityScore !== a.migrationPriorityScore)
+                return b.migrationPriorityScore - a.migrationPriorityScore;
+            if (a.supplyRisk !== b.supplyRisk) return a.supplyRisk - b.supplyRisk;
+            return a.stock - b.stock;
+        });
+
+        // Sheet 1: Full analyse
+        const ws1 = XLSX.utils.json_to_sheet(sorted.map(toExcelObj));
+        XLSX.utils.book_append_sheet(wb, ws1, 'Full analyse');
+
+        // Sheet 2: P1 + P2 (score >= 3 → Kritisk)
+        const p1p2 = sorted.filter(r => r.migrationPriorityScore >= 3);
+        const ws2 = p1p2.length
+            ? XLSX.utils.json_to_sheet(p1p2.map(toExcelObj))
+            : XLSX.utils.json_to_sheet([{ 'Info': 'Ingen P1/P2 artikler' }]);
+        XLSX.utils.book_append_sheet(wb, ws2, 'P1_P2_Operativ');
+
+        // Sheet 3: Mangler erstatning
+        const noRepl = sorted.filter(r => !r.replacementNr);
+        const ws3 = noRepl.length
+            ? XLSX.utils.json_to_sheet(noRepl.map(toExcelObj))
+            : XLSX.utils.json_to_sheet([{ 'Info': 'Alle artikler har erstatning' }]);
+        XLSX.utils.book_append_sheet(wb, ws3, 'Mangler erstatning');
+
+        // Sheet 4: Oppsummering
+        const p1Count  = sorted.filter(r => r.migrationPriorityScore === 4).length;
+        const p2Count  = sorted.filter(r => r.migrationPriorityScore === 3).length;
+        const p3Count  = sorted.filter(r => r.migrationPriorityScore === 2).length;
+        const p4Count  = sorted.filter(r => r.migrationPriorityScore === 1).length;
+        const noReplCount = sorted.filter(r => !r.replacementNr).length;
+        const tomSaldo    = sorted.filter(r => r.stock === 0).length;
+        const summaryData = [
+            { 'Kategori': 'Totalt utgående artikler',         'Antall': sorted.length },
+            { 'Kategori': 'P1 – Kritisk: bestill erstatning', 'Antall': p1Count },
+            { 'Kategori': 'P2 – Kritisk: avklar erstatning',  'Antall': p2Count },
+            { 'Kategori': 'P3 – Medium: overvåk bestilling',  'Antall': p3Count },
+            { 'Kategori': 'P4 – Lav: planlegg overgang',      'Antall': p4Count },
+            { 'Kategori': 'Mangler erstatning',                'Antall': noReplCount },
+            { 'Kategori': 'Tom saldo (0 på lager)',            'Antall': tomSaldo },
+        ];
+        const ws4 = XLSX.utils.json_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(wb, ws4, 'Oppsummering');
+
+        XLSX.writeFile(wb, `SA_Migrering_${fileDate}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
