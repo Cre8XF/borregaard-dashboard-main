@@ -95,6 +95,9 @@ class VartellingMode {
      * Returnerer negativt, 0 eller positivt (som Array.sort-komparator).
      */
     static compareLocations(a, b) {
+        if (!a && !b) return 0;
+        if (!a) return 1;   // ingen lokasjon sorteres sist
+        if (!b) return -1;
         if (a.zone !== b.zone) return a.zone - b.zone;
         if (a.row  !== b.row)  return a.row  - b.row;
         return a.section.localeCompare(b.section);
