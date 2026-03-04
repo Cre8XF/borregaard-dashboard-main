@@ -629,6 +629,15 @@ class DashboardApp {
                 }
                 break;
 
+            case 'artikkelOppslag':
+                if (typeof ArtikkelOppslagMode !== 'undefined') {
+                    contentDiv.innerHTML = ArtikkelOppslagMode.render(this.dataStore);
+                    // Focus search input after render
+                    const searchInput = document.getElementById('artikkelOppslagSearch');
+                    if (searchInput) searchInput.focus();
+                }
+                break;
+
             default:
                 if (typeof WorkMode !== 'undefined') {
                     contentDiv.innerHTML = WorkMode.render(this.dataStore);

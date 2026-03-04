@@ -84,6 +84,11 @@
           <span class="tab-label">Artikkeloppslag</span>
           <span class="tab-desc">BP kontroll</span>
         </button>
+        <button class="tab" data-module="artikkelOppslag">
+          <span class="tab-icon">5</span>
+          <span class="tab-label">Artikkel Oppslag</span>
+          <span class="tab-desc">Global søk</span>
+        </button>
         <!-- Temporarily disabled tabs (logic preserved, UI hidden)
         <button class="tab" data-module="overview">
           <span class="tab-icon">1</span>
@@ -148,6 +153,7 @@
 
     <!-- External Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
 
     <!-- Core Data Handling -->
     <script src="js/dataLoader.js"></script>
@@ -165,6 +171,7 @@
     <script src="js/workModes/reports.js"></script>
     <script src="js/workModes/varetelling.js"></script>
     <script src="js/workModes/articleLookup.js"></script>
+    <script src="js/workModes/artikkelOppslag.js"></script>
     <script src="js/workModes/work.js"></script>
 
     <!-- Main Application Controller -->
