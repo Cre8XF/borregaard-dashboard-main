@@ -475,6 +475,13 @@ class DataProcessor {
             // Graceful: null if column is absent or row value is empty.
             const lagerplass = this.getSAColumnValue(row, columns, 'lagerplass');
             item.lagerplass = lagerplass || null;
+
+            // Location from SA file (Artikelbeskrivning = warehouse shelf location).
+            // Acts as initial value — Master.xlsx / Master_Artikkelstatus.xlsx override if available.
+            const saLocation = this.getSAColumnValue(row, columns, 'description');
+            if (saLocation) {
+                item.location = saLocation.trim().toUpperCase();
+            }
         });
 
         console.log(`[FASE 6.1] SA-nummer resultat:`);
@@ -580,7 +587,7 @@ class DataProcessor {
 
             // ── Article identity ──
             item.description = this.getMasterValue(row, colMap.description) || item.description;
-            item.location = this.getMasterValue(row, colMap.location) || '';
+            item.location = this.getMasterValue(row, colMap.location) || item.location || '';
             item.supplier = this.getMasterValue(row, colMap.supplier) || item.supplier || '';
             item.category = this.getMasterValue(row, colMap.category) || item.category || '';
 
