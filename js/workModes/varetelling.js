@@ -68,33 +68,6 @@ class VartellingMode {
             ${this.renderSummary(filtered, totalValue, hasSearch)}
 
             ${this.renderTable(filtered, hasSearch)}
-
-            <script>
-                (function() {
-                    function runLocationSearch() {
-                        const from = document.getElementById('locationFrom').value;
-                        const to   = document.getElementById('locationTo').value;
-                        VartellingMode.handleSearch(from, to);
-                    }
-
-                    const btn = document.getElementById('searchLocations');
-                    if (btn) btn.addEventListener('click', runLocationSearch);
-
-                    const toInput = document.getElementById('locationTo');
-                    if (toInput) {
-                        toInput.addEventListener('keypress', function(e) {
-                            if (e.key === 'Enter') runLocationSearch();
-                        });
-                    }
-
-                    const fromInput = document.getElementById('locationFrom');
-                    if (fromInput) {
-                        fromInput.addEventListener('keypress', function(e) {
-                            if (e.key === 'Enter') runLocationSearch();
-                        });
-                    }
-                })();
-            </script>
         `;
     }
 
@@ -256,10 +229,27 @@ class VartellingMode {
         this.refreshAll();
     }
 
+    static bindEvents() {
+        const runLocationSearch = () => {
+            const from = document.getElementById('locationFrom').value;
+            const to   = document.getElementById('locationTo').value;
+            VartellingMode.handleSearch(from, to);
+        };
+
+        const btn     = document.getElementById('searchLocations');
+        const fromEl  = document.getElementById('locationFrom');
+        const toEl    = document.getElementById('locationTo');
+
+        if (btn)    btn.addEventListener('click', runLocationSearch);
+        if (fromEl) fromEl.addEventListener('keypress', e => { if (e.key === 'Enter') runLocationSearch(); });
+        if (toEl)   toEl.addEventListener('keypress',   e => { if (e.key === 'Enter') runLocationSearch(); });
+    }
+
     static refreshAll() {
         const contentDiv = document.getElementById('moduleContent');
         if (contentDiv && this._store) {
             contentDiv.innerHTML = this.render(this._store);
+            this.bindEvents();
         }
     }
 
