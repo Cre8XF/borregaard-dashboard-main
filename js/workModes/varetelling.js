@@ -1,13 +1,15 @@
 // ===================================
 // MODUS: VARETELLING – LOKASJONSSØK
-// Generer tellelister basert på lagerlokasjon.
-// Input: lokasjonsprefiks (f.eks. "1-5") → filtrert artikkelliste + Excel-eksport
+// Generer tellelister basert på lokasjonsintervall (FRA–TIL).
+// Input: fra-lokasjon + til-lokasjon → filtrert artikkelliste + Excel-eksport
+// Søk trigges kun ved knappetrykk eller Enter.
 // ===================================
 
 class VartellingMode {
-    static _store     = null;
-    static searchPrefix = '';   // Nåværende lokasjonsprefiks
-    static _lastFiltered = [];  // Siste filtrerte artikler (for eksport)
+    static _store        = null;
+    static locationFrom  = '';   // Nåværende fra-lokasjon
+    static locationTo    = '';   // Nåværende til-lokasjon
+    static _lastFiltered = [];   // Siste filtrerte artikler (for eksport)
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -16,34 +18,43 @@ class VartellingMode {
     static render(store) {
         this._store = store;
 
-        const items   = store.getAllItems();
-        const filtered = this.filterByLocation(items, this.searchPrefix);
+        const items    = store.getAllItems();
+        const filtered = this.filterByLocationRange(items, this.locationFrom, this.locationTo);
         this._lastFiltered = filtered;
 
         const totalValue = filtered.reduce((s, item) => s + (item.estimertVerdi || 0), 0);
+
+        const hasSearch = this.locationFrom || this.locationTo;
 
         return `
             <div class="module-header">
                 <h2>Varetelling – Lokasjonssøk</h2>
                 <p class="module-description">
-                    Søk på lokasjonsprefiks (f.eks. <strong>1-5</strong>) for å generere telleliste.
-                    Eksporter til Excel for utskrift på lager.
+                    Angi lokasjonsintervall (f.eks. <strong>11-10-A</strong> til <strong>11-11-C</strong>)
+                    for å generere telleliste. Eksporter til Excel for utskrift på lager.
                 </p>
             </div>
 
-            <div class="module-controls" style="align-items:flex-end;gap:12px;flex-wrap:wrap;">
+            <div class="module-controls location-search" style="align-items:flex-end;gap:12px;flex-wrap:wrap;">
                 <div style="display:flex;flex-direction:column;gap:4px;">
-                    <label style="font-size:12px;font-weight:600;color:#555;">Lokasjon:</label>
-                    <input id="varetelling-input"
+                    <label style="font-size:12px;font-weight:600;color:#555;">Lokasjon fra</label>
+                    <input id="locationFrom"
                            type="text"
                            class="search-input"
-                           value="${this.esc(this.searchPrefix)}"
-                           placeholder="F.eks. 1-5 eller A-3"
-                           oninput="VartellingMode.handleSearch(this.value)"
-                           style="min-width:160px;font-size:14px;padding:7px 12px;">
+                           value="${this.esc(this.locationFrom)}"
+                           placeholder="f.eks. 11-10-A"
+                           style="min-width:140px;font-size:14px;padding:7px 12px;">
                 </div>
-                <button onclick="VartellingMode.handleSearch(document.getElementById('varetelling-input').value)"
-                        class="btn-primary" style="height:36px;">
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                    <label style="font-size:12px;font-weight:600;color:#555;">Lokasjon til</label>
+                    <input id="locationTo"
+                           type="text"
+                           class="search-input"
+                           value="${this.esc(this.locationTo)}"
+                           placeholder="f.eks. 11-11-C"
+                           style="min-width:140px;font-size:14px;padding:7px 12px;">
+                </div>
+                <button id="searchLocations" class="btn-primary" style="height:36px;">
                     Søk
                 </button>
                 <button onclick="VartellingMode.exportExcel()"
@@ -54,9 +65,36 @@ class VartellingMode {
                 </button>
             </div>
 
-            ${this.renderSummary(filtered, totalValue)}
+            ${this.renderSummary(filtered, totalValue, hasSearch)}
 
-            ${this.renderTable(filtered)}
+            ${this.renderTable(filtered, hasSearch)}
+
+            <script>
+                (function() {
+                    function runLocationSearch() {
+                        const from = document.getElementById('locationFrom').value;
+                        const to   = document.getElementById('locationTo').value;
+                        VartellingMode.handleSearch(from, to);
+                    }
+
+                    const btn = document.getElementById('searchLocations');
+                    if (btn) btn.addEventListener('click', runLocationSearch);
+
+                    const toInput = document.getElementById('locationTo');
+                    if (toInput) {
+                        toInput.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') runLocationSearch();
+                        });
+                    }
+
+                    const fromInput = document.getElementById('locationFrom');
+                    if (fromInput) {
+                        fromInput.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') runLocationSearch();
+                        });
+                    }
+                })();
+            </script>
         `;
     }
 
@@ -65,16 +103,23 @@ class VartellingMode {
     // ════════════════════════════════════════════════════
 
     /**
-     * Filtrer artikler på lokasjonsprefiks.
-     * Bruker item.location (fra Master.xlsx Lokasjon).
-     * Returnerer alle artikler hvis prefix er tom.
+     * Filtrer artikler på lokasjonsintervall (string range, case-insensitive).
+     * Returnerer alle artikler hvis begge felt er tomme.
+     * Kun fra: returnerer alle lokasjoner >= fra.
+     * Kun til: returnerer alle lokasjoner <= til.
      */
-    static filterByLocation(items, prefix) {
-        if (!prefix || !prefix.trim()) return [...items];
-        const p = prefix.trim().toLowerCase();
+    static filterByLocationRange(items, from, to) {
+        const start = (from || '').trim().toUpperCase();
+        const end   = (to   || '').trim().toUpperCase();
+
+        if (!start && !end) return [...items];
+
         return items.filter(item => {
-            const loc = (item.location || item.lagerplass || '').toLowerCase();
-            return loc.startsWith(p);
+            const location = (item.location || item.lagerplass || '').trim().toUpperCase();
+            if (!location) return false;
+            if (start && location < start) return false;
+            if (end   && location > end)   return false;
+            return true;
         });
     }
 
@@ -82,8 +127,8 @@ class VartellingMode {
     //  RENDERING
     // ════════════════════════════════════════════════════
 
-    static renderSummary(items, totalValue) {
-        if (items.length === 0 && !this.searchPrefix) return '';
+    static renderSummary(items, totalValue, hasSearch) {
+        if (items.length === 0 && !hasSearch) return '';
         return `
             <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
                 <div style="padding:10px 16px;background:#e3f2fd;border-radius:6px;border:1px solid #bbdefb;">
@@ -103,21 +148,25 @@ class VartellingMode {
         `;
     }
 
-    static renderTable(items) {
+    static renderTable(items, hasSearch) {
         if (items.length === 0) {
-            if (!this.searchPrefix) {
-                return `<div class="alert alert-info">Skriv inn en lokasjonsprefiks for å søke.</div>`;
+            if (!hasSearch) {
+                return `<div class="alert alert-info">Angi lokasjon fra/til og trykk Søk for å generere telleliste.</div>`;
             }
-            return `<div class="alert alert-info">Ingen artikler funnet på lokasjon «${this.esc(this.searchPrefix)}».</div>`;
+            const range = [this.esc(this.locationFrom), this.esc(this.locationTo)].filter(Boolean).join(' – ');
+            return `<div class="alert alert-info">Ingen artikler funnet i lokasjonsintervallet «${range}».</div>`;
         }
 
-        // Sort: location ASC, then toolsNr ASC
+        // Sort: lokasjon ASC (localeCompare), deretter toolsNr ASC
         const sorted = [...items].sort((a, b) => {
-            const locA = (a.location || a.lagerplass || '').toLowerCase();
-            const locB = (b.location || b.lagerplass || '').toLowerCase();
-            if (locA !== locB) return locA.localeCompare(locB, 'nb-NO');
+            const locA = (a.location || a.lagerplass || '');
+            const locB = (b.location || b.lagerplass || '');
+            const cmp = locA.localeCompare(locB, 'nb-NO');
+            if (cmp !== 0) return cmp;
             return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
         });
+
+        const rangeLabel = [this.locationFrom, this.locationTo].filter(Boolean).join(' – ');
 
         return `
             <div class="table-wrapper">
@@ -137,12 +186,12 @@ class VartellingMode {
                     </thead>
                     <tbody>
                         ${sorted.map(item => {
-                            const loc    = item.location || item.lagerplass || '';
-                            const stock  = item.stock || 0;
+                            const loc        = item.location || item.lagerplass || '';
+                            const stock      = item.stock || 0;
                             const bestAntLev = item.bestAntLev || 0;
-                            const status = item._status || '';
-                            const rowClass = status === 'UTGAENDE' ? 'row-warning'
-                                           : status === 'UTGAATT'  ? 'row-critical' : '';
+                            const status     = item._status || '';
+                            const rowClass   = status === 'UTGAENDE' ? 'row-warning'
+                                             : status === 'UTGAATT'  ? 'row-critical' : '';
                             return `
                                 <tr class="${rowClass}">
                                     <td style="font-weight:700;white-space:nowrap;">${this.esc(loc) || '–'}</td>
@@ -161,7 +210,7 @@ class VartellingMode {
                 </table>
             </div>
             <div class="table-footer">
-                <p class="text-muted">Viser ${sorted.length} artikler${this.searchPrefix ? ` på lokasjon «${this.esc(this.searchPrefix)}»` : ''}</p>
+                <p class="text-muted">Viser ${sorted.length} artikler${rangeLabel ? ` i intervall «${this.esc(rangeLabel)}»` : ''}</p>
             </div>
         `;
     }
@@ -170,8 +219,9 @@ class VartellingMode {
     //  EVENT HANDLERS
     // ════════════════════════════════════════════════════
 
-    static handleSearch(prefix) {
-        this.searchPrefix = prefix || '';
+    static handleSearch(from, to) {
+        this.locationFrom = (from || '').trim();
+        this.locationTo   = (to   || '').trim();
         this.refreshAll();
     }
 
@@ -188,7 +238,7 @@ class VartellingMode {
 
     static exportExcel() {
         if (!this._lastFiltered || this._lastFiltered.length === 0) {
-            alert('Ingen artikler å eksportere. Søk på en lokasjon først.');
+            alert('Ingen artikler å eksportere. Søk på et lokasjonsintervall først.');
             return;
         }
         if (typeof XLSX === 'undefined') {
@@ -196,33 +246,36 @@ class VartellingMode {
             return;
         }
 
-        const location = this.searchPrefix.trim() || 'alle';
+        const from     = this.locationFrom || 'start';
+        const to       = this.locationTo   || 'slutt';
         const fileDate = new Date().toISOString().slice(0, 10);
 
-        // Sort: location ASC, then toolsNr ASC
+        // Sort: lokasjon ASC, deretter toolsNr ASC
         const sorted = [...this._lastFiltered].sort((a, b) => {
-            const locA = (a.location || a.lagerplass || '').toLowerCase();
-            const locB = (b.location || b.lagerplass || '').toLowerCase();
-            if (locA !== locB) return locA.localeCompare(locB, 'nb-NO');
+            const locA = (a.location || a.lagerplass || '');
+            const locB = (b.location || b.lagerplass || '');
+            const cmp = locA.localeCompare(locB, 'nb-NO');
+            if (cmp !== 0) return cmp;
             return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
         });
 
         const rows = sorted.map(item => ({
-            'Lokasjon':        item.location || item.lagerplass || '',
-            'Tools nr':        item.toolsArticleNumber || '',
-            'Beskrivelse':     item.description || '',
-            'Leverandørnr':    item.supplierId || item.supplier || '',
-            'SA-nummer':       item.saNumber || '',
-            'Beholdning':      item.stock || 0,
-            'Innkommende':     item.bestAntLev || 0,
-            'Status':          item._status || '',
-            'Tellet antall':   ''      // Tom kolonne for manuell utfylling
+            'Lokasjon':      item.location || item.lagerplass || '',
+            'Tools nr':      item.toolsArticleNumber || '',
+            'Beskrivelse':   item.description || '',
+            'Leverandørnr':  item.supplierId || item.supplier || '',
+            'SA-nummer':     item.saNumber || '',
+            'Beholdning':    item.stock || 0,
+            'Innkommende':   item.bestAntLev || 0,
+            'Status':        item._status || '',
+            'Tellet antall': ''   // Tom kolonne for manuell utfylling
         }));
 
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, `Lokasjon ${location}`.slice(0, 31));
-        XLSX.writeFile(wb, `telleliste_${location}_${fileDate}.xlsx`);
+        const sheetName = `${from}_${to}`.slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, `telleliste_${from}_${to}_${fileDate}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
