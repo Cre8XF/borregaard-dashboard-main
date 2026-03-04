@@ -364,6 +364,14 @@ class WorkMode {
             const desc = item.description || '';
             const estimertVerdi = item.estimertVerdi || 0;
 
+            // ── Beregnede analytiske felt (P1-P4, dekning, risikoscore) ──────
+            const replNrRaw = (item.replacedByArticle || item.ersattAvArtikel || '').trim();
+            const hasReplacement = !!replNrRaw && replNrRaw !== itemNo;
+            const priority     = this.calculatePriority(stock, sales3m, bp, isDisc);
+            const coverageDays = this.calculateCoverage(stock, sales3m);
+            const riskScore    = this.calculateRiskScore(stock, bp, isDisc, hasReplacement, sales3m);
+            // ─────────────────────────────────────────────────────────────────
+
             // ── 1) SA-migrering (priority 100) ──────────────────
             // Reuses same detection logic as buildPriorityQueue (no duplication)
             if (isDisc) {
@@ -375,9 +383,10 @@ class WorkMode {
                         tasks.push({
                             type: 'SA',
                             priorityScore: 100,
+                            priority, coverageDays, riskScore,
                             itemNo,
                             description: desc,
-                            sales12m,
+                            sales12m, sales3m,
                             estimertVerdi,
                             problemText: 'Erstatning mangler SA-nummer',
                             recommendedAction: stock > 0 && sales3m > 0
@@ -398,9 +407,10 @@ class WorkMode {
                     tasks.push({
                         type: 'BP_LOW',
                         priorityScore: 80,
+                        priority, coverageDays, riskScore,
                         itemNo,
                         description: desc,
-                        sales12m,
+                        sales12m, sales3m,
                         estimertVerdi,
                         problemText: `Under bestillingspunkt (${Math.round(effectiveAvail)} < ${Math.round(bp)})`,
                         recommendedAction: 'Bestill umiddelbart \u2013 under BP'
@@ -424,9 +434,10 @@ class WorkMode {
                     tasks.push({
                         type: 'TRANSITION',
                         priorityScore: 70,
+                        priority, coverageDays, riskScore,
                         itemNo,
                         description: desc,
-                        sales12m,
+                        sales12m, sales3m,
                         estimertVerdi,
                         problemText: noAlt
                             ? 'Utgående \u2013 ingen alternativ definert'
@@ -442,9 +453,10 @@ class WorkMode {
                 tasks.push({
                     type: 'BP_HIGH',
                     priorityScore: 40,
+                    priority, coverageDays, riskScore,
                     itemNo,
                     description: desc,
-                    sales12m,
+                    sales12m, sales3m,
                     estimertVerdi,
                     problemText: `Lager langt over BP (${Math.round(stock)} > ${Math.round(bp * 1.5)})`,
                     recommendedAction: 'Vurder å senke BP eller avhend overskudd'
@@ -452,8 +464,9 @@ class WorkMode {
             }
         });
 
-        // Sort: priorityScore DESC → sales12m DESC → estimertVerdi DESC
+        // Sort: riskScore DESC → priorityScore DESC → sales12m DESC → estimertVerdi DESC
         tasks.sort((a, b) =>
+            b.riskScore - a.riskScore ||
             b.priorityScore - a.priorityScore ||
             b.sales12m - a.sales12m ||
             b.estimertVerdi - a.estimertVerdi
@@ -597,7 +610,8 @@ class WorkMode {
                     <thead>
                         <tr>
                             <th style="width:36px;text-align:center;" title="Merk som ferdig">Ferdig</th>
-                            <th style="width:75px;">Prioritet</th>
+                            <th style="width:50px;" title="P1–P4 prioritet: P1=tom+salg, P2=under BP, P3=utgående, P4=annet">Prio</th>
+                            <th style="width:75px;">Hastegrad</th>
                             <th style="width:100px;">Type</th>
                             <th style="width:90px;">BP-status</th>
                             <th style="width:90px;">Tools nr</th>
@@ -608,6 +622,7 @@ class WorkMode {
                             <th style="width:65px;text-align:right;">Innkomm.</th>
                             <th style="width:75px;text-align:right;">Eksponering</th>
                             <th style="width:55px;text-align:right;">Salg 3m</th>
+                            <th style="width:65px;text-align:right;" title="Dekning i dager: saldo / (salg3m/90). Rød &lt;7d, gul &lt;30d, grønn ≥30d">Dekning</th>
                             <th style="width:45px;text-align:right;" title="Gjeldende bestillingspunkt">BP</th>
                             <th style="width:60px;text-align:right;" title="Anbefalt BP = ceil(snitt 3m × 2)">Anb. BP</th>
                             <th style="width:50px;text-align:right;" title="Avvik = Anbefalt BP − Gjeldende BP">Avvik</th>
@@ -664,6 +679,7 @@ class WorkMode {
                                             style="cursor:pointer;width:15px;height:15px;"
                                             title="${isDone ? 'Merk som ikke ferdig' : 'Merk som ferdig'}">
                                     </td>
+                                    <td style="white-space:nowrap;">${this.priorityP1Badge(t.priority)}</td>
                                     <td style="white-space:nowrap;">${scoreBadge(t.priorityScore)}</td>
                                     <td style="white-space:nowrap;">${this.typeBadge(t.type)}</td>
                                     <td style="white-space:nowrap;">${bpBadge(itemObj)}</td>
@@ -675,6 +691,7 @@ class WorkMode {
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;color:${bestAntLev > 0 ? 'inherit' : '#aaa'};">${fmt(bestAntLev)}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmtKr(exposure)}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${fmt(sales3m)}</td>
+                                    <td style="font-size:11px;text-align:right;white-space:nowrap;">${this.coverageBadge(t.coverageDays)}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;color:${bp ? 'inherit' : '#aaa'};">${bp ? bp : dash}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;color:${anbefaltBp !== null ? 'inherit' : '#aaa'};">${anbefaltBp !== null ? anbefaltBp : dash}</td>
                                     <td style="font-size:11px;text-align:right;white-space:nowrap;">${avvikCell}</td>
@@ -695,6 +712,7 @@ class WorkMode {
         if (allTasks.length === 0) return emptyHtml;
 
         return `
+            ${this.renderTopTasks(allTasks)}
             <div style="margin-bottom:24px;background:#fff;border:2px solid #1565c0;border-radius:8px;overflow:hidden;">
                 <div style="background:#1565c0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
                     <h3 style="margin:0;font-size:16px;font-weight:700;color:#fff;">Dagens prioriterte oppgaver</h3>
@@ -1477,6 +1495,121 @@ class WorkMode {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    // ════════════════════════════════════════════════════
+    //  BEREGNEDE ANALYTISKE FELT (P1-P4, DEKNING, RISIKO)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Beregn 4-nivå prioritet:
+     *   P1 – Tom saldo med aktivt salg siste 3 mnd
+     *   P2 – Saldo under bestillingspunkt
+     *   P3 – Artikelen er utgående
+     *   P4 – Alt annet
+     */
+    static calculatePriority(stock, sales3m, bp, isDiscontinued) {
+        if (stock === 0 && sales3m > 0)              return 'P1';
+        if (bp !== null && bp > 0 && stock < bp)     return 'P2';
+        if (isDiscontinued)                           return 'P3';
+        return 'P4';
+    }
+
+    /**
+     * Beregn dekning i dager: stock / (sales3m / 90).
+     * Returnerer null hvis sales3m = 0 (kan ikke beregne).
+     */
+    static calculateCoverage(stock, sales3m) {
+        if (!sales3m || sales3m === 0) return null;
+        const dailySales = sales3m / 90;
+        return Math.round(stock / dailySales);
+    }
+
+    /**
+     * Beregn risikoscore for sortering av oppgaveliste:
+     *   +50  Tom saldo
+     *   +30  Under bestillingspunkt
+     *   +20  Artikelen er utgående
+     *   +20  Mangler erstatningsartikkel
+     *   +sales3m  Aktivt salgsvolum (forsterker viktigheten)
+     */
+    static calculateRiskScore(stock, bp, isDiscontinued, hasReplacement, sales3m) {
+        let score = 0;
+        if (stock === 0)                           score += 50;
+        if (bp !== null && bp > 0 && stock < bp)  score += 30;
+        if (isDiscontinued)                        score += 20;
+        if (!hasReplacement)                       score += 20;
+        score += (sales3m || 0);
+        return score;
+    }
+
+    /** Badge for P1–P4 prioritet (rød → oransje → gul → grå) */
+    static priorityP1Badge(priority) {
+        const cfg = {
+            P1: { bg: '#ffcdd2', color: '#c62828' },
+            P2: { bg: '#ffe0b2', color: '#e65100' },
+            P3: { bg: '#fff9c4', color: '#f57f17' },
+            P4: { bg: '#f5f5f5', color: '#757575' }
+        }[priority] || { bg: '#f5f5f5', color: '#757575' };
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:${cfg.bg};color:${cfg.color};">${priority || '-'}</span>`;
+    }
+
+    /** Dekning-badge med fargekoder: < 7 dager → rød, < 30 → gul, ≥ 30 → grønn */
+    static coverageBadge(days) {
+        if (days === null || days === undefined) return '<span style="color:#aaa;">–</span>';
+        if (days < 7)  return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">${days}d</span>`;
+        if (days < 30) return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">${days}d</span>`;
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;background:#c8e6c9;color:#2e7d32;">${days}d</span>`;
+    }
+
+    /**
+     * Topp 10 oppgaver etter riskScore – kompakt oppsummering øverst i Drift.
+     * Viser: Prioritet (P1-P4), Tools nr, Problem, Handling, Risikoscore
+     */
+    static renderTopTasks(tasks) {
+        if (!tasks || tasks.length === 0) return '';
+        const top10 = [...tasks].sort((a, b) => b.riskScore - a.riskScore).slice(0, 10);
+
+        const actionLabel = (t) => {
+            if (t.stock === 0 && t.sales3m > 0) return 'Bestill umiddelbart';
+            if (t.type === 'SA')                 return 'Flytt SA-nummer';
+            if (t.type === 'BP_LOW')             return 'Bestill umiddelbart – under BP';
+            if (t.type === 'TRANSITION')         return 'Definer erstatning';
+            return t.recommendedAction || '–';
+        };
+
+        return `
+            <div style="margin-bottom:20px;background:#fff;border:2px solid #d32f2f;border-radius:8px;overflow:hidden;">
+                <div style="background:#d32f2f;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                    <h3 style="margin:0;font-size:15px;font-weight:700;color:#fff;">Dagens viktigste oppgaver</h3>
+                    <span style="font-size:12px;color:#ffcdd2;">Topp ${top10.length} etter risikoscore</span>
+                </div>
+                <div class="table-wrapper" style="border:none;margin:0;overflow-x:auto;">
+                    <table class="data-table compact" style="font-size:12px;margin:0;">
+                        <thead>
+                            <tr>
+                                <th style="width:55px;">Prioritet</th>
+                                <th style="width:95px;">Tools nr</th>
+                                <th>Problem</th>
+                                <th>Handling</th>
+                                <th style="width:70px;text-align:right;">Risiko</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${top10.map(t => `
+                                <tr class="${t.priority === 'P1' ? 'row-critical' : t.priority === 'P2' ? 'row-warning' : ''}">
+                                    <td>${this.priorityP1Badge(t.priority)}</td>
+                                    <td style="font-weight:700;font-size:11px;">${this.esc(t.itemNo)}</td>
+                                    <td style="font-size:11px;">${this.esc(t.problemText)}</td>
+                                    <td style="font-size:11px;font-weight:600;">${this.esc(actionLabel(t))}</td>
+                                    <td style="text-align:right;font-weight:700;color:#c62828;">${t.riskScore}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
     }
 
     // ════════════════════════════════════════════════════
