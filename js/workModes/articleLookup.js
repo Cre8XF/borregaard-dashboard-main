@@ -256,19 +256,98 @@ class ArticleLookupMode {
 
         const fileDate = new Date().toISOString().slice(0, 10);
 
-        const rows = this._lastResults.map(r => ({
-            'Tools nr':       r.item.toolsArticleNumber || '',
-            'SA-nummer':      r.item.saNumber || '',
-            'Beskrivelse':    r.item.description || '',
-            'BP':             r.bp !== null ? r.bp : '',
-            'Ordrekvantitet': r.eok !== null ? r.eok : '',
-            'Lager':          r.stock,
-            'Innkommende':    r.item.bestAntLev || 0,
-            'Avvik':          r.avvik !== null ? r.avvik : '',
-            'Status':         r.status
-        }));
+        // ── Column definitions: header label + minimum width (chars) ──
+        const COLS = [
+            { header: 'Tools nr',       wch: 15 },
+            { header: 'SA-nummer',      wch: 15 },
+            { header: 'Beskrivelse',    wch: 40 },
+            { header: 'BP',             wch:  8 },
+            { header: 'Ordrekvantitet', wch: 16 },
+            { header: 'Lager',          wch:  8 },
+            { header: 'Innkommende',    wch: 14 },
+            { header: 'Avvik',          wch: 10 },
+            { header: 'Status',         wch: 14 }
+        ];
+        const COL_AVVIK  = 7;   // H (0-based)
+        const COL_STATUS = 8;   // I (0-based)
 
-        const ws = XLSX.utils.json_to_sheet(rows);
+        // ── Build rows as arrays (parallel to COLS) ──
+        const dataRows = this._lastResults.map(r => [
+            r.item.toolsArticleNumber || '',
+            r.item.saNumber           || '',
+            r.item.description        || '',
+            r.bp    !== null ? r.bp    : '',
+            r.eok   !== null ? r.eok   : '',
+            r.stock,
+            r.item.bestAntLev || 0,
+            r.avvik !== null  ? r.avvik : '',
+            r.status
+        ]);
+
+        // ── Auto-fit column widths based on max content ──
+        const colWidths = COLS.map((col, ci) => {
+            const maxData = dataRows.reduce((max, row) => {
+                const len = row[ci] !== '' && row[ci] != null ? String(row[ci]).length : 0;
+                return Math.max(max, len);
+            }, 0);
+            return { wch: Math.max(col.wch, col.header.length, maxData) + 2 };
+        });
+
+        // ── Create worksheet ──
+        const ws = XLSX.utils.aoa_to_sheet([COLS.map(c => c.header), ...dataRows]);
+        ws['!cols']       = colWidths;
+        ws['!freeze']     = { xSplit: 0, ySplit: 1 };
+        const tableRef    = `A1:I${dataRows.length + 1}`;
+        ws['!autofilter'] = { ref: tableRef };
+
+        // Register as named Excel table (SheetJS Pro 0.20+; silently skipped otherwise)
+        try { ws['!tables'] = [{ name: 'BP_Kontroll', ref: tableRef, headerRow: true }]; } catch (_) {}
+
+        // ── Style palette ──
+        const HDR = {
+            font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+            fill:      { fgColor: { rgb: '1F4E79' }, patternType: 'solid' },
+            alignment: { horizontal: 'center', vertical: 'center' }
+        };
+        const STATUS_STYLE = {
+            'Tom lager': { fill: { fgColor: { rgb: 'FECACA' }, patternType: 'solid' }, font: { bold: true, color: { rgb: '991B1B' } }, alignment: { horizontal: 'center' } },
+            'Under BP':  { fill: { fgColor: { rgb: 'FED7AA' }, patternType: 'solid' }, font: { bold: true, color: { rgb: '92400E' } }, alignment: { horizontal: 'center' } },
+            'OK':        { fill: { fgColor: { rgb: 'BBF7D0' }, patternType: 'solid' }, font: { bold: true, color: { rgb: '14532D' } }, alignment: { horizontal: 'center' } },
+            'Ingen BP':  { fill: { fgColor: { rgb: 'E5E7EB' }, patternType: 'solid' }, font: { color:  { rgb: '6B7280' } },            alignment: { horizontal: 'center' } }
+        };
+
+        // ── Apply header row styles ──
+        for (let c = 0; c < COLS.length; c++) {
+            const addr = XLSX.utils.encode_cell({ r: 0, c });
+            if (ws[addr]) ws[addr].s = HDR;
+        }
+
+        // ── Apply data row styles (status + avvik) ──
+        for (let r = 0; r < dataRows.length; r++) {
+            const ri     = r + 1;   // offset for header
+            const status = dataRows[r][COL_STATUS];
+            const avvik  = dataRows[r][COL_AVVIK];
+
+            // Status cell — color by category
+            const st = STATUS_STYLE[status];
+            if (st) {
+                const addr = XLSX.utils.encode_cell({ r: ri, c: COL_STATUS });
+                if (ws[addr]) ws[addr].s = st;
+            }
+
+            // Avvik cell — red/green font based on sign
+            if (avvik !== '' && avvik != null) {
+                const n = Number(avvik);
+                if (!isNaN(n) && n !== 0) {
+                    const addr = XLSX.utils.encode_cell({ r: ri, c: COL_AVVIK });
+                    if (ws[addr]) ws[addr].s = {
+                        font:      { bold: true, color: { rgb: n < 0 ? 'DC2626' : '16A34A' } },
+                        alignment: { horizontal: 'right' }
+                    };
+                }
+            }
+        }
+
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'BP Kontroll');
         XLSX.writeFile(wb, `bp_kontroll_${fileDate}.xlsx`);
