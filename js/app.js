@@ -619,6 +619,7 @@ class DashboardApp {
             case 'varetelling':
                 if (typeof VartellingMode !== 'undefined') {
                     contentDiv.innerHTML = VartellingMode.render(this.dataStore);
+                    VartellingMode.bindEvents();
                 }
                 break;
 
