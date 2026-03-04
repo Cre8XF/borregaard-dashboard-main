@@ -622,6 +622,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'articleLookup':
+                if (typeof ArticleLookupMode !== 'undefined') {
+                    contentDiv.innerHTML = ArticleLookupMode.render(this.dataStore);
+                }
+                break;
+
             default:
                 if (typeof WorkMode !== 'undefined') {
                     contentDiv.innerHTML = WorkMode.render(this.dataStore);
