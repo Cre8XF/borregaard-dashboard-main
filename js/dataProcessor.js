@@ -134,9 +134,13 @@ class DataProcessor {
             'Gyldig til', 'GyldigTil', 'Valid to', 'Til dato', 'Sluttdato',
             'Til', 'Slutt'
         ],
-        // data (4).xlsx: Artikelbeskrivning → item.description (initial value; Master overrides)
+        // SA-Nummer.xlsx: Beskrivelse → item.description (initial value; Master overrides)
         description: [
-            'Artikelbeskrivning', 'Artikelbeskrivelse', 'Description', 'Beskrivelse'
+            'Beskrivelse', 'Description', 'Artikelbeskrivelse', 'Varebeskrivelse', 'Namn'
+        ],
+        // SA-Nummer.xlsx: Artikelbeskrivning → item.location (warehouse shelf location)
+        location: [
+            'Artikelbeskrivning', 'Artikelbeskrivelse', 'Lokasjon', 'Location'
         ],
         // data (4).xlsx: Kundens artbeskr. → item.lagerplass
         lagerplass: [
@@ -478,7 +482,7 @@ class DataProcessor {
 
             // Location from SA file (Artikelbeskrivning = warehouse shelf location).
             // Acts as initial value — Master.xlsx / Master_Artikkelstatus.xlsx override if available.
-            const saLocation = this.getSAColumnValue(row, columns, 'description');
+            const saLocation = this.getSAColumnValue(row, columns, 'location');
             if (saLocation) {
                 item.location = saLocation.trim().toUpperCase();
             }
