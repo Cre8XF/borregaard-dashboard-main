@@ -103,22 +103,52 @@ class VartellingMode {
     // ════════════════════════════════════════════════════
 
     /**
-     * Filtrer artikler på lokasjonsintervall (string range, case-insensitive).
+     * Parse lokasjon-streng til strukturert objekt { zone, row, section }.
+     * Format: "11-10-A" → { zone: 11, row: 10, section: 'A' }
+     * Robusthet: håndterer manglende deler og ikke-numeriske prefiks.
+     */
+    static parseLocation(loc) {
+        if (!loc) return null;
+        const parts = loc.trim().toUpperCase().split('-');
+        return {
+            zone:    parseInt(parts[0], 10) || 0,
+            row:     parseInt(parts[1], 10) || 0,
+            section: parts[2] || ''
+        };
+    }
+
+    /**
+     * Sammenligner to parsede lokasjoner numerisk (sone → rad → seksjon).
+     * Returnerer negativt, 0 eller positivt (som Array.sort-komparator).
+     */
+    static compareLocations(a, b) {
+        if (a.zone !== b.zone) return a.zone - b.zone;
+        if (a.row  !== b.row)  return a.row  - b.row;
+        return a.section.localeCompare(b.section);
+    }
+
+    /**
+     * Filtrer artikler på lokasjonsintervall med strukturert sammenligning.
+     * Korrekt rekkefølge: 11-9-A < 11-10-A < 11-11-A (numerisk, ikke alfabetisk).
      * Returnerer alle artikler hvis begge felt er tomme.
      * Kun fra: returnerer alle lokasjoner >= fra.
      * Kun til: returnerer alle lokasjoner <= til.
      */
     static filterByLocationRange(items, from, to) {
-        const start = (from || '').trim().toUpperCase();
-        const end   = (to   || '').trim().toUpperCase();
+        const startStr = (from || '').trim();
+        const endStr   = (to   || '').trim();
 
-        if (!start && !end) return [...items];
+        if (!startStr && !endStr) return [...items];
+
+        const fromLoc = startStr ? this.parseLocation(startStr) : null;
+        const toLoc   = endStr   ? this.parseLocation(endStr)   : null;
 
         return items.filter(item => {
-            const location = (item.location || item.lagerplass || '').trim().toUpperCase();
-            if (!location) return false;
-            if (start && location < start) return false;
-            if (end   && location > end)   return false;
+            const raw = (item.location || item.lagerplass || '').trim();
+            if (!raw) return false;
+            const itemLoc = this.parseLocation(raw);
+            if (fromLoc && this.compareLocations(itemLoc, fromLoc) < 0) return false;
+            if (toLoc   && this.compareLocations(itemLoc, toLoc)   > 0) return false;
             return true;
         });
     }
@@ -157,11 +187,12 @@ class VartellingMode {
             return `<div class="alert alert-info">Ingen artikler funnet i lokasjonsintervallet «${range}».</div>`;
         }
 
-        // Sort: lokasjon ASC (localeCompare), deretter toolsNr ASC
+        // Sort: lokasjon ASC (strukturert numerisk), deretter toolsNr ASC
         const sorted = [...items].sort((a, b) => {
-            const locA = (a.location || a.lagerplass || '');
-            const locB = (b.location || b.lagerplass || '');
-            const cmp = locA.localeCompare(locB, 'nb-NO');
+            const cmp = this.compareLocations(
+                this.parseLocation(a.location || a.lagerplass || ''),
+                this.parseLocation(b.location || b.lagerplass || '')
+            );
             if (cmp !== 0) return cmp;
             return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
         });
@@ -250,11 +281,12 @@ class VartellingMode {
         const to       = this.locationTo   || 'slutt';
         const fileDate = new Date().toISOString().slice(0, 10);
 
-        // Sort: lokasjon ASC, deretter toolsNr ASC
+        // Sort: lokasjon ASC (strukturert numerisk), deretter toolsNr ASC
         const sorted = [...this._lastFiltered].sort((a, b) => {
-            const locA = (a.location || a.lagerplass || '');
-            const locB = (b.location || b.lagerplass || '');
-            const cmp = locA.localeCompare(locB, 'nb-NO');
+            const cmp = this.compareLocations(
+                this.parseLocation(a.location || a.lagerplass || ''),
+                this.parseLocation(b.location || b.lagerplass || '')
+            );
             if (cmp !== 0) return cmp;
             return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
         });
