@@ -230,6 +230,7 @@ class SAMigrationMode {
                 description: item.description || '',
                 bp: item.bestillingspunkt,          // BP from Analyse_Lagerplan
                 lagerplass: item.lagerplass || '',  // Hylleplassering fra SA-Nummer.xlsx
+                location: item.location || '',      // Lagerhylla (Artikelbeskrivning, location-like values only)
                 stock: item.stock || 0,
                 bestAntLev: item.bestAntLev || 0,
                 status: this.getStatusLabel(item),
@@ -612,6 +613,7 @@ class SAMigrationMode {
                             </th>
                             ${this.renderSortableHeader('Tools Nr', 'toolsNr')}
                             ${this.renderSortableHeader('SA', 'saNumber')}
+                            ${this.renderSortableHeader('Lokasjon', 'location', 'Lagerhylla (fra SA-Nummer.xlsx Artikelbeskrivning)')}
                             ${this.renderSortableHeader('BP', 'bp', 'Bestillingspunkt fra Analyse_Lagerplan')}
                             ${this.renderSortableHeader('Lagerplass', 'lagerplass', 'Lagerlokasjon')}
                             ${this.renderSortableHeader('Saldo', 'stock', 'Lagersaldo (TotLagSaldo)')}
@@ -670,6 +672,7 @@ class SAMigrationMode {
                 </td>
                 <td><strong>${this.escapeHtml(row.toolsNr)}</strong></td>
                 <td>${this.escapeHtml(row.saNumber)}</td>
+                <td style="white-space:nowrap;font-size:11px;">${this.escapeHtml(row.location) || '-'}</td>
                 <td class="qty-cell">${row.bp !== null && row.bp !== undefined ? this.formatNumber(row.bp) : '-'}</td>
                 <td>${this.escapeHtml(row.lagerplass) || '-'}</td>
                 <td class="qty-cell">${this.formatNumber(row.stock)}</td>
@@ -1116,6 +1119,8 @@ class SAMigrationMode {
                         <dd>${this.escapeHtml(row.toolsNr)}</dd>
                         <dt>SA-nummer</dt>
                         <dd>${this.escapeHtml(row.saNumber) || '<em style="color:#9e9e9e;">–</em>'}</dd>
+                        <dt>Lokasjon</dt>
+                        <dd>${this.escapeHtml(row.location) || '<em style="color:#9e9e9e;">–</em>'}</dd>
                         <dt>BP</dt>
                         <dd>${row.bp !== null && row.bp !== undefined ? this.formatNumber(row.bp) : '<em style="color:#9e9e9e;">–</em>'}</dd>
                         <dt>Lagerplass</dt>
@@ -1467,6 +1472,7 @@ class SAMigrationMode {
         const toExcelObj = r => ({
             'Tools Art.nr':          r.toolsNr,
             'SA-nummer':             r.saNumber,
+            'Lokasjon':              r.location || '',
             'Beskrivelse':           r.description,
             'Artikelstatus':         r.status,
             'VareStatus':            r.vareStatus,
@@ -1553,6 +1559,7 @@ class SAMigrationMode {
         const headers = [
             'Tools Nr',
             'SA-nummer',
+            'Lokasjon',
             'Beskrivelse',
             'BP',
             'Lagerplass',
@@ -1590,6 +1597,7 @@ class SAMigrationMode {
             const base = [
                 r.toolsNr,
                 r.saNumber,
+                `"${(r.location || '').replace(/"/g, '""')}"`,
                 `"${(r.description || '').replace(/"/g, '""')}"`,
                 r.bp !== null && r.bp !== undefined ? r.bp : '',
                 `"${(r.lagerplass || '').replace(/"/g, '""')}"`,

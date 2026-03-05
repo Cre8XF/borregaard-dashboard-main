@@ -481,10 +481,16 @@ class DataProcessor {
             item.lagerplass = lagerplass || null;
 
             // Location from SA file (Artikelbeskrivning = warehouse shelf location).
+            // Only stored when the value looks like a real shelf code; plain text
+            // descriptions are ignored to avoid false-positive overwrites.
             // Acts as initial value — Master.xlsx / Master_Artikkelstatus.xlsx override if available.
             const saLocation = this.getSAColumnValue(row, columns, 'location');
-            if (saLocation) {
-                item.location = saLocation.trim().toUpperCase();
+            if (saLocation && this._looksLikeLocation(saLocation)) {
+                const normalized = saLocation.trim()
+                    .toUpperCase()
+                    .replace(/\s+/g, '')
+                    .replace(/–/g, '-');
+                item.location = normalized;
             }
         });
 
@@ -496,6 +502,24 @@ class DataProcessor {
         if (skippedCount > 0) {
             console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
         }
+    }
+
+    /**
+     * Returns true when a string looks like a warehouse shelf code rather than
+     * a plain article description.  Used to guard the Artikelbeskrivning→location
+     * assignment in processSaData() so that free-text descriptions are ignored.
+     *
+     * Accepted patterns:
+     *   Numeric shelf : 11-10-A, 106-6-C, 12-1-C   (digits-digits-letter)
+     *   Named zone    : Ojebod-17, Ext-2, BOKS1      (letters + optional sep + digits)
+     */
+    static _looksLikeLocation(value) {
+        if (!value) return false;
+        const v = String(value).trim();
+        if (v.length === 0 || v.length > 20) return false;
+        const numericShelf = /^\d{1,3}-\d{1,3}-[A-ZÆØÅa-zæøå]{1,3}$/i;
+        const namedZone    = /^[A-ZÆØÅa-zæøå]{2,}[- ]?\d{1,3}$/i;
+        return numericShelf.test(v) || namedZone.test(v);
     }
 
     /**
