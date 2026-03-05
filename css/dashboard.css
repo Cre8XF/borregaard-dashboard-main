@@ -3426,3 +3426,142 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+/* ===================================
+   SEARCH / RESULT PANEL FIX
+   =================================== */
+
+/* Result container holder seg innen layout */
+.result-panel,
+.lookup-results,
+.search-results {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Tabell wrapper */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Resultat-tabell */
+.table-wrapper table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+/* Cell formatting */
+.table-wrapper th,
+.table-wrapper td {
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Lange tekster brytes pent */
+.table-wrapper td.description {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 300px;
+}
+
+/* Hover effekt */
+.table-wrapper tbody tr:hover {
+  background: #f7f9fb;
+}
+
+/* Sticky header */
+.table-wrapper thead th {
+  position: sticky;
+  top: 0;
+  background: var(--white);
+  z-index: 2;
+}
+
+/* Status farger */
+.status-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.status-warning {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.status-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+/* ===================================
+   LIGHT UI PATCH
+   =================================== */
+
+/* Paneler / kort */
+.panel,
+.card,
+.module-panel {
+  background: #ffffff;
+  border: 1px solid #e3e6ea;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+/* Tabell header */
+table thead th {
+  background: #f5f7fa;
+  color: #333;
+  font-weight: 600;
+}
+
+/* Tabell rader */
+table tbody tr {
+  background: #ffffff;
+}
+
+table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+table tbody tr:hover {
+  background: #eef4ff;
+}
+
+/* Input felt */
+input,
+textarea,
+select {
+  background: #ffffff;
+  border: 1px solid #d6dbe1;
+  color: #333;
+}
+
+input:focus,
+textarea:focus {
+  border-color: #4a90e2;
+  outline: none;
+}
+
+/* Knapper */
+button {
+  background: #f2f4f7;
+  border: 1px solid #d6dbe1;
+  color: #333;
+}
+
+button:hover {
+  background: #e8edf3;
+}
+
+/* Sammendragskort */
+.summary-card {
+  background: #ffffff;
+  border: 1px solid #e3e6ea;
+}
+
+/* Resultatpanel */
+.lookup-results,
+.search-results {
+  background: #ffffff;
+}
