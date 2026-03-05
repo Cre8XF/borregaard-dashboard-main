@@ -820,6 +820,7 @@ class DashboardApp {
                 item.max = itemData.max || 0;
                 item.status = itemData.status;
                 item.supplier = itemData.supplier;
+                item.supplierArticleNumber = itemData.supplierArticleNumber || '';
                 item.supplierId = itemData.supplierId || null;
                 item.brand = itemData.brand || null;
                 item.saType = itemData.saType || null;

@@ -42,6 +42,7 @@ class UnifiedItem {
         this.statusText = null;   // Readable status text
         this.isDiscontinued = false;
         this.supplier = '';
+        this.supplierArticleNumber = '';  // LevArtNr (from Master_Artikkelstatus.xlsx)
         this.supplierId = null;   // Supplier ID (from Ordrer_Jeeves.xlsx)
         this.brand = null;        // Brand (from Ordrer_Jeeves.xlsx)
         this.category = null;
@@ -348,6 +349,7 @@ class UnifiedItem {
             statusText: this.statusText,
             isDiscontinued: this.isDiscontinued,
             supplier: this.supplier,
+            supplierArticleNumber: this.supplierArticleNumber || '',
             supplierId: this.supplierId,
             brand: this.brand,
             category: this.category,
