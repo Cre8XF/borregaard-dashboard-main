@@ -912,6 +912,13 @@ class DataProcessor {
         const lagerhyllaCol = columns[colLower.indexOf('lagerhylla')] || null;
         const articleCol    = columns[colLower.indexOf('artikelnr')]  || null;
 
+        // LevArtNr — supplier article number (several common spellings)
+        const levArtIdx = colLower.findIndex(c =>
+            c === 'levArtnr'.toLowerCase() || c === 'lev.artnr' ||
+            c === 'lev art nr' || c === 'lev artnr' || c === 'levart.nr'
+        );
+        const levArtNrCol = levArtIdx !== -1 ? columns[levArtIdx] : null;
+
         if (!lagerhyllaCol) {
             console.warn('[FASE 6.1] Master_Artikkelstatus.xlsx: kolonne "Lagerhylla" ikke funnet — lokasjon oppdateres ikke');
             console.warn(`  Tilgjengelige kolonner: ${columns.join(', ')}`);
@@ -924,6 +931,7 @@ class DataProcessor {
 
         let matched = 0;
         let withLocation = 0;
+        let withLevArtNr = 0;
 
         data.forEach(row => {
             const artNr = row[articleCol];
@@ -934,19 +942,33 @@ class DataProcessor {
 
             matched++;
 
-            const rawVal = row[lagerhyllaCol];
-            if (rawVal !== undefined && rawVal !== null) {
-                const val = rawVal.toString().trim();
+            // ── Lagerhylla → item.location ──
+            const rawLoc = row[lagerhyllaCol];
+            if (rawLoc !== undefined && rawLoc !== null) {
+                const val = rawLoc.toString().trim();
                 if (val) {
                     item.location = val;   // Override — same property, no new field
                     withLocation++;
                 }
             }
+
+            // ── LevArtNr → item.supplierArticleNumber ──
+            if (levArtNrCol) {
+                const rawLev = row[levArtNrCol];
+                if (rawLev !== undefined && rawLev !== null) {
+                    const val = rawLev.toString().trim();
+                    if (val) {
+                        item.supplierArticleNumber = val;
+                        withLevArtNr++;
+                    }
+                }
+            }
         });
 
-        console.log(`[FASE 6.1] Master_Artikkelstatus.xlsx (Lagerhylla) prosessert:`);
+        console.log(`[FASE 6.1] Master_Artikkelstatus.xlsx prosessert:`);
         console.log(`  Matchet SA-artikler: ${matched}`);
         console.log(`  Oppdatert item.location (Lagerhylla): ${withLocation}`);
+        console.log(`  Oppdatert item.supplierArticleNumber (LevArtNr): ${withLevArtNr}`);
     }
 
     // ════════════════════════════════════════════════════

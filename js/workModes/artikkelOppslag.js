@@ -10,6 +10,7 @@ class ArtikkelOppslagMode {
     static _searchTerm   = '';
     static _activeFilter = 'alle';   // 'alle' | 'med-lager' | 'utgaende' | 'uten-lokasjon'
     static _lastResults  = [];
+    static _searchMode   = 'fuzzy'; // 'exact' | 'location' | 'fuzzy'
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -139,23 +140,50 @@ class ArtikkelOppslagMode {
     static _runSearch() {
         if (!this._store || !this._allItems) { this._lastResults = []; return; }
 
-        const term = this._searchTerm;
-        let candidates;
+        const term      = this._searchTerm.trim();
+        const termUpper = term.toUpperCase();
+        let candidates  = [];
 
-        if (this._fuse && term.length >= 2) {
-            candidates = this._fuse.search(term).map(r => r.item);
-        } else {
-            // Simple substring fallback
-            const t = term.toLowerCase();
+        // ── STEP 1: Exact match on article identifier fields (case-insensitive) ──
+        // Returns immediately if any of the unique ID fields match exactly.
+        candidates = this._allItems.filter(item =>
+            (item.toolsArticleNumber    || '').toUpperCase() === termUpper ||
+            (item.saNumber              || '').toUpperCase() === termUpper ||
+            (item.supplierArticleNumber || '').toUpperCase() === termUpper
+        );
+        if (candidates.length > 0) {
+            this._searchMode = 'exact';
+        }
+
+        // ── STEP 2: Exact location match ──
+        // If no identifier hit, return all items at that exact location.
+        if (candidates.length === 0) {
             candidates = this._allItems.filter(item =>
-                (item.toolsArticleNumber   || '').toLowerCase().includes(t) ||
-                (item.saNumber             || '').toLowerCase().includes(t) ||
-                (item.location             || '').toLowerCase().includes(t) ||
-                (item.supplier             || '').toLowerCase().includes(t) ||
-                (item.supplierId           || '').toLowerCase().includes(t) ||
-                (item.supplierArticleNumber|| '').toLowerCase().includes(t) ||
-                (item.description          || '').toLowerCase().includes(t)
+                (item.location || '').toUpperCase() === termUpper
             );
+            if (candidates.length > 0) {
+                this._searchMode = 'location';
+            }
+        }
+
+        // ── STEP 3: Fuzzy search — only when steps 1 and 2 both returned nothing ──
+        if (candidates.length === 0) {
+            this._searchMode = 'fuzzy';
+            if (this._fuse && term.length >= 2) {
+                candidates = this._fuse.search(term).map(r => r.item);
+            } else {
+                // Simple substring fallback (no Fuse.js)
+                const t = term.toLowerCase();
+                candidates = this._allItems.filter(item =>
+                    (item.toolsArticleNumber    || '').toLowerCase().includes(t) ||
+                    (item.saNumber              || '').toLowerCase().includes(t) ||
+                    (item.location              || '').toLowerCase().includes(t) ||
+                    (item.supplier              || '').toLowerCase().includes(t) ||
+                    (item.supplierId            || '').toLowerCase().includes(t) ||
+                    (item.supplierArticleNumber || '').toLowerCase().includes(t) ||
+                    (item.description           || '').toLowerCase().includes(t)
+                );
+            }
         }
 
         candidates = this._applyFilter(candidates);
@@ -220,9 +248,26 @@ class ArtikkelOppslagMode {
     // ════════════════════════════════════════════════════
 
     static _renderTable(results) {
-        const MAX       = 50;
-        const truncated = results.length > MAX;
-        const shown     = results.slice(0, MAX);
+        const MAX = 50;
+        // Only cap fuzzy results — exact and location searches show all matching rows
+        const truncated = this._searchMode === 'fuzzy' && results.length > MAX;
+        const shown     = truncated ? results.slice(0, MAX) : results;
+
+        // Mode badge shown alongside the result count
+        let modeBadge;
+        if (this._searchMode === 'exact') {
+            modeBadge = `<span style="font-size:11px;background:#d1fae5;color:#065f46;
+                                      padding:2px 8px;border-radius:4px;font-weight:600;
+                                      margin-left:8px;">✓ Eksakt treff</span>`;
+        } else if (this._searchMode === 'location') {
+            modeBadge = `<span style="font-size:11px;background:#dbeafe;color:#1e40af;
+                                      padding:2px 8px;border-radius:4px;font-weight:600;
+                                      margin-left:8px;">📍 Lokasjon</span>`;
+        } else {
+            modeBadge = `<span style="font-size:11px;background:#f3f4f6;color:#6b7280;
+                                      padding:2px 8px;border-radius:4px;
+                                      margin-left:8px;">≈ Fuzzy søk</span>`;
+        }
 
         const truncMsg = truncated
             ? `<div class="alert alert-info" style="margin-top:8px;font-size:13px;">
@@ -285,7 +330,10 @@ class ArtikkelOppslagMode {
                 </table>
             </div>
             <div class="table-footer">
-                <p class="text-muted">Viser ${shown.length} av ${results.length} treff</p>
+                <p class="text-muted" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+                    Viser ${shown.length} av ${results.length} treff
+                    ${modeBadge}
+                </p>
             </div>
             ${truncMsg}
         `;
