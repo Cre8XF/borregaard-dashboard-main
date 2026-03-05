@@ -3617,3 +3617,46 @@ button:hover {
 #artikkelOppslagModal button:hover {
     background: #2980b9;
 }
+/* ===== STØRRE ARTIKKEL OPPSLAG MODAL ===== */
+
+#artikkelOppslagModal .modal {
+    width: 900px !important;
+    max-width: 90vw !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+/* Layout med 2 kolonner */
+
+#artikkelOppslagModal .modal-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+/* Info kort */
+
+#artikkelOppslagModal .modal-body > div {
+    background: #f4f6f8;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+/* Full bredde elementer */
+
+#artikkelOppslagModal .modal-body hr {
+    grid-column: 1 / -1;
+}
+
+/* Tittel kort */
+
+#artikkelOppslagModal .modal-header {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Knapper nederst */
+
+#artikkelOppslagModal .modal-body .copy-buttons {
+    grid-column: 1 / -1;
+}
