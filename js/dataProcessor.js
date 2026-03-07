@@ -178,6 +178,36 @@ class DataProcessor {
         vareStatus:    ['VareStatus', 'VarStatus', 'Status']
     };
 
+    // ── Column variants for Borregaard_SA_Master_v2.xlsx (FASE 7.0) ──
+    static MASTERV2_COLUMN_VARIANTS = {
+        saNumber:      ['SA_Nummer', 'SA-Nummer', 'SA Nummer'],
+        toolsArtNr:    ['Tools_ArtNr', 'Tools ArtNr', 'Tools art.nr', 'Artikelnr'],
+        description:   ['Beskrivelse', 'Artikelbeskrivning', 'Beskrivning'],
+        stock:         ['Lagersaldo', 'TotLagSaldo', 'Saldo'],
+        availableStock:['DispLagSaldo', 'Disponibelt', 'Disp.'],
+        bp:            ['BP', 'Bestillingspunkt'],
+        maxStock:      ['Maxlager', 'Max', 'Maxbeholdning'],
+        reserved:      ['ReservAnt', 'Reservert'],
+        bestAntLev:    ['BestAntLev', 'Bestilt ant.', 'Innkommende'],
+        r12Sales:      ['R12 Del Qty', 'R12', 'R12 salg'],
+        articleStatus: ['Artikelstatus', 'Status'],
+        supplier:      ['Supplier Name', 'Leverandør', 'Leverantör'],
+        location:      ['Lagerhylla', 'Hylla', 'Hylleplass'],
+        vareStatus:    ['VareStatus', 'Varestatus'],
+        replacedBy:    ['ErsattsAvArtNr', 'Ersatts av', 'Erstatning'],
+        lagerfort:     ['LAGERFØRT', 'Lagerfort', 'Lagerført'],
+        varemerke:     ['VAREMERKE', 'Varemerke', 'Brand'],
+        pakkeStorrelse:['PakkeStørrelse', 'Pakke', 'PakkeStr'],
+        enhet:         ['Enhet / Ant Des', 'Enhet', 'Unit'],
+        category:      ['Item category 1', 'Kategori 1', 'Kategori'],
+        category2:     ['Item category 2', 'Kategori 2'],
+        category3:     ['Item category 3', 'Kategori 3'],
+        salesTotAntall:['Ordre_TotAntall', 'TotAntall', 'Salg antall'],
+        salesTotVerdi: ['Ordre_TotVerdi', 'TotVerdi', 'Salg verdi'],
+        saleSisteDato: ['Ordre_SisteDato', 'SisteDato', 'Sist solgt'],
+        agreementPrice:['Dagens_Pris', 'Pris', 'Avtalepris']
+    };
+
     // ── Column variants for Analyse_Lagerplan.xlsx ──
     static LAGERPLAN_COLUMN_VARIANTS = {
         articleNumber: [
@@ -218,6 +248,29 @@ class DataProcessor {
         console.log('========================================');
 
         try {
+            // ── FASE 7.0: masterV2 — én fil erstatter hele FASE 6.1-pipeline ──
+            if (files.masterV2) {
+                console.log('========================================');
+                console.log('[FASE 7.0] Masterfil v2 (SA-Oversikt) oppdaget');
+                console.log('[FASE 7.0] Én fil erstatter SA + Master + Ordrer + Lagerplan');
+                console.log('========================================');
+
+                statusCallback('Laster masterfil v2 (SA-Oversikt)...');
+                const masterV2Raw = await this.loadMasterV2File(files.masterV2);
+                this.processMasterV2File(masterV2Raw, store);
+                store.calculateAll();
+
+                const quality = store.getDataQualityReport();
+                console.log('========================================');
+                console.log('[FASE 7.0] Masterfil v2 prosessering fullført');
+                console.log(`  SA-artikler: ${quality.totalArticles}`);
+                console.log(`  Med innkommende: ${quality.withIncoming}`);
+                console.log(`  Med salgshistorikk: ${quality.withOutgoing}`);
+                console.log('========================================');
+
+                return store;
+            }
+
             // ── FASE 6.1: Validering ──
             console.log('========================================');
             console.log('FASE 6.1: Datavalidering starter');
@@ -1360,6 +1413,265 @@ class DataProcessor {
         }
 
         return null;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  MASTERFIL V2 (FASE 7.0) — Borregaard_SA_Master_v2.xlsx
+    //  Én fil erstatter SA + Master + Ordrer + Lagerplan
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Last Borregaard_SA_Master_v2.xlsx og returner rader fra arket "SA-Oversikt".
+     * Kaster feil med tydelig melding hvis arket ikke finnes.
+     *
+     * @param {File} file
+     * @returns {Promise<Array>} Radene fra SA-Oversikt-arket
+     */
+    static async loadMasterV2File(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array', cellDates: true });
+
+                    // Finn arket "SA-Oversikt" (bruk første ark som fallback)
+                    const sheetName = wb.SheetNames.includes('SA-Oversikt')
+                        ? 'SA-Oversikt'
+                        : wb.SheetNames[0];
+
+                    if (!wb.SheetNames.includes('SA-Oversikt')) {
+                        console.warn(`[FASE 7.0] Arket 'SA-Oversikt' ikke funnet. Bruker første ark: "${sheetName}"`);
+                        console.warn(`  Tilgjengelige ark: ${wb.SheetNames.join(', ')}`);
+                    }
+
+                    const ws = wb.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                    console.log(`[FASE 7.0] Lastet ark "${sheetName}": ${rows.length} rader`);
+                    if (rows.length > 0) {
+                        console.log(`[FASE 7.0] Kolonner: ${Object.keys(rows[0]).join(', ')}`);
+                    }
+
+                    resolve(rows);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error('Feil ved lesing av masterfil v2'));
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    /**
+     * Hent verdi fra en rad i masterfil v2 med fleksibel kolonnematching
+     */
+    static getMasterV2Value(row, fieldName) {
+        const variants = this.MASTERV2_COLUMN_VARIANTS[fieldName] || [fieldName];
+        const keys = Object.keys(row);
+
+        for (const variant of variants) {
+            // Eksakt match
+            if (row[variant] !== undefined && row[variant] !== null && row[variant] !== '') {
+                return row[variant];
+            }
+            // Case-insensitiv match
+            const lowerVariant = variant.toLowerCase().trim();
+            for (const key of keys) {
+                if (key.toLowerCase().trim() === lowerVariant) {
+                    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key];
+                    }
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Prosesser rader fra Borregaard_SA_Master_v2.xlsx (arket "SA-Oversikt").
+     *
+     * Én fil erstatter hele FASE 6.1-pipelinen:
+     *   - Oppretter SA-items (tilsvarende processSAData)
+     *   - Beriker med lagerstatus (tilsvarende processMasterData)
+     *   - Beriker med salgsdata (tilsvarende processOrdersOutData)
+     *   - Setter BP/planleggingsparametre (tilsvarende processLagerplanData)
+     *
+     * @param {Array} rows - Rader fra SA-Oversikt-arket
+     * @param {UnifiedDataStore} store - Tom datastore
+     */
+    static processMasterV2File(rows, store) {
+        if (!rows || rows.length === 0) {
+            throw new Error('Masterfil v2 er tom — ingen artikler kan opprettes.');
+        }
+
+        // Valider at SA_Nummer-kolonnen finnes
+        const firstRow = rows[0];
+        const saNummerFound = this.MASTERV2_COLUMN_VARIANTS.saNumber.some(variant => {
+            const lv = variant.toLowerCase().trim();
+            return Object.keys(firstRow).some(k => k.toLowerCase().trim() === lv);
+        });
+
+        if (!saNummerFound) {
+            throw new Error(
+                "Kolonnen 'SA_Nummer' ikke funnet. Kontroller at filen er generert av riktig eksportskript.\n" +
+                `Tilgjengelige kolonner: ${Object.keys(firstRow).join(', ')}`
+            );
+        }
+
+        let createdCount = 0;
+        let enrichedCount = 0;
+        let skippedCount = 0;
+
+        rows.forEach(row => {
+            const saNumberRaw = this.getMasterV2Value(row, 'saNumber');
+            if (!saNumberRaw) {
+                skippedCount++;
+                return;
+            }
+            const saNumber = saNumberRaw.toString().trim();
+            if (!saNumber) {
+                skippedCount++;
+                return;
+            }
+
+            const toolsArtNr = this.getMasterV2Value(row, 'toolsArtNr').toString().trim();
+
+            // 1. Opprett item (tilsvarende processSAData)
+            const existedBefore = store.items.has(saNumber);
+            const item = store.createFromSA(saNumber, toolsArtNr);
+            if (!item) {
+                skippedCount++;
+                return;
+            }
+            if (!existedBefore) createdCount++;
+
+            // 2. Beskrivelsesfelt
+            const desc = this.getMasterV2Value(row, 'description').toString().trim();
+            if (desc) item.description = desc;
+
+            // 3. Lagerstatus (tilsvarende setMasterData)
+            const stockRaw = this.getMasterV2Value(row, 'stock');
+            item.stock = this.parseNumber(stockRaw);
+
+            const availRaw = this.getMasterV2Value(row, 'availableStock');
+            item.available = this.parseNumber(availRaw);
+
+            const bpRaw = this.getMasterV2Value(row, 'bp');
+            const bpVal = this.parseNumber(bpRaw);
+            if (bpVal > 0) item.bestillingspunkt = bpVal;
+
+            const maxRaw = this.getMasterV2Value(row, 'maxStock');
+            const maxVal = this.parseNumber(maxRaw);
+            if (maxVal > 0) item.max = maxVal;
+
+            const reservedRaw = this.getMasterV2Value(row, 'reserved');
+            item.reserved = this.parseNumber(reservedRaw);
+
+            const bestAntLevRaw = this.getMasterV2Value(row, 'bestAntLev');
+            const bestAntLev = this.parseNumber(bestAntLevRaw);
+            if (bestAntLev > 0) {
+                item.bestAntLev = bestAntLev;
+                item.hasIncomingOrders = true;
+            }
+
+            // 4. R12 Del Qty — historisk salg (nytt felt)
+            const r12Raw = this.getMasterV2Value(row, 'r12Sales');
+            item.r12Sales = this.parseNumber(r12Raw);
+
+            // 5. Artikelstatus / livssyklus
+            const statusRaw = this.getMasterV2Value(row, 'articleStatus').toString().trim();
+            if (statusRaw) {
+                item.status = statusRaw;
+                item._status = normalizeItemStatus(statusRaw);
+                item.isDiscontinued = item._status === 'UTGAENDE' || item._status === 'UTGAATT';
+            }
+
+            // 6. Leverandør
+            const supplierRaw = this.getMasterV2Value(row, 'supplier').toString().trim();
+            if (supplierRaw) item.supplier = supplierRaw;
+
+            // 7. Lokasjon / Lagerhylla
+            const locationRaw = this.getMasterV2Value(row, 'location').toString().trim();
+            if (locationRaw) item.location = locationRaw;
+
+            // 8. VareStatus og erstatning (replacement-enrichment)
+            const vareStatusRaw = this.getMasterV2Value(row, 'vareStatus').toString().trim();
+            if (vareStatusRaw) item.vareStatus = vareStatusRaw;
+
+            const replacedByRaw = this.getMasterV2Value(row, 'replacedBy').toString().trim();
+            if (replacedByRaw && replacedByRaw !== toolsArtNr) {
+                item.replacedByArticle = replacedByRaw;
+            }
+
+            // 9. Nye felt fra masterfil v2
+            const lagerfortRaw = this.getMasterV2Value(row, 'lagerfort').toString().trim();
+            if (lagerfortRaw) item.lagerfort = lagerfortRaw;
+
+            const varemerkeRaw = this.getMasterV2Value(row, 'varemerke').toString().trim();
+            if (varemerkeRaw) item.varemerke = varemerkeRaw;
+
+            const pakkeRaw = this.getMasterV2Value(row, 'pakkeStorrelse');
+            if (pakkeRaw !== '' && pakkeRaw !== null && pakkeRaw !== undefined) {
+                const pakkeVal = this.parseNumber(pakkeRaw);
+                if (pakkeVal > 0) item.pakkeStorrelse = pakkeVal;
+            }
+
+            const enhetRaw = this.getMasterV2Value(row, 'enhet').toString().trim();
+            if (enhetRaw) item.enhet = enhetRaw;
+
+            // 10. Kategorier
+            const cat1Raw = this.getMasterV2Value(row, 'category').toString().trim();
+            if (cat1Raw) item.category = cat1Raw;
+
+            const cat2Raw = this.getMasterV2Value(row, 'category2').toString().trim();
+            if (cat2Raw) item.category2 = cat2Raw;
+
+            const cat3Raw = this.getMasterV2Value(row, 'category3').toString().trim();
+            if (cat3Raw) item.category3 = cat3Raw;
+
+            // 11. Salgsdata (tilsvarende processOrdersOutData)
+            const salesTotAntallRaw = this.getMasterV2Value(row, 'salesTotAntall');
+            const salesTotAntall = this.parseNumber(salesTotAntallRaw);
+            if (salesTotAntall > 0) {
+                item.sales12m = salesTotAntall;
+                item.orderCount = salesTotAntall; // proxy — antall ordre ikke separat
+                item.hasOutgoingOrders = true;
+            }
+
+            const saleSisteDatoRaw = this.getMasterV2Value(row, 'saleSisteDato');
+            if (saleSisteDatoRaw) {
+                const parsedDate = this.parseDate(saleSisteDatoRaw);
+                if (parsedDate) item.lastSaleDate = parsedDate;
+            }
+
+            // 12. Avtalepris (agreement-enrichment)
+            const agreementPriceRaw = this.getMasterV2Value(row, 'agreementPrice');
+            if (agreementPriceRaw !== '' && agreementPriceRaw !== null) {
+                const priceVal = this.parseNumber(agreementPriceRaw);
+                if (priceVal > 0) {
+                    item.agreementPrice = priceVal;
+                    item.inAgreement = true;
+                }
+            }
+
+            enrichedCount++;
+        });
+
+        if (createdCount === 0 && enrichedCount === 0) {
+            throw new Error(
+                `Masterfil v2: 0 artikler opprettet.\n` +
+                `Rader lest: ${rows.length}\n` +
+                `Kolonner funnet: ${Object.keys(rows[0] || {}).join(', ')}`
+            );
+        }
+
+        console.log(`[FASE 7.0] Masterfil v2 prosessert:`);
+        console.log(`  Nye SA-artikler opprettet: ${createdCount}`);
+        console.log(`  Rader beriket: ${enrichedCount}`);
+        if (skippedCount > 0) {
+            console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
+        }
     }
 }
 

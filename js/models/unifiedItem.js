@@ -95,6 +95,15 @@ class UnifiedItem {
         this.alternativeArticlesRaw = '';    // Alternativ(er) fra data(4).xlsx (råstreng)
         this.vareStatus = '';                // VareStatus: Sellable / Planned Discontinued / Discontinued
 
+        // ── Masterfil v2 — nye felt (FASE 7.0) ──
+        this.r12Sales = 0;           // R12 Del Qty — historisk salg siste 12 mnd fra Butler
+        this.lagerfort = '';         // LAGERFØRT: 'Vestby' | 'Ørebro' | 'Begge' | 'NEI'
+        this.varemerke = '';         // VAREMERKE — produsentmerke
+        this.pakkeStorrelse = null;  // PakkeStørrelse — antall per pakning
+        this.enhet = '';             // Enhet / Ant Des — ST, M, PKT osv.
+        this.category2 = '';         // Item category 2
+        this.category3 = '';         // Item category 3
+
         // ── Metadata ──
         this.hasIncomingOrders = false;
         this.hasOutgoingOrders = false;
@@ -377,6 +386,14 @@ class UnifiedItem {
             replacedByArticle: this.replacedByArticle || '',
             alternativeArticlesRaw: this.alternativeArticlesRaw || '',
             vareStatus: this.vareStatus || '',
+            // Masterfil v2 — nye felt (FASE 7.0)
+            r12Sales: this.r12Sales || 0,
+            lagerfort: this.lagerfort || '',
+            varemerke: this.varemerke || '',
+            pakkeStorrelse: this.pakkeStorrelse,
+            enhet: this.enhet || '',
+            category2: this.category2 || '',
+            category3: this.category3 || '',
             incomingOrderCount: this.incomingOrders.length,
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             issues: this.getIssues()
