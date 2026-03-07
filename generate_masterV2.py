@@ -145,6 +145,7 @@ def main():
         'Dagens_Pris',      # Avtalepris (Butler-eksport — tom her)
         'Kalkylpris_bas',   # Kalkylpris bas fra Master (FASE 7.1)
         'EOK',              # Ordrekvantitet fra Lagerplan (FASE 7.1)
+        'Lokasjon_SA',      # Hyllelokasjon fra SA-Nummer.xlsx (Artikelbeskrivning indeks 6)
     ]
 
     # ── Generer output-rader ──
@@ -198,6 +199,7 @@ def main():
             'Dagens_Pris':      '',
             'Kalkylpris_bas':   kalkylpris,   # FASE 7.1
             'EOK':              val(l, 'EOK'), # FASE 7.1
+            'Lokasjon_SA':      val(sa_row, 'Artikelbeskrivning_2'),  # Hyllelokasjon (indeks 6)
         })
         matched += 1
 
@@ -226,6 +228,7 @@ def main():
     print(f'  Rader:   {len(output_rows)} artikler')
     print(f'  Kolonner: {len(output_columns)}')
     print(f'  Inkludert (FASE 7.1): Kalkylpris_bas, EOK')
+    print(f'  Inkludert: Lokasjon_SA (hyllelokasjon fra SA-Nummer.xlsx)')
 
 
 if __name__ == '__main__':
