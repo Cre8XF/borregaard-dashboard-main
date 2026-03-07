@@ -199,7 +199,7 @@ def main():
             'Dagens_Pris':      '',
             'Kalkylpris_bas':   kalkylpris,   # FASE 7.1
             'EOK':              val(l, 'EOK'), # FASE 7.1
-            'Lokasjon_SA':      val(sa_row, 'Artikelbeskrivning_2'),  # Hyllelokasjon (indeks 6)
+            'Lokasjon_SA':      val(sa_row, 'Artikelbeskrivning'),    # Hyllelokasjon (indeks 6)
         })
         matched += 1
 
