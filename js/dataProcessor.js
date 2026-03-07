@@ -205,7 +205,9 @@ class DataProcessor {
         salesTotAntall:['Ordre_TotAntall', 'TotAntall', 'Salg antall'],
         salesTotVerdi: ['Ordre_TotVerdi', 'TotVerdi', 'Salg verdi'],
         saleSisteDato: ['Ordre_SisteDato', 'SisteDato', 'Sist solgt'],
-        agreementPrice:['Dagens_Pris', 'Pris', 'Avtalepris']
+        agreementPrice:['Dagens_Pris', 'Pris', 'Avtalepris'],
+        kalkylPris:    ['Kalkylpris_bas', 'Kalkylpris bas', 'Kalkylpris'],    // FASE 7.1
+        ordrekvantitet:['EOK', 'Ordrekvantitet']                              // FASE 7.1
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -1655,6 +1657,21 @@ class DataProcessor {
                 }
             }
 
+            // 13. Kalkylpris (FASE 7.1 — fra Kalkylpris_bas-kolonnen i MV2)
+            // estimertVerdi beregnes automatisk av UnifiedItem.calculate() via kalkylPris × stock
+            const kalkylPrisRaw = this.getMasterV2Value(row, 'kalkylPris');
+            if (kalkylPrisRaw !== '' && kalkylPrisRaw !== null) {
+                const kpVal = this.parseNumber(kalkylPrisRaw);
+                if (kpVal > 0) item.kalkylPris = kpVal;
+            }
+
+            // 14. EOK / ordrekvantitet (FASE 7.1 — fra EOK-kolonnen i MV2)
+            const eokRaw = this.getMasterV2Value(row, 'ordrekvantitet');
+            if (eokRaw !== '' && eokRaw !== null) {
+                const eokVal = this.parseNumber(eokRaw);
+                if (eokVal > 0) item.ordrekvantitet = eokVal;
+            }
+
             enrichedCount++;
         });
 
@@ -1666,9 +1683,11 @@ class DataProcessor {
             );
         }
 
-        console.log(`[FASE 7.0] Masterfil v2 prosessert:`);
+        console.log(`[FASE 7.1] Masterfil v2 prosessert:`);
         console.log(`  Nye SA-artikler opprettet: ${createdCount}`);
         console.log(`  Rader beriket: ${enrichedCount}`);
+        console.log(`  Med kalkylPris: ${store.getAllItems().filter(i => i.kalkylPris > 0).length}`);
+        console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
         if (skippedCount > 0) {
             console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
         }
