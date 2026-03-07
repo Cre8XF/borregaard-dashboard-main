@@ -192,7 +192,7 @@ class DataProcessor {
         r12Sales:      ['R12 Del Qty', 'R12', 'R12 salg'],
         articleStatus: ['Artikelstatus', 'Status'],
         supplier:      ['Supplier Name', 'Leverandør', 'Leverantör'],
-        location:      ['Lagerhylla', 'Hylla', 'Hylleplass'],
+        location:      ['Lokasjon_SA', 'Lagerhylla', 'Lokasjon', 'Location'],
         vareStatus:    ['VareStatus', 'Varestatus'],
         replacedBy:    ['ErsattsAvArtNr', 'Ersatts av', 'Erstatning'],
         lagerfort:     ['LAGERFØRT', 'Lagerfort', 'Lagerført'],
