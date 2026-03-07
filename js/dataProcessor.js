@@ -250,16 +250,34 @@ class DataProcessor {
         console.log('========================================');
 
         try {
-            // ── FASE 7.0: masterV2 — én fil erstatter hele FASE 6.1-pipeline ──
+            // ── FASE 7.0: masterV2 — én fil erstatter SA + Master + Lagerplan ──
+            // Ordrer_Jeeves.xlsx forblir alltid en separat fil og prosesseres her.
             if (files.masterV2) {
                 console.log('========================================');
                 console.log('[FASE 7.0] Masterfil v2 (SA-Oversikt) oppdaget');
-                console.log('[FASE 7.0] Én fil erstatter SA + Master + Ordrer + Lagerplan');
+                console.log('[FASE 7.0] Fil erstatter SA + Master + Lagerplan');
+                console.log('[FASE 7.0] Ordrer_Jeeves prosesseres separat hvis tilgjengelig');
                 console.log('========================================');
 
                 statusCallback('Laster masterfil v2 (SA-Oversikt)...');
                 const masterV2Raw = await this.loadMasterV2File(files.masterV2);
                 this.processMasterV2File(masterV2Raw, store);
+
+                // ── Ordrer_Jeeves.xlsx (OPTIONAL i MV2-sti, men nødvendig for Rapporter) ──
+                // processOrdersOutData() beriker items med outgoingOrders[].deliveryLocation,
+                // som ReportsMode.collectDepartments() trenger for avdelingsrapporter.
+                if (files.ordersOut) {
+                    statusCallback('Laster Ordrer_Jeeves.xlsx (avdelingsdata)...');
+                    const ordersOutData = await this.loadFile(files.ordersOut);
+                    console.log(`[FASE 7.0] Ordrer_Jeeves.xlsx lastet:`);
+                    console.log(`  Filnavn: ${files.ordersOut.name}`);
+                    console.log(`  Kolonner (${ordersOutData.columns.length}): ${ordersOutData.columns.join(', ')}`);
+                    console.log(`  Rader: ${ordersOutData.rowCount}`);
+                    this.processOrdersOutData(ordersOutData.data, store);
+                } else {
+                    console.log('[FASE 7.0] Ordrer_Jeeves.xlsx: ikke lastet (Rapporter vil mangle avdelingsdata)');
+                }
+
                 store.calculateAll();
 
                 const quality = store.getDataQualityReport();
@@ -268,6 +286,7 @@ class DataProcessor {
                 console.log(`  SA-artikler: ${quality.totalArticles}`);
                 console.log(`  Med innkommende: ${quality.withIncoming}`);
                 console.log(`  Med salgshistorikk: ${quality.withOutgoing}`);
+                console.log(`  Ordrelinjer uten SA (ignorert): ${store.ordersUnmatchedCount}`);
                 console.log('========================================');
 
                 return store;
@@ -897,7 +916,16 @@ class DataProcessor {
         // Record unmatched count for diagnostics
         store.ordersUnmatchedCount = unmatchedCount;
 
-        console.log(`[FASE 6.1] Ordrer_Jeeves.xlsx: ${joinedCount} salgslinjer koblet til SA-artikler`);
+        // Tell unike deliveryLocation-verdier (brukes av Rapporter-modulen)
+        const deliveryLocations = new Set();
+        store.getAllItems().forEach(item => {
+            item.outgoingOrders.forEach(o => {
+                if (o.deliveryLocation) deliveryLocations.add(o.deliveryLocation);
+            });
+        });
+
+        console.log(`[Ordrer_Jeeves] Prosessert: ${joinedCount} salgslinjer koblet til SA-artikler`);
+        console.log(`  Unike deliveryLocation-verdier: ${deliveryLocations.size} — ${[...deliveryLocations].join(', ') || '(ingen)'}`);
         if (unmatchedCount > 0) {
             console.log(`  Ordrelinjer uten SA-match (ignorert): ${unmatchedCount}`);
         }
