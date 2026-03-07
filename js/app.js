@@ -16,8 +16,9 @@
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (6 filer — 3 påkrevd, 3 valgfri)
+        // Datakilder (6 filer — 3 påkrevd, 3 valgfri + 1 masterfil v2)
         this.files = {
+            masterV2: null,         // Borregaard_SA_Master_v2.xlsx (FASE 7.0 — erstatter alle 4)
             master: null,           // Master.xlsx (REQUIRED)
             ordersOut: null,        // Ordrer_Jeeves.xlsx (REQUIRED)
             sa: null,               // SA-nummer.xlsx (REQUIRED — FASE 6.1)
@@ -28,7 +29,7 @@ class DashboardApp {
         };
 
         // Pending files from drag-and-drop (replaces DOM file inputs)
-        this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
+        this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
 
         // Samlet datastruktur
         this.dataStore = null;
@@ -143,7 +144,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null, agreement: null, replacement: null };
+        const routed = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null, agreement: null, replacement: null };
 
         for (const file of files) {
             try {
@@ -164,6 +165,7 @@ class DashboardApp {
         }
 
         // Store files on instance for later processing
+        if (routed.masterV2) this.pendingFiles.masterV2 = routed.masterV2;
         if (routed.master) this.pendingFiles.master = routed.master;
         if (routed.ordersOut) this.pendingFiles.ordersOut = routed.ordersOut;
         if (routed.sa) this.pendingFiles.sa = routed.sa;
@@ -174,6 +176,7 @@ class DashboardApp {
 
         // Slot assignment debug log — helps diagnose "mangler" false positives
         console.log('FILE SLOTS after drop:', {
+            masterV2:      this.pendingFiles.masterV2?.name      ?? '(tom)',
             master:        this.pendingFiles.master?.name        ?? '(tom)',
             ordersOut:     this.pendingFiles.ordersOut?.name     ?? '(tom)',
             sa:            this.pendingFiles.sa?.name            ?? '(tom)',
@@ -215,18 +218,28 @@ class DashboardApp {
             }
         }
 
-        // Add missing file warnings — FASE 6.1: SA is now required
-        if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
-        if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
-        if (!routed.sa) results.push({ status: 'warning', message: 'SA-nummer.xlsx mangler (påkrevd)' });
-        if (!routed.lagerplan) results.push({ status: 'info', message: 'Analyse_Lagerplan.xlsx ikke funnet (valgfri)' });
-        if (!routed.agreement) results.push({ status: 'info', message: 'Avtalefil ikke funnet (valgfri)' });
-        if (!routed.replacement) results.push({ status: 'info', message: 'data(4).xlsx ikke funnet (valgfri – erstatning/vareStatus)' });
+        // Add missing file warnings
+        if (routed.masterV2) {
+            // FASE 7.0: masterV2 alene er nok — vis informasjonsmelding
+            results.push({ status: 'ok', message: 'Masterfil v2 gjenkjent — alle data lastes fra én fil' });
+        } else {
+            // Eksisterende advarsler for individuelle filer
+            if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
+            if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
+            if (!routed.sa) results.push({ status: 'warning', message: 'SA-nummer.xlsx mangler (påkrevd)' });
+            if (!routed.lagerplan) results.push({ status: 'info', message: 'Analyse_Lagerplan.xlsx ikke funnet (valgfri)' });
+            if (!routed.agreement) results.push({ status: 'info', message: 'Avtalefil ikke funnet (valgfri)' });
+            if (!routed.replacement) results.push({ status: 'info', message: 'data(4).xlsx ikke funnet (valgfri – erstatning/vareStatus)' });
+        }
 
         this.updateDropStatus(results);
 
-        // Auto-trigger analysis if all required files are present (FASE 6.1: SA is required)
-        if (routed.master && routed.ordersOut && routed.sa) {
+        // Auto-trigger analysis if all required files are present
+        // FASE 7.0: masterV2 alene er nok
+        if (routed.masterV2) {
+            this.handleFileUpload();
+        } else if (routed.master && routed.ordersOut && routed.sa) {
+            // FASE 6.1: de 3 originale filene
             this.handleFileUpload();
         }
     }
@@ -255,6 +268,7 @@ class DashboardApp {
         //      (runs as a post-master location-only override pass)
         //   Generic 'master' → type 'master'
         const filenameRules = [
+            { match: 'borregaard_sa_master',  type: 'masterV2' },       // FASE 7.0 — én fil erstatter alle 4
             { match: 'kategori',              type: 'kategori' },
             { match: 'master_artikkelstatus', type: 'master' },         // IS the master file
             { match: 'artikkelstatus',        type: 'artikkelstatus' }, // standalone enrichment only
@@ -404,6 +418,7 @@ class DashboardApp {
      */
     getFileTypeLabel(type) {
         const labels = {
+            masterV2: 'Masterfil v2 (SA-Oversikt)',
             master: 'Master',
             ordersOut: 'Ordrer (salg ut)',
             sa: 'SA-nummer',
@@ -423,6 +438,7 @@ class DashboardApp {
      */
     async handleFileUpload() {
         // Hent filer fra pending (satt av drag-and-drop)
+        const masterV2File = this.pendingFiles.masterV2 || null;
         const masterFile = this.pendingFiles.master;
         const ordersOutFile = this.pendingFiles.ordersOut;
         const saFile = this.pendingFiles.sa || null;
@@ -431,23 +447,27 @@ class DashboardApp {
         const agreementFile = this.pendingFiles.agreement || null;
         const replacementFile = this.pendingFiles.replacement || null;
 
-        // FASE 6.1: Valider alle 3 påkrevde filer
-        const missing = [];
-        if (!masterFile) missing.push('Master.xlsx');
-        if (!ordersOutFile) missing.push('Ordrer_Jeeves.xlsx');
-        if (!saFile) missing.push('SA-nummer.xlsx');
+        // FASE 7.0: masterV2 alene er nok — hopp over validering av individuelle filer
+        if (!masterV2File) {
+            // FASE 6.1: Valider alle 3 påkrevde filer
+            const missing = [];
+            if (!masterFile) missing.push('Master.xlsx');
+            if (!ordersOutFile) missing.push('Ordrer_Jeeves.xlsx');
+            if (!saFile) missing.push('SA-nummer.xlsx');
 
-        if (missing.length > 0) {
-            this.showStatus(`Mangler påkrevde filer: ${missing.join(', ')}`, 'error');
-            return;
+            if (missing.length > 0) {
+                this.showStatus(`Mangler påkrevde filer: ${missing.join(', ')}`, 'error');
+                return;
+            }
         }
 
         this.showStatus('Behandler filer...', 'info');
         this.setLoadingState(true);
 
         try {
-            // Prosesser alle filer via DataProcessor (FASE 6.1 pipeline)
+            // Prosesser alle filer via DataProcessor
             this.dataStore = await DataProcessor.processAllFiles({
+                masterV2: masterV2File,
                 master: masterFile,
                 ordersOut: ordersOutFile,
                 sa: saFile,
@@ -870,6 +890,7 @@ class DashboardApp {
     clearAllData() {
         if (confirm('Er du sikker på at du vil slette all data? Dette kan ikke angres.')) {
             this.files = {
+                masterV2: null,
                 master: null,
                 ordersOut: null,
                 sa: null,
@@ -884,7 +905,7 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV3');
 
             // Nullstill pending files og drop-status
-            this.pendingFiles = { master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
+            this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
             const dropStatus = document.getElementById('dropStatus');
             if (dropStatus) dropStatus.innerHTML = '';
 
