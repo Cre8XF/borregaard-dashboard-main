@@ -13,17 +13,21 @@ class WorkMode {
     static sortColumn = null;
     static sortDirection = 'desc';
 
-    // Priority queue state
+    // Priority queue state (kept for Lagerstyring/Struktur sub-tabs)
     static priorityQueue = [];
     static activeFilters = new Set(); // 'high' | 'exposure' | 'stock' | 'noSa'
     static pqSearch = '';
     static archiveExpanded = false;
     static currentMainTab = 'drift'; // 'drift' | 'lagerstyring' | 'struktur'
-    static segmentFilter = 'alle';   // 'alle' | 'sa' | 'bp' | 'outgoing'
 
-    // Done-task persistence (UI only — never written to store or data model)
-    static doneTasks = {};           // mirror of localStorage['borregaard_done_tasks']
-    static showDone  = false;        // whether completed rows are visible
+    // Drift morgensjekk state
+    static driftBoxActive = null;     // null='all' | 'red' | 'yellow' | 'black'
+    static driftTableLimit = 10;      // 10 | 50 | 'all'
+    static _pendingOpenArticle = null;
+
+    // Done-task persistence (kept for backwards compat, no longer shown in Drift)
+    static doneTasks = {};
+    static showDone  = false;
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -32,7 +36,6 @@ class WorkMode {
     static render(store) {
         this.dataStore = store;
         const stats = this.computeStats(store);
-        this.priorityQueue = this.buildPriorityQueue(store);
 
         const tab = this.currentMainTab;
 
@@ -52,13 +55,7 @@ class WorkMode {
 
         let tabContent = '';
         if (tab === 'drift') {
-            tabContent = `
-                ${this.renderDailyWorkQueue(store)}
-                ${this.renderOperativStatus(stats)}
-                <div id="prioritySection">
-                    ${this.renderPriorityContent()}
-                </div>
-            `;
+            tabContent = this.renderDriftTab(store);
         } else if (tab === 'lagerstyring') {
             tabContent = `
                 <div id="maintenanceStopSection">
@@ -191,6 +188,272 @@ class WorkMode {
             deadStockCount,
             deadStockValueKr: Math.round(deadStockValueKr)
         };
+    }
+
+    // ════════════════════════════════════════════════════
+    //  DRIFT-FANEN: MORGENSJEKK
+    // ════════════════════════════════════════════════════
+
+    static buildDriftRows(store) {
+        const items = store.getAllItems();
+        const rows = [];
+
+        items.forEach(item => {
+            if (!this.isDiscontinued(item)) return;
+
+            const replNr = (item.replacedByArticle || item.ersattAvArtikel || '').trim();
+            const hasReplacement = !!replNr && replNr !== item.toolsArticleNumber;
+            const hasSa = !!item.saNumber;
+            const stock = item.stock || 0;
+            const bestAntLev = item.bestAntLev || 0;
+            const sales3m = this.getSales3m(item);
+
+            let group;
+            if (!hasReplacement || !hasSa) {
+                group = 'black';
+            } else if (stock > 0 || bestAntLev > 0) {
+                group = 'yellow';
+            } else {
+                group = 'red';
+            }
+
+            let replStock = 0;
+            if (hasReplacement) {
+                const replItem = store.getByToolsArticleNumber(replNr);
+                if (replItem) {
+                    replStock = replItem.stock || 0;
+                } else if (store.masterOnlyArticles) {
+                    const masterData = store.masterOnlyArticles.get(replNr);
+                    if (masterData) replStock = masterData.stock || 0;
+                }
+            }
+
+            rows.push({
+                toolsNr: item.toolsArticleNumber,
+                saNumber: item.saNumber || '',
+                description: item.description || '',
+                location: item.location || item.lagerplass || '',
+                stock,
+                bestAntLev,
+                sales3m,
+                replacementNr: replNr || '',
+                replacementStock: replStock,
+                group
+            });
+        });
+
+        const groupOrder = { red: 0, yellow: 1, black: 2 };
+        rows.sort((a, b) => {
+            const go = groupOrder[a.group] - groupOrder[b.group];
+            if (go !== 0) return go;
+            return b.sales3m - a.sales3m;
+        });
+
+        return rows;
+    }
+
+    static renderDriftTab(store) {
+        const allRows = this.buildDriftRows(store);
+
+        const redRows    = allRows.filter(r => r.group === 'red');
+        const yellowRows = allRows.filter(r => r.group === 'yellow');
+        const blackRows  = allRows.filter(r => r.group === 'black');
+
+        const active = this.driftBoxActive;
+
+        let filteredRows;
+        if      (active === 'red')    filteredRows = redRows;
+        else if (active === 'yellow') filteredRows = yellowRows;
+        else if (active === 'black')  filteredRows = blackRows;
+        else                          filteredRows = allRows;
+
+        const limit = this.driftTableLimit;
+        const displayRows = limit === 'all' ? filteredRows : filteredRows.slice(0, limit);
+
+        const boxStyle = (id, borderColor, bgHover) => {
+            const selected = active === id;
+            const dimmed   = active !== null && active !== id;
+            return `cursor:pointer;padding:18px 22px;border-radius:10px;` +
+                   `border:2px solid ${selected ? borderColor : '#e0e0e0'};` +
+                   `background:${selected ? bgHover : '#fff'};` +
+                   `box-shadow:${selected ? `0 0 0 3px ${borderColor}40` : 'none'};` +
+                   `opacity:${dimmed ? '0.55' : '1'};transition:opacity 0.15s;`;
+        };
+
+        const boxes = `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;">
+                <div onclick="WorkMode.switchDriftBox('red')"
+                     style="${boxStyle('red', '#c62828', '#ffebee')}">
+                    <div style="font-size:32px;font-weight:700;color:#c62828;">${redRows.length}</div>
+                    <div style="font-size:14px;font-weight:700;color:#c62828;margin:4px 0;">🔴 Klar for migrering</div>
+                    <div style="font-size:12px;color:#757575;line-height:1.5;">Utgående · saldo=0 · har erstatning og SA<br>Disse kan behandles nå.</div>
+                </div>
+                <div onclick="WorkMode.switchDriftBox('yellow')"
+                     style="${boxStyle('yellow', '#f57f17', '#fff8e1')}">
+                    <div style="font-size:32px;font-weight:700;color:#e65100;">${yellowRows.length}</div>
+                    <div style="font-size:14px;font-weight:700;color:#e65100;margin:4px 0;">⚠️ Har lager igjen</div>
+                    <div style="font-size:12px;color:#757575;line-height:1.5;">Utgående · saldo/innkommende > 0 · har erstatning og SA<br>Disse må planlegges.</div>
+                </div>
+                <div onclick="WorkMode.switchDriftBox('black')"
+                     style="${boxStyle('black', '#616161', '#f5f5f5')}">
+                    <div style="font-size:32px;font-weight:700;color:#424242;">${blackRows.length}</div>
+                    <div style="font-size:14px;font-weight:700;color:#424242;margin:4px 0;">⚫ Mangler erstatning eller SA</div>
+                    <div style="font-size:12px;color:#757575;line-height:1.5;">Utgående · mangler erstatning og/eller SA<br>Kan ikke behandles ennå.</div>
+                </div>
+            </div>
+        `;
+
+        const limitBtn = (val, label) => {
+            const isActive = this.driftTableLimit === val;
+            return `<span onclick="WorkMode.setDriftTableLimit(${val === 'all' ? "'all'" : val})"
+                style="display:inline-block;padding:5px 13px;border-radius:4px;font-size:12px;cursor:pointer;border:1.5px solid;font-weight:${isActive ? '700' : '500'};background:${isActive ? '#1565c0' : '#fff'};color:${isActive ? '#fff' : '#555'};border-color:${isActive ? '#1565c0' : '#bdbdbd'};"
+                >${label}</span>`;
+        };
+
+        const tableControls = `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                ${limitBtn(10, 'Topp 10')}
+                ${limitBtn(50, 'Topp 50')}
+                ${limitBtn('all', 'Alle')}
+                <span style="font-size:12px;color:#757575;margin-left:4px;">
+                    Viser ${displayRows.length} av ${filteredRows.length}
+                </span>
+                <span style="margin-left:auto;">
+                    <button onclick="WorkMode.exportDriftExcel()"
+                        style="padding:5px 14px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;">
+                        Eksporter til Excel
+                    </button>
+                </span>
+            </div>
+        `;
+
+        const dash = '\u2013';
+        const fmt  = (n) => (n > 0) ? Math.round(n).toLocaleString('nb-NO') : dash;
+
+        const groupDot = (group) => {
+            const colors = { red: '#c62828', yellow: '#f57f17', black: '#616161' };
+            return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colors[group] || '#9e9e9e'};"></span>`;
+        };
+
+        const rowClass = (group) => group === 'red' ? 'row-critical' : group === 'yellow' ? 'row-warning' : '';
+
+        const tableHtml = displayRows.length === 0
+            ? `<div style="padding:24px;text-align:center;color:#757575;font-size:13px;background:#fafafa;border-radius:6px;border:1px solid #e0e0e0;">
+                    Ingen artikler i valgt kategori.
+               </div>`
+            : `
+            <div class="table-wrapper">
+                <table class="data-table compact" style="font-size:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:14px;padding:6px 4px;"></th>
+                            <th>Tools nr</th>
+                            <th>SA</th>
+                            <th>Beskrivelse</th>
+                            <th>Lokasjon</th>
+                            <th style="text-align:right;">Saldo</th>
+                            <th style="text-align:right;">Innkommende</th>
+                            <th style="text-align:right;">Salg 3m</th>
+                            <th>Erstatning</th>
+                            <th style="text-align:right;">Erst. saldo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${displayRows.map(r => `
+                            <tr class="${rowClass(r.group)}"
+                                style="cursor:pointer;"
+                                onclick="WorkMode.openInStruktur('${this.esc(r.toolsNr)}')"
+                                title="Klikk for å åpne arbeidskort i Struktur-fanen">
+                                <td style="padding:4px 4px;">${groupDot(r.group)}</td>
+                                <td><strong>${this.esc(r.toolsNr)}</strong></td>
+                                <td style="font-size:11px;color:${r.saNumber ? 'inherit' : '#bdbdbd'};">${r.saNumber ? this.esc(r.saNumber) : dash}</td>
+                                <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${this.esc(r.description)}">${this.esc(r.description) || dash}</td>
+                                <td style="font-size:11px;color:${r.location ? 'inherit' : '#bdbdbd'};">${r.location ? this.esc(r.location) : dash}</td>
+                                <td style="text-align:right;font-size:11px;">${fmt(r.stock)}</td>
+                                <td style="text-align:right;font-size:11px;color:${r.bestAntLev > 0 ? 'inherit' : '#bdbdbd'};">${fmt(r.bestAntLev)}</td>
+                                <td style="text-align:right;font-size:11px;">${fmt(r.sales3m)}</td>
+                                <td style="font-size:11px;color:${r.replacementNr ? 'inherit' : '#bdbdbd'};">${r.replacementNr ? this.esc(r.replacementNr) : dash}</td>
+                                <td style="text-align:right;font-size:11px;color:${r.replacementStock > 0 ? '#2e7d32' : '#bdbdbd'};">${r.replacementNr ? fmt(r.replacementStock) : dash}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        return boxes + tableControls + tableHtml;
+    }
+
+    static switchDriftBox(box) {
+        this.driftBoxActive    = (this.driftBoxActive === box) ? null : box;
+        this.driftTableLimit   = 10;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
+
+    static setDriftTableLimit(limit) {
+        this.driftTableLimit = limit;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+    }
+
+    static openInStruktur(toolsNr) {
+        this.currentMainTab         = 'struktur';
+        this.currentSubTab          = 'saMigration';
+        this._pendingOpenArticle    = toolsNr;
+        if (window.app && window.app.dataStore) {
+            window.app.renderCurrentModule();
+        }
+        setTimeout(() => {
+            if (this._pendingOpenArticle && typeof SAMigrationMode !== 'undefined') {
+                SAMigrationMode.openPanel(this._pendingOpenArticle);
+                this._pendingOpenArticle = null;
+            }
+        }, 100);
+    }
+
+    static exportDriftExcel() {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke tilgjengelig.');
+            return;
+        }
+        if (!this.dataStore) {
+            alert('Ingen data lastet.');
+            return;
+        }
+
+        const allRows = this.buildDriftRows(this.dataStore);
+        const active  = this.driftBoxActive;
+        let exportRows;
+        if      (active === 'red')    exportRows = allRows.filter(r => r.group === 'red');
+        else if (active === 'yellow') exportRows = allRows.filter(r => r.group === 'yellow');
+        else if (active === 'black')  exportRows = allRows.filter(r => r.group === 'black');
+        else                          exportRows = allRows;
+
+        const groupLabel = { red: 'Klar for migrering', yellow: 'Har lager igjen', black: 'Mangler erstatning/SA' };
+
+        const data = exportRows.map(r => ({
+            'Kategori':    groupLabel[r.group] || '',
+            'Tools nr':    r.toolsNr,
+            'SA':          r.saNumber,
+            'Beskrivelse': r.description,
+            'Lokasjon':    r.location,
+            'Saldo':       r.stock,
+            'Innkommende': r.bestAntLev,
+            'Salg 3m':     r.sales3m,
+            'Erstatning':  r.replacementNr,
+            'Erst. saldo': r.replacementNr ? r.replacementStock : ''
+        }));
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, 'Drift morgensjekk');
+
+        const suffix = active ? `_${active}` : '_alle';
+        const date   = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, `drift_morgensjekk${suffix}_${date}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
