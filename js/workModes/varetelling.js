@@ -159,9 +159,17 @@ class VartellingMode {
     // ════════════════════════════════════════════════════
 
     static renderTelleplan() {
-        const plan  = this.getTelleplan();
-        const items = this._store ? this._store.getAllItems() : [];
-        const today = new Date();
+        const rawPlan = this.getTelleplan();
+        const items   = this._store ? this._store.getAllItems() : [];
+        const today   = new Date();
+        const currentWeek = this.getISOWeek(today);
+
+        // Sort by uke, nulls last
+        const plan = [...rawPlan].sort((a, b) => {
+            const ua = (a.uke != null) ? a.uke : 9999;
+            const ub = (b.uke != null) ? b.uke : 9999;
+            return ua - ub;
+        });
 
         return `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
@@ -169,10 +177,16 @@ class VartellingMode {
                     Definer soner for rullerende varetelling.
                     Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
                 </p>
-                <button onclick="VartellingMode.toggleAddSoneForm()"
-                        style="padding:7px 16px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;">
-                    + Legg til sone
-                </button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button onclick="VartellingMode.lastInnStandardplan()"
+                            style="padding:7px 14px;background:#78909c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                        📋 Last inn 2026-telleplan
+                    </button>
+                    <button onclick="VartellingMode.toggleAddSoneForm()"
+                            style="padding:7px 16px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;">
+                        + Legg til sone
+                    </button>
+                </div>
             </div>
 
             <div id="add-sone-form" style="display:none;background:#f5f9f5;border:1px solid #c8e6c9;border-radius:6px;padding:16px;margin-bottom:16px;">
@@ -193,6 +207,11 @@ class VartellingMode {
                         <input id="new-sone-til" type="text" placeholder="f.eks. T-1-9"
                                style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;min-width:120px;">
                     </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <label style="font-size:11px;font-weight:600;color:#555;">Ukenr</label>
+                        <input id="new-sone-uke" type="number" min="1" max="52" placeholder="f.eks. 11"
+                               style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;min-width:70px;">
+                    </div>
                     <button onclick="VartellingMode.saveSone()"
                             style="padding:7px 16px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;height:34px;">
                         Lagre sone
@@ -205,12 +224,13 @@ class VartellingMode {
             </div>
 
             ${plan.length === 0 ? `
-                <div class="alert alert-info">Ingen soner definert ennå. Klikk «+ Legg til sone» for å starte.</div>
+                <div class="alert alert-info">Ingen soner definert ennå. Klikk «+ Legg til sone» eller «📋 Last inn 2026-telleplan» for å starte.</div>
             ` : `
                 <div class="table-wrapper">
                     <table class="data-table compact">
                         <thead>
                             <tr>
+                                <th style="text-align:center;">Uke</th>
                                 <th>Sone</th>
                                 <th>Fra lok</th>
                                 <th>Til lok</th>
@@ -222,28 +242,79 @@ class VartellingMode {
                             </tr>
                         </thead>
                         <tbody>
-                            ${plan.map((sone, idx) => {
+                            ${plan.map((sone) => {
+                                const rawIdx   = rawPlan.indexOf(sone);
                                 const artCount = this.filterByLocationRange(items, sone.fra, sone.til).length;
                                 const status   = this.soneStatus(sone.sist_telt, today);
+                                const isCurrWk = sone.uke != null && sone.uke === currentWeek;
+                                const isFuture = sone.uke != null && !sone.sist_telt && sone.uke > currentWeek;
+                                const ukeStyle = isCurrWk
+                                    ? 'background:#1565c0;color:#fff;font-weight:700;border-radius:3px;padding:2px 6px;display:inline-block;'
+                                    : '';
+                                const planlagtTekst = isFuture
+                                    ? `<br><span style="color:#1565c0;font-size:11px;">📅 Planlagt uke ${sone.uke}</span>`
+                                    : '';
                                 return `
                                     <tr>
+                                        <td style="text-align:center;white-space:nowrap;">
+                                            ${sone.uke != null ? `<span style="${ukeStyle}">${sone.uke}</span>` : '—'}
+                                        </td>
                                         <td style="font-weight:600;">${this.esc(sone.navn)}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
                                         <td style="text-align:right;">${artCount}</td>
                                         <td style="font-size:12px;">${sone.sist_telt ? this.esc(sone.sist_telt) : '—'}</td>
                                         <td style="text-align:right;">${sone.sist_telt && sone.avvik != null ? sone.avvik : '—'}</td>
-                                        <td>${status}</td>
+                                        <td>${status}${planlagtTekst}</td>
                                         <td style="white-space:nowrap;">
-                                            <button onclick="VartellingMode.tellNa(${idx})"
+                                            <button onclick="VartellingMode.tellNa(${rawIdx})"
                                                     style="padding:4px 10px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;">
                                                 Tell nå
                                             </button>
-                                            <button onclick="VartellingMode.slettSone(${idx})"
+                                            <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
+                                                    style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;"
+                                                    title="Rediger sone">
+                                                ✏️
+                                            </button>
+                                            <button onclick="VartellingMode.slettSone(${rawIdx})"
                                                     style="padding:4px 8px;background:#e53935;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;"
                                                     title="Slett sone">
                                                 ✕
                                             </button>
+                                        </td>
+                                    </tr>
+                                    <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
+                                        <td colspan="9" style="padding:10px 12px;">
+                                            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                                    <label style="font-size:10px;font-weight:600;color:#555;">Sonenavn</label>
+                                                    <input id="edit-navn-${rawIdx}" type="text" value="${this.esc(sone.navn)}"
+                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:150px;">
+                                                </div>
+                                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                                    <label style="font-size:10px;font-weight:600;color:#555;">Fra lok</label>
+                                                    <input id="edit-fra-${rawIdx}" type="text" value="${this.esc(sone.fra)}"
+                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
+                                                </div>
+                                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                                    <label style="font-size:10px;font-weight:600;color:#555;">Til lok</label>
+                                                    <input id="edit-til-${rawIdx}" type="text" value="${this.esc(sone.til)}"
+                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
+                                                </div>
+                                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                                    <label style="font-size:10px;font-weight:600;color:#555;">Uke</label>
+                                                    <input id="edit-uke-${rawIdx}" type="number" min="1" max="52" value="${sone.uke != null ? sone.uke : ''}"
+                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:60px;">
+                                                </div>
+                                                <button onclick="VartellingMode.lagreEditSone(${rawIdx})"
+                                                        style="padding:5px 12px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
+                                                    Lagre
+                                                </button>
+                                                <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
+                                                        style="padding:5px 10px;background:#aaa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
+                                                    Avbryt
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 `;
@@ -253,6 +324,51 @@ class VartellingMode {
                 </div>
             `}
         `;
+    }
+
+    static lastInnStandardplan() {
+        const plan = this.getTelleplan();
+        if (plan.length > 0) {
+            if (!confirm('Dette vil erstatte eksisterende telleplan med 2026-standardplanen. Fortsett?')) return;
+        }
+
+        const standardplan = [
+            { id: 1001, uke: 11, navn: "T-1 sonen (del 1) — T-1-1 til T-1-4",      fra: "T-1-1",     til: "T-1-4",      sist_telt: null, avvik: null },
+            { id: 1002, uke: 12, navn: "T-1 sonen (del 2) — T-1-5 til T-1-8",      fra: "T-1-5",     til: "T-1-8",      sist_telt: null, avvik: null },
+            { id: 1003, uke: 13, navn: "T-2 sonen (del 1) — T-2-1",                 fra: "T-2-1",     til: "T-2-1",      sist_telt: null, avvik: null },
+            { id: 1004, uke: 14, navn: "T-2 sonen (del 2) — T-2-2",                 fra: "T-2-2",     til: "T-2-2",      sist_telt: null, avvik: null },
+            { id: 1005, uke: 15, navn: "T-3 sonen — T-3-1 til T-3-4",               fra: "T-3-1",     til: "T-3-4",      sist_telt: null, avvik: null },
+            { id: 1006, uke: 17, navn: "T-4 sonen — T-4-1 til T-4-4",               fra: "T-4-1",     til: "T-4-4",      sist_telt: null, avvik: null },
+            { id: 1007, uke: 18, navn: "19-sonen (del 1) — 19-1 til 19-6",          fra: "19-1-A",    til: "19-6-C",     sist_telt: null, avvik: null },
+            { id: 1008, uke: 19, navn: "19-sonen (del 2) — 19-7 til 19-12",         fra: "19-7-A",    til: "19-12-C",    sist_telt: null, avvik: null },
+            { id: 1009, uke: 20, navn: "18-sonen — 18-1 til 18-12",                 fra: "18-1-A",    til: "18-12-C",    sist_telt: null, avvik: null },
+            { id: 1010, uke: 21, navn: "23-sonen (del 1) — 23-1 til 23-3",          fra: "23-1-A",    til: "23-3-C",     sist_telt: null, avvik: null },
+            { id: 1011, uke: 22, navn: "23-sonen (del 2) — 23-4 til 23-6",          fra: "23-4-A",    til: "23-6-C",     sist_telt: null, avvik: null },
+            { id: 1012, uke: 23, navn: "22-sonen — 22-1 til 22-9",                  fra: "22-1-A",    til: "22-9-C",     sist_telt: null, avvik: null },
+            { id: 1013, uke: 24, navn: "21-sonen — 21-1 til 21-6",                  fra: "21-1-A",    til: "21-6-B",     sist_telt: null, avvik: null },
+            { id: 1014, uke: 25, navn: "20-sonen — 20-1 til 20-6",                  fra: "20-1-A",    til: "20-6-C",     sist_telt: null, avvik: null },
+            { id: 1015, uke: 26, navn: "52-sonen — 52-1 til 52-2",                  fra: "52-1-A",    til: "52-2-C",     sist_telt: null, avvik: null },
+            { id: 1016, uke: 27, navn: "51-sonen — 51-1 til 51-2",                  fra: "51-1-A",    til: "51-2-B",     sist_telt: null, avvik: null },
+            { id: 1017, uke: 28, navn: "12-sonen (del 1) — 12-1 til 12-6",          fra: "12-1-A",    til: "12-6-C",     sist_telt: null, avvik: null },
+            { id: 1018, uke: 29, navn: "12-sonen (del 2) — 12-7 til 12-12",         fra: "12-7-A",    til: "12-12-C",    sist_telt: null, avvik: null },
+            { id: 1019, uke: 30, navn: "50-sonen — 50-1 til 50-2",                  fra: "50-1-A",    til: "50-2-C",     sist_telt: null, avvik: null },
+            { id: 1020, uke: 31, navn: "54-, 55- og 56-sonen",                      fra: "54-1-A",    til: "56-11-C",    sist_telt: null, avvik: null },
+            { id: 1021, uke: 32, navn: "53- og 59-sonen",                           fra: "53-1-A",    til: "59-12-C",    sist_telt: null, avvik: null },
+            { id: 1022, uke: 33, navn: "62-sonen",                                  fra: "62-1-A",    til: "62-9-C",     sist_telt: null, avvik: null },
+            { id: 1023, uke: 34, navn: "42-, 43- og 44-sonen",                      fra: "42-1-A",    til: "44-9-C",     sist_telt: null, avvik: null },
+            { id: 1024, uke: 35, navn: "24-, 25- og 26-sonen",                      fra: "24-1-A",    til: "26-4-B",     sist_telt: null, avvik: null },
+            { id: 1025, uke: 36, navn: "16- og 17-sonen",                           fra: "16-1-A",    til: "17-12-B",    sist_telt: null, avvik: null },
+            { id: 1026, uke: 37, navn: "45-, 46- og 49-sonen",                      fra: "45-1-A",    til: "49-2-C",     sist_telt: null, avvik: null },
+            { id: 1027, uke: 38, navn: "11-, 13- og 14-sonen",                      fra: "11-1-A",    til: "14-9-C",     sist_telt: null, avvik: null },
+            { id: 1028, uke: 39, navn: "146-, 147-, 148- og 149-sonen",             fra: "146-1-A",   til: "149-1-C",    sist_telt: null, avvik: null },
+            { id: 1029, uke: 40, navn: "OLJEBOD — alle hyller",                     fra: "OLJEBOD-7", til: "OLJEBOD-17",  sist_telt: null, avvik: null },
+            { id: 1030, uke: 41, navn: "BORSKUFF — alle skuffer",                   fra: "BORSKUFF",  til: "BORSKUFF",   sist_telt: null, avvik: null },
+            { id: 1031, uke: 43, navn: "SLANGEREOL · P-sonen · TORGET",             fra: "P-5-4",     til: "TORGET",     sist_telt: null, avvik: null },
+            { id: 1032, uke: 44, navn: "LAGER1 · LAGER2S1 · TRANSITT · NYARTBUT",  fra: "LAGER1",    til: "TRANSITT",   sist_telt: null, avvik: null },
+        ];
+
+        this.saveTelleplan(standardplan);
+        this.refreshAll();
     }
 
     static soneStatus(sistTelt, today) {
@@ -513,9 +629,11 @@ class VartellingMode {
     }
 
     static saveSone() {
-        const navn = (document.getElementById('new-sone-navn').value || '').trim();
-        const fra  = (document.getElementById('new-sone-fra').value  || '').trim();
-        const til  = (document.getElementById('new-sone-til').value  || '').trim();
+        const navn   = (document.getElementById('new-sone-navn').value || '').trim();
+        const fra    = (document.getElementById('new-sone-fra').value  || '').trim();
+        const til    = (document.getElementById('new-sone-til').value  || '').trim();
+        const ukeEl  = document.getElementById('new-sone-uke');
+        const uke    = ukeEl && ukeEl.value ? parseInt(ukeEl.value) || null : null;
 
         if (!navn || !fra || !til) {
             alert('Alle feltene (Sonenavn, Fra lokasjon, Til lokasjon) må fylles ut.');
@@ -523,7 +641,7 @@ class VartellingMode {
         }
 
         const plan = this.getTelleplan();
-        plan.push({ id: Date.now(), navn, fra, til, sist_telt: null, avvik: null });
+        plan.push({ id: Date.now(), uke, navn, fra, til, sist_telt: null, avvik: null });
         this.saveTelleplan(plan);
         this.refreshAll();
     }
@@ -534,6 +652,40 @@ class VartellingMode {
         plan.splice(idx, 1);
         this.saveTelleplan(plan);
         this.refreshAll();
+    }
+
+    static toggleEditRow(idx) {
+        const row = document.getElementById(`edit-row-${idx}`);
+        if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+    }
+
+    static lagreEditSone(idx) {
+        const navn = (document.getElementById(`edit-navn-${idx}`)?.value || '').trim();
+        const fra  = (document.getElementById(`edit-fra-${idx}`)?.value  || '').trim();
+        const til  = (document.getElementById(`edit-til-${idx}`)?.value  || '').trim();
+        const ukeEl = document.getElementById(`edit-uke-${idx}`);
+        const uke  = ukeEl && ukeEl.value ? parseInt(ukeEl.value) || null : null;
+        if (!navn || !fra || !til) {
+            alert('Sonenavn, Fra og Til lokasjon må fylles ut.');
+            return;
+        }
+        this.oppdaterSone(idx, { navn, fra, til, uke });
+    }
+
+    static oppdaterSone(idx, data) {
+        const plan = this.getTelleplan();
+        if (!plan[idx]) return;
+        plan[idx] = { ...plan[idx], ...data };
+        this.saveTelleplan(plan);
+        this.refreshAll();
+    }
+
+    static getISOWeek(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
     }
 
     static tellNa(idx) {
