@@ -194,7 +194,7 @@ class DataProcessor {
         supplier:      ['Supplier Name', 'Leverandør', 'Leverantör'],
         location:      ['Lokasjon_SA', 'Lagerhylla', 'Lokasjon', 'Location'],
         vareStatus:    ['VareStatus', 'Varestatus'],
-        replacedBy:    ['ErsattsAvArtNr', 'Ersatts av', 'Erstatning'],
+        replacedBy:    ['ErsattsAvArtNr', 'Ersätts av artikel', 'ReplacedBy', 'Erstatning', 'Ersatts av'],
         lagerfort:     ['LAGERFØRT', 'Lagerfort', 'Lagerført'],
         varemerke:     ['VAREMERKE', 'Varemerke', 'Brand'],
         pakkeStorrelse:['PakkeStørrelse', 'Pakke', 'PakkeStr'],

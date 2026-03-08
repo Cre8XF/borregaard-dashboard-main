@@ -400,18 +400,17 @@ class WorkMode {
     }
 
     static openInStruktur(toolsNr) {
-        this.currentMainTab         = 'struktur';
-        this.currentSubTab          = 'saMigration';
-        this._pendingOpenArticle    = toolsNr;
+        this.currentMainTab = 'struktur';
+        this.currentSubTab  = 'saMigration';
+        // renderCurrentModule() er synkron — SAMigrationMode.analyze() kjøres
+        // inni render() og setter _lastRows før funksjonen returnerer.
         if (window.app && window.app.dataStore) {
             window.app.renderCurrentModule();
         }
-        setTimeout(() => {
-            if (this._pendingOpenArticle && typeof SAMigrationMode !== 'undefined') {
-                SAMigrationMode.openPanel(this._pendingOpenArticle);
-                this._pendingOpenArticle = null;
-            }
-        }, 100);
+        // Åpne panel umiddelbart — _lastRows er nå populert
+        if (typeof SAMigrationMode !== 'undefined') {
+            SAMigrationMode.openPanel(toolsNr);
+        }
     }
 
     static exportDriftExcel() {
