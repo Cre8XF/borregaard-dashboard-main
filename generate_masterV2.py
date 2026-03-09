@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-generate_masterV2.py — Genererer Borregaard_SA_Master_v2.xlsx
+generate_masterV2.py — Genererer Borregaard_SA_Master_v2.xlsx  (FASE 7.2)
 
-Kombinerer tre Excel-eksporter fra Jeeves/Butler:
-  1. SA-Nummer.xlsx           — SA-numre og Tools-artikkelnummer
-  2. Master_Artikkelstatus.xlsx — lagerstatus, Kalkylpris bas, Artikelstatus, m.m.
-  3. Analyse_Lagerplan.xlsx   — BP, EOK, Maxlager, Leverantör
-
-Output: Borregaard_SA_Master_v2.xlsx, ark "SA-Oversikt"
-  - Rad 1 = kolonneoverskrifter (ingen tittelrad)
-  - Primærnøkkel: SA_Nummer (Kunds artikkelnummer fra SA-Nummer.xlsx)
-  - Koblingsnøkkel: Tools_ArtNr (Artikelnr fra SA-Nummer.xlsx)
-
-Kjøres fra prosjektmappen:
-    python3 generate_masterV2.py
-
-Krav: pip install openpyxl
+Kildefiler:
+  1. SA-Nummer.xlsx             — SA-numre og Tools-artikkelnummer
+  2. Master_Artikkelstatus.xlsx — lagerstatus, Kalkylpris bas, Artikelstatus
+  3. Analyse_Lagerplan.xlsx     — BP, EOK, Maxlager, Leverantör
+  4. data__7_.xlsx              — VareStatus, ErsattsAvArtNr, Alternativ(er)
+  5. leverandører.xlsx          — LevLedTid + Transportdagar
+  6. Master.xlsx                — InvDat (sist telt-dato) [FASE 7.2]
 """
 
 import os
@@ -24,33 +17,27 @@ from openpyxl import Workbook
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-SA_FILE        = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
-MASTER_FILE    = os.path.join(SCRIPT_DIR, 'Master_Artikkelstatus.xlsx')
-LAGERPLAN_FILE = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
-OUTPUT_FILE    = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
+SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
+MASTER_FILE      = os.path.join(SCRIPT_DIR, 'Master_Artikkelstatus.xlsx')
+LAGERPLAN_FILE   = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
+DATA7_FILE       = os.path.join(SCRIPT_DIR, 'data__7_.xlsx')
+LEV_FILE         = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
+MASTER_INV_FILE  = os.path.join(SCRIPT_DIR, 'Master.xlsx')
+OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
 
 
 def read_sheet(filepath, sheet_name=None):
-    """
-    Les Excel-ark som liste av dicts.
-    Håndterer dupliserte kolonnenavn ved å suffixe med _2, _3 osv.
-    Tomme rader hoppes over.
-    """
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active if sheet_name is None else wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
-
     if not rows:
         return []
-
     headers = list(rows[0])
     data = []
-
     for raw_row in rows[1:]:
         if all(v is None for v in raw_row):
-            continue  # hopp over tomme rader
-
+            continue
         d = {}
         seen = {}
         for i, h in enumerate(headers):
@@ -63,14 +50,11 @@ def read_sheet(filepath, sheet_name=None):
             else:
                 seen[key] = 1
             d[key] = raw_row[i] if i < len(raw_row) else None
-
         data.append(d)
-
     return data
 
 
 def val(d, *keys, default=''):
-    """Hent første ikke-tomme verdi blant oppgitte nøkler."""
     for k in keys:
         v = d.get(k)
         if v is not None and str(v).strip() != '':
@@ -79,10 +63,6 @@ def val(d, *keys, default=''):
 
 
 def read_sheet_raw_indexed(filepath):
-    """
-    Les Excel-ark; returnerer (headers_som_strenger, rader_som_lister).
-    Brukes for å hente kolonner etter indeks uavhengig av kolonnenavn.
-    """
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
     rows_raw = list(ws.iter_rows(values_only=True))
@@ -94,22 +74,27 @@ def read_sheet_raw_indexed(filepath):
     return headers, data
 
 
-def main():
-    print('=' * 50)
-    print('Genererer Borregaard_SA_Master_v2.xlsx')
-    print('=' * 50)
+def format_invdat(raw):
+    """YYYYMMDD (int) → 'YYYY-MM-DD' (str)"""
+    if raw is None:
+        return ''
+    s = str(raw).strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    return s
 
-    # ── 1. Les SA-Nummer.xlsx ──
-    print(f'Leser SA-Nummer.xlsx...')
+
+def main():
+    print('=' * 55)
+    print('Genererer Borregaard_SA_Master_v2.xlsx  (FASE 7.2)')
+    print('=' * 55)
+
+    # ── 1. SA-Nummer.xlsx ──
+    print('Leser SA-Nummer.xlsx...')
     sa_rows = read_sheet(SA_FILE)
     print(f'  {len(sa_rows)} rader')
-
-    # Les SA-Nummer.xlsx råt etter indeks for å hente col[6] pålitelig
-    # (uavhengig av om kolonnenavnet er duplisert og omdøpt av read_sheet())
     sa_headers, sa_raw_data = read_sheet_raw_indexed(SA_FILE)
-    print(f'  SA-kolonner funnet: {sa_headers}')
 
-    # Finn SA-nummerkolonnen (primærnøkkel) og 'Kundens artbeskr.' etter indeks
     sa_nr_idx = next(
         (i for i, h in enumerate(sa_headers)
          if h.lower() in ('kunds artikkelnummer', 'kundens artnr', 'sa-nummer', 'sa nummer', 'sa_nummer')),
@@ -119,25 +104,18 @@ def main():
         (i for i, h in enumerate(sa_headers) if h.lower() == 'kundens artbeskr.'),
         None
     )
-
-    # Bygg SA-nr → lokasjon (col[6]) og SA-nr → Kundens artbeskr.-oppslag
-    sa_lokasjon_map = {}           # fra 'Artikelbeskrivning' ved indeks 6
-    sa_kundens_artbeskr_map = {}   # fallback fra 'Kundens artbeskr.'
-
+    sa_lokasjon_map = {}
+    sa_kundens_artbeskr_map = {}
     for raw_row in sa_raw_data:
         if len(raw_row) <= sa_nr_idx:
             continue
         sa_key = str(raw_row[sa_nr_idx]).strip() if raw_row[sa_nr_idx] is not None else ''
         if not sa_key:
             continue
-
-        # Kolonne på indeks 6 = hyllelokasjon (f.eks. '11-11-B')
         if len(raw_row) > 6 and raw_row[6] is not None:
             col6 = str(raw_row[6]).strip()
             if col6:
                 sa_lokasjon_map[sa_key] = col6
-
-        # 'Kundens artbeskr.' fallback
         if kundens_artbeskr_idx is not None and len(raw_row) > kundens_artbeskr_idx:
             kb = raw_row[kundens_artbeskr_idx]
             if kb is not None:
@@ -145,67 +123,95 @@ def main():
                 if kb_str:
                     sa_kundens_artbeskr_map[sa_key] = kb_str
 
-    # ── 2. Les Master_Artikkelstatus.xlsx ──
-    print(f'Leser Master_Artikkelstatus.xlsx...')
+    # ── 2. Master_Artikkelstatus.xlsx ──
+    print('Leser Master_Artikkelstatus.xlsx...')
     master_rows = read_sheet(MASTER_FILE)
     print(f'  {len(master_rows)} rader')
 
-    # ── 3. Les Analyse_Lagerplan.xlsx ──
-    print(f'Leser Analyse_Lagerplan.xlsx...')
+    # ── 3. Analyse_Lagerplan.xlsx ──
+    print('Leser Analyse_Lagerplan.xlsx...')
     lagerplan_rows = read_sheet(LAGERPLAN_FILE)
     print(f'  {len(lagerplan_rows)} rader')
 
-    # ── Bygg oppslagstabeller: Artikelnr → dict ──
-    master_by_art = {}
-    for row in master_rows:
-        art = val(row, 'Artikelnr')
-        if art:
-            master_by_art[str(art).strip()] = row
+    # ── 4. data__7_.xlsx ──
+    data7_by_sa = {}
+    if os.path.exists(DATA7_FILE):
+        print('Leser data__7_.xlsx...')
+        data7_rows = read_sheet(DATA7_FILE)
+        print(f'  {len(data7_rows)} rader')
+        for row in data7_rows:
+            sa = val(row, 'Kundens artnr', 'SA_Nummer', 'SA-Nummer')
+            if sa:
+                data7_by_sa[str(sa).strip()] = row
+        print(f'  data7-oppslag: {len(data7_by_sa)} unike SA-numre')
+    else:
+        print('  data__7_.xlsx ikke funnet — hopper over')
 
-    lagerplan_by_art = {}
-    for row in lagerplan_rows:
-        art = val(row, 'Artikelnr')
-        if art:
-            lagerplan_by_art[str(art).strip()] = row
+    # ── 5. leverandører.xlsx ──
+    lev_ledetid = {}
+    if os.path.exists(LEV_FILE):
+        print('Leser leverandører.xlsx...')
+        lev_rows = read_sheet(LEV_FILE)
+        print(f'  {len(lev_rows)} rader')
+        for row in lev_rows:
+            fnr = val(row, 'Företagsnr', 'LevNr', 'Leverantörsnr')
+            if not fnr:
+                continue
+            fnr_str = str(fnr).strip().lstrip('0') or '0'
+            lev_led   = val(row, 'LevLedTid', 'Leveranstid')
+            transport = val(row, 'Transportdagar', 'Transport')
+            try:
+                lev_val = int(float(str(lev_led))) if lev_led != '' else 0
+            except (ValueError, TypeError):
+                lev_val = 0
+            try:
+                tra_val = int(float(str(transport))) if transport != '' else 0
+            except (ValueError, TypeError):
+                tra_val = 0
+            lev_ledetid[fnr_str] = {'total': lev_val + tra_val, 'lev': lev_val, 'transport': tra_val}
+        print(f'  Ledetid-oppslag: {len(lev_ledetid)} unike leverandørnr')
+    else:
+        print('  leverandører.xlsx ikke funnet — Ledetid_dager blir tom')
 
-    print(f'  Master-oppslag: {len(master_by_art)} unike Artikelnr')
-    print(f'  Lagerplan-oppslag: {len(lagerplan_by_art)} unike Artikelnr')
+    # ── 6. Master.xlsx — InvDat (FASE 7.2) ──
+    invdat_by_art = {}
+    if os.path.exists(MASTER_INV_FILE):
+        print('Leser Master.xlsx (InvDat — sist telt)...')
+        master_inv_rows = read_sheet(MASTER_INV_FILE)
+        print(f'  {len(master_inv_rows)} rader')
+        for row in master_inv_rows:
+            art = val(row, 'Artikelnr')
+            if not art:
+                continue
+            raw_inv = row.get('InvDat')
+            if raw_inv is not None:
+                formatted = format_invdat(raw_inv)
+                if formatted:
+                    invdat_by_art[str(art).strip()] = formatted
+        print(f'  Artikler med telledato: {len(invdat_by_art)}')
+    else:
+        print('  Master.xlsx ikke funnet — Sist_telt blir tom')
 
-    # ── Kolonner i output-filen ──
-    # Rekkefølge: SA-identitet, lagerstatus, planlegging, status/leverandør,
-    #             vareinfo, kategorier, salg, pris — deretter nye felt (FASE 7.1)
+    # ── Oppslagstabeller ──
+    master_by_art = {str(val(r, 'Artikelnr')).strip(): r for r in master_rows if val(r, 'Artikelnr')}
+    lagerplan_by_art = {str(val(r, 'Artikelnr')).strip(): r for r in lagerplan_rows if val(r, 'Artikelnr')}
+    print(f'  Master-oppslag: {len(master_by_art)} | Lagerplan-oppslag: {len(lagerplan_by_art)}')
+
+    # ── Kolonner ──
     output_columns = [
-        'SA_Nummer',        # Primærnøkkel (Kunds artikkelnummer)
-        'Tools_ArtNr',      # Sekundær koblingsnøkkel
-        'Beskrivelse',      # Artikelbeskrivning
-        'Lagersaldo',       # TotLagSaldo fra Master
-        'DispLagSaldo',     # DispLagSaldo fra Master
-        'BP',               # Bestillingspunkt fra Lagerplan
-        'Maxlager',         # Maxlager fra Lagerplan
-        'ReservAnt',        # ReservAnt fra Master
-        'BestAntLev',       # BestAntLev fra Master
-        'R12 Del Qty',      # Historisk salg 12 mnd (Butler-eksport — tom her)
-        'Artikelstatus',    # Artikelstatus fra Master
-        'Supplier Name',    # Leverantör fra Lagerplan
-        'Lagerhylla',       # Lagerhylla fra Master
-        'VareStatus',       # Varestatus (Butler-eksport — tom her)
-        'ErsattsAvArtNr',   # Ersätts av artikel fra Master
-        'LAGERFØRT',        # Lagersted (Butler-eksport — tom her)
-        'VAREMERKE',        # Produsentmerke (Butler-eksport — tom her)
-        'PakkeStørrelse',   # Antall per pakning (Butler-eksport — tom her)
-        'Enhet / Ant Des',  # Enhet (Butler-eksport — tom her)
-        'Item category 1',  # Varugrupp fra Master
-        'Item category 2',  # (Butler-eksport — tom her)
-        'Item category 3',  # (Butler-eksport — tom her)
-        'Ordre_TotAntall',  # Totalt salgsantall (trenger Ordrer_Jeeves — tom her)
-        'Ordre_SisteDato',  # Siste salgsdato (trenger Ordrer_Jeeves — tom her)
-        'Dagens_Pris',      # Avtalepris (Butler-eksport — tom her)
-        'Kalkylpris_bas',   # Kalkylpris bas fra Master (FASE 7.1)
-        'EOK',              # Ordrekvantitet fra Lagerplan (FASE 7.1)
-        'Lokasjon_SA',      # Hyllelokasjon fra SA-Nummer.xlsx (Artikelbeskrivning indeks 6)
+        'SA_Nummer', 'Tools_ArtNr', 'Beskrivelse',
+        'Lagersaldo', 'DispLagSaldo', 'BP', 'Maxlager', 'ReservAnt', 'BestAntLev',
+        'R12 Del Qty', 'Artikelstatus', 'Supplier Name', 'Lagerhylla',
+        'VareStatus', 'ErsattsAvArtNr',
+        'LAGERFØRT', 'VAREMERKE', 'PakkeStørrelse', 'Enhet / Ant Des',
+        'Item category 1', 'Item category 2', 'Item category 3',
+        'Ordre_TotAntall', 'Ordre_SisteDato', 'Dagens_Pris',
+        'Kalkylpris_bas', 'EOK', 'Lokasjon_SA',
+        'Ledetid_dager', 'Ledetid_lev', 'Ledetid_transport',
+        'Sist_telt',   # FASE 7.2
     ]
 
-    # ── Generer output-rader ──
+    # ── Generer rader ──
     output_rows = []
     matched = 0
     skipped = 0
@@ -215,92 +221,89 @@ def main():
         if not sa_nr:
             skipped += 1
             continue
-
         sa_nr = str(sa_nr).strip()
         tools_art = val(sa_row, 'Artikelnr')
         tools_art_key = str(tools_art).strip() if tools_art else ''
 
-        m = master_by_art.get(tools_art_key, {})
-        l = lagerplan_by_art.get(tools_art_key, {})
+        m  = master_by_art.get(tools_art_key, {})
+        l  = lagerplan_by_art.get(tools_art_key, {})
+        d7 = data7_by_sa.get(sa_nr, {})
 
-        # Kalkylpris bas: Master-filen har denne kolonnen to ganger.
-        # read_sheet() suffixer den andre forekomsten med "_2".
-        # Den andre ("Kalkylpris bas_2") er den gjeldende prisbasen.
-        kalkylpris = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
-
-        # Problem A: ErsattsAvArtNr — bruk 'Alternativ(er)' som fallback
-        erstatning = val(m, 'Ersätts av artikel', 'ErsattsAvArtNr', 'Alternativ(er)')
-
-        # Problem B+C: Lokasjon_SA — hent fra col[6] i SA-fil (indeksbasert),
-        # med 'Kundens artbeskr.' som fallback
+        kalkylpris  = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
+        erstatning  = val(d7, 'ErsattsAvArtNr', 'Alternativ(er)') or \
+                      val(m, 'Ersätts av artikel', 'ErsattsAvArtNr', 'Alternativ(er)')
+        varestatus  = val(d7, 'VareStatus', 'Varestatus')
         lokasjon_sa = sa_lokasjon_map.get(sa_nr, '') or sa_kundens_artbeskr_map.get(sa_nr, '')
 
+        lev_nr_raw  = val(l, 'Leverantör', 'LevNr', 'Företagsnr')
+        lev_nr_str  = str(lev_nr_raw).strip().lstrip('0') if lev_nr_raw else ''
+        lev_info    = lev_ledetid.get(lev_nr_str, {})
+
+        sist_telt   = invdat_by_art.get(tools_art_key, '')  # FASE 7.2
+
         output_rows.append({
-            'SA_Nummer':        sa_nr,
-            'Tools_ArtNr':      tools_art_key,
-            'Beskrivelse':      val(sa_row, 'Beskrivelse', 'Description', 'Artikelbeskrivelse', 'Navn'),
-            'Lagersaldo':       val(m, 'TotLagSaldo', 'Lagersaldo'),
-            'DispLagSaldo':     val(m, 'DispLagSaldo'),
-            'BP':               val(l, 'BP'),
-            'Maxlager':         val(l, 'Maxlager'),
-            'ReservAnt':        val(m, 'ReservAnt'),
-            'BestAntLev':       val(m, 'BestAntLev'),
-            'R12 Del Qty':      '',
-            'Artikelstatus':    val(m, 'Artikelstatus'),
-            'Supplier Name':    val(l, 'Leverantör'),
-            'Lagerhylla':       val(m, 'Lagerhylla'),
-            'VareStatus':       '',
-            'ErsattsAvArtNr':   erstatning,
-            'LAGERFØRT':        '',
-            'VAREMERKE':        '',
-            'PakkeStørrelse':   '',
-            'Enhet / Ant Des':  '',
-            'Item category 1':  val(m, 'Varugrupp'),
-            'Item category 2':  '',
-            'Item category 3':  '',
-            'Ordre_TotAntall':  '',
-            'Ordre_SisteDato':  '',
-            'Dagens_Pris':      '',
-            'Kalkylpris_bas':   kalkylpris,   # FASE 7.1
-            'EOK':              val(l, 'EOK'), # FASE 7.1
-            'Lokasjon_SA':      lokasjon_sa,  # col[6] fra SA-fil, fallback Kundens artbeskr.
+            'SA_Nummer':         sa_nr,
+            'Tools_ArtNr':       tools_art_key,
+            'Beskrivelse':       val(sa_row, 'Beskrivelse', 'Description', 'Artikelbeskrivelse', 'Navn'),
+            'Lagersaldo':        val(m, 'TotLagSaldo', 'Lagersaldo'),
+            'DispLagSaldo':      val(m, 'DispLagSaldo'),
+            'BP':                val(l, 'BP'),
+            'Maxlager':          val(l, 'Maxlager'),
+            'ReservAnt':         val(m, 'ReservAnt'),
+            'BestAntLev':        val(m, 'BestAntLev'),
+            'R12 Del Qty':       '',
+            'Artikelstatus':     val(m, 'Artikelstatus'),
+            'Supplier Name':     val(l, 'Leverantör'),
+            'Lagerhylla':        val(m, 'Lagerhylla'),
+            'VareStatus':        varestatus,
+            'ErsattsAvArtNr':    erstatning,
+            'LAGERFØRT':         '',
+            'VAREMERKE':         '',
+            'PakkeStørrelse':    '',
+            'Enhet / Ant Des':   '',
+            'Item category 1':   val(m, 'Varugrupp'),
+            'Item category 2':   '',
+            'Item category 3':   '',
+            'Ordre_TotAntall':   '',
+            'Ordre_SisteDato':   '',
+            'Dagens_Pris':       '',
+            'Kalkylpris_bas':    kalkylpris,
+            'EOK':               val(l, 'EOK'),
+            'Lokasjon_SA':       lokasjon_sa,
+            'Ledetid_dager':     lev_info.get('total', ''),
+            'Ledetid_lev':       lev_info.get('lev', ''),
+            'Ledetid_transport': lev_info.get('transport', ''),
+            'Sist_telt':         sist_telt,
         })
         matched += 1
-
-    print(f'\nResultat:')
-    print(f'  SA-artikler prosessert: {matched}')
-    if skipped:
-        print(f'  Hoppet over (mangler SA-nr): {skipped}')
 
     # ── Skriv output ──
     print(f'\nSkriver {OUTPUT_FILE}...')
     wb_out = Workbook()
     ws_out = wb_out.active
     ws_out.title = 'SA-Oversikt'
-
-    # Rad 1 = kolonneoverskrifter (ingen tittelrad)
     ws_out.append(output_columns)
-
     for row_dict in output_rows:
         ws_out.append([row_dict.get(col, '') for col in output_columns])
-
     wb_out.save(OUTPUT_FILE)
 
-    # Verifisering
-    lokasjon_count     = sum(1 for r in output_rows if r.get('Lokasjon_SA'))
-    erstatning_count   = sum(1 for r in output_rows if r.get('ErsattsAvArtNr'))
+    # ── Verifisering ──
+    lokasjon_count   = sum(1 for r in output_rows if r.get('Lokasjon_SA'))
+    erstatning_count = sum(1 for r in output_rows if r.get('ErsattsAvArtNr'))
+    ledetid_count    = sum(1 for r in output_rows if r.get('Ledetid_dager') != '')
+    sist_telt_count  = sum(1 for r in output_rows if r.get('Sist_telt'))
 
     print(f'\nFerdig!')
-    print(f'  Fil:     {OUTPUT_FILE}')
-    print(f'  Ark:     "SA-Oversikt"')
-    print(f'  Rader:   {len(output_rows)} artikler')
+    print(f'  Fil:      {OUTPUT_FILE}')
+    print(f'  Ark:      "SA-Oversikt"')
+    print(f'  Rader:    {len(output_rows)} artikler')
     print(f'  Kolonner: {len(output_columns)}')
-    print(f'  Inkludert (FASE 7.1): Kalkylpris_bas, EOK')
     print(f'')
     print(f'  ── Verifisering ──')
-    print(f'  Lokasjon_SA ikke-tomme: {lokasjon_count} av {len(output_rows)}')
-    print(f'    (fra SA col[6]: {len(sa_lokasjon_map)}, fra Kundens artbeskr.: {len(sa_kundens_artbeskr_map)})')
-    print(f'  ErsattsAvArtNr ikke-tomme: {erstatning_count} av {len(output_rows)}')
+    print(f'  Lokasjon_SA:     {lokasjon_count} av {len(output_rows)}')
+    print(f'  ErsattsAvArtNr:  {erstatning_count} av {len(output_rows)}')
+    print(f'  Ledetid_dager:   {ledetid_count} av {len(output_rows)}')
+    print(f'  Sist_telt:       {sist_telt_count} av {len(output_rows)}  [FASE 7.2]')
 
 
 if __name__ == '__main__':
