@@ -172,7 +172,70 @@ class VartellingMode {
             return ua - ub;
         });
 
+        // ── Totaltelling 2026 ──
+        const totaltArtikler  = items.length;
+        const teltI2026Totalt = items.filter(item =>
+            item.sistTelt && item.sistTelt.startsWith('2026')
+        ).length;
+        const pstTotalt = totaltArtikler > 0
+            ? Math.round((teltI2026Totalt / totaltArtikler) * 100)
+            : 0;
+
+        const alleDatoer2026 = items
+            .filter(item => item.sistTelt && item.sistTelt.startsWith('2026'))
+            .map(item => item.sistTelt)
+            .sort();
+        const sisteTeltTotalt = alleDatoer2026.length > 0
+            ? alleDatoer2026[alleDatoer2026.length - 1]
+            : null;
+
+        const fylte   = Math.round(pstTotalt / 5);
+        const tomme   = 20 - fylte;
+        const barFyll = '█'.repeat(fylte);
+        const barTom  = '░'.repeat(tomme);
+
+        const pstFarge = pstTotalt >= 80 ? '#2e7d32'
+                       : pstTotalt >= 40 ? '#e65100'
+                       : '#c62828';
+
         return `
+            <div style="background:#f5f9f5;border:1px solid #c8e6c9;border-radius:8px;
+                        padding:16px 20px;margin-bottom:18px;
+                        display:flex;align-items:center;justify-content:space-between;
+                        flex-wrap:wrap;gap:12px;">
+
+                <div>
+                    <div style="font-size:12px;font-weight:600;color:#555;
+                                text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+                        📊 Varetelling 2026 — Borregaard lager 3018
+                    </div>
+                    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:22px;font-weight:700;color:${pstFarge};">
+                            ${pstTotalt}%
+                        </span>
+                        <span style="font-size:13px;color:#555;">
+                            ${teltI2026Totalt.toLocaleString('nb-NO')} / ${totaltArtikler.toLocaleString('nb-NO')} artikler telt
+                        </span>
+                        ${sisteTeltTotalt ? `
+                            <span style="font-size:12px;color:#888;">
+                                · Sist: ${sisteTeltTotalt}
+                            </span>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+                    <div style="font-family:monospace;font-size:15px;letter-spacing:1px;
+                                color:${pstFarge};">
+                        ${barFyll}<span style="color:#ccc;">${barTom}</span>
+                    </div>
+                    <div style="font-size:11px;color:#888;">
+                        ${totaltArtikler - teltI2026Totalt} artikler gjenstår
+                    </div>
+                </div>
+
+            </div>
+
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
                 <p style="color:#555;font-size:13px;margin:0;">
                     Definer soner for rullerende varetelling.
