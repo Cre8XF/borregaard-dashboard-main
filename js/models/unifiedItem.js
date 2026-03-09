@@ -103,6 +103,7 @@ class UnifiedItem {
         this.enhet = '';             // Enhet / Ant Des — ST, M, PKT osv.
         this.category2 = '';         // Item category 2
         this.category3 = '';         // Item category 3
+        this.sistTelt = null;        // 'YYYY-MM-DD' streng eller null (FASE 7.2)
 
         // ── Metadata ──
         this.hasIncomingOrders = false;

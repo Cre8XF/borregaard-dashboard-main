@@ -207,7 +207,8 @@ class DataProcessor {
         saleSisteDato: ['Ordre_SisteDato', 'SisteDato', 'Sist solgt'],
         agreementPrice:['Dagens_Pris', 'Pris', 'Avtalepris'],
         kalkylPris:    ['Kalkylpris_bas', 'Kalkylpris bas', 'Kalkylpris'],    // FASE 7.1
-        ordrekvantitet:['EOK', 'Ordrekvantitet']                              // FASE 7.1
+        ordrekvantitet:['EOK', 'Ordrekvantitet'],                            // FASE 7.1
+        sistTelt:      ['Sist_telt', 'SistTelt', 'InvDat', 'sist_telt'],    // FASE 7.2
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -1700,6 +1701,12 @@ class DataProcessor {
                 if (eokVal > 0) item.ordrekvantitet = eokVal;
             }
 
+            // 15. Sist telt (FASE 7.2 — fra Sist_telt-kolonnen i MV2)
+            const sistTeltRaw = this.getMasterV2Value(row, 'sistTelt');
+            if (sistTeltRaw && sistTeltRaw.toString().trim() !== '') {
+                item.sistTelt = sistTeltRaw.toString().trim(); // 'YYYY-MM-DD'
+            }
+
             enrichedCount++;
         });
 
@@ -1711,11 +1718,12 @@ class DataProcessor {
             );
         }
 
-        console.log(`[FASE 7.1] Masterfil v2 prosessert:`);
+        console.log(`[FASE 7.2] Masterfil v2 prosessert:`);
         console.log(`  Nye SA-artikler opprettet: ${createdCount}`);
         console.log(`  Rader beriket: ${enrichedCount}`);
         console.log(`  Med kalkylPris: ${store.getAllItems().filter(i => i.kalkylPris > 0).length}`);
         console.log(`  Med ordrekvantitet (EOK): ${store.getAllItems().filter(i => i.ordrekvantitet !== null).length}`);
+        console.log(`[FASE 7.2] sistTelt lastet: ${store.getAllItems().filter(i => i.sistTelt !== null).length} artikler`);
         if (skippedCount > 0) {
             console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
         }

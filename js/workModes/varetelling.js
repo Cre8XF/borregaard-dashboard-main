@@ -235,17 +235,17 @@ class VartellingMode {
                                 <th>Fra lok</th>
                                 <th>Til lok</th>
                                 <th style="text-align:right;">Artikler</th>
-                                <th>Sist telt</th>
-                                <th style="text-align:right;">Avvik</th>
-                                <th>Status</th>
+                                <th style="text-align:right;">Telt 2026</th>
+                                <th>Sist telt / Status</th>
                                 <th>Handling</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${plan.map((sone) => {
                                 const rawIdx   = rawPlan.indexOf(sone);
-                                const artCount = this.filterByLocationRange(items, sone.fra, sone.til).length;
-                                const status   = this.soneStatus(sone.sist_telt, today);
+                                const info     = this.beregnSoneTelleinfo(sone, items);
+                                const artCount = info.totalt;
+                                const status   = this.renderTelleStatus(sone, info);
                                 const isCurrWk = sone.uke != null && sone.uke === currentWeek;
                                 const isFuture = sone.uke != null && !sone.sist_telt && sone.uke > currentWeek;
                                 const ukeStyle = isCurrWk
@@ -263,8 +263,11 @@ class VartellingMode {
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
                                         <td style="text-align:right;">${artCount}</td>
-                                        <td style="font-size:12px;">${sone.sist_telt ? this.esc(sone.sist_telt) : '—'}</td>
-                                        <td style="text-align:right;">${sone.sist_telt && sone.avvik != null ? sone.avvik : '—'}</td>
+                                        <td style="text-align:right;">
+                                            <span style="font-size:13px;font-weight:600;color:${info.teltI2026 >= info.totalt && info.totalt > 0 ? '#2e7d32' : '#e65100'};">
+                                                ${info.teltI2026} / ${info.totalt}
+                                            </span>
+                                        </td>
                                         <td>${status}${planlagtTekst}</td>
                                         <td style="white-space:nowrap;">
                                             <button onclick="VartellingMode.tellNa(${rawIdx})"
@@ -284,7 +287,7 @@ class VartellingMode {
                                         </td>
                                     </tr>
                                     <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
-                                        <td colspan="9" style="padding:10px 12px;">
+                                        <td colspan="8" style="padding:10px 12px;">
                                             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
                                                 <div style="display:flex;flex-direction:column;gap:3px;">
                                                     <label style="font-size:10px;font-weight:600;color:#555;">Sonenavn</label>
@@ -306,9 +309,22 @@ class VartellingMode {
                                                     <input id="edit-uke-${rawIdx}" type="number" min="1" max="52" value="${sone.uke != null ? sone.uke : ''}"
                                                            style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:60px;">
                                                 </div>
+                                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                                    <label style="font-size:11px;font-weight:600;color:#555;">
+                                                        Manuell sist telt-dato
+                                                        <span style="font-weight:400;color:#888;">(overstyrer MV2 — la stå tom for automatisk)</span>
+                                                    </label>
+                                                    <input id="edit-sone-sist-telt-${rawIdx}" type="date"
+                                                           value="${sone.sist_telt || ''}"
+                                                           style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                                                </div>
                                                 <button onclick="VartellingMode.lagreEditSone(${rawIdx})"
                                                         style="padding:5px 12px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
                                                     Lagre
+                                                </button>
+                                                <button onclick="VartellingMode.nullstillManuelDato(${rawIdx})"
+                                                        style="padding:5px 10px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:4px;cursor:pointer;font-size:12px;">
+                                                    🗑 Nullstill manuell dato
                                                 </button>
                                                 <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
                                                         style="padding:5px 10px;background:#aaa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
@@ -369,6 +385,86 @@ class VartellingMode {
 
         this.saveTelleplan(standardplan);
         this.refreshAll();
+    }
+
+    /**
+     * Beregn tellefremdrift for en sone basert på Sist_telt fra MV2.
+     *
+     * @param {object} sone  - Soneobjekt med fra, til, sist_telt (manuell overstyring)
+     * @param {Array}  items - Alle items fra store.getAllItems()
+     * @returns {object} { totalt, teltI2026, sisteTelledato, harManuell }
+     */
+    static beregnSoneTelleinfo(sone, items) {
+        const sonArtikler = this.filterByLocationRange(items, sone.fra, sone.til);
+        const totalt = sonArtikler.length;
+
+        const teltI2026 = sonArtikler.filter(item => {
+            if (!item.sistTelt) return false;
+            return item.sistTelt.startsWith('2026');
+        }).length;
+
+        // Nyeste telledato blant artikler telt i 2026
+        const datoer2026 = sonArtikler
+            .filter(item => item.sistTelt && item.sistTelt.startsWith('2026'))
+            .map(item => item.sistTelt)
+            .sort();
+        const sisteTelledato = datoer2026.length > 0
+            ? datoer2026[datoer2026.length - 1]
+            : null;
+
+        // Manuell overstyring fra localStorage overstyrer MV2-verdien
+        const harManuell = !!(sone.sist_telt);
+
+        return { totalt, teltI2026, sisteTelledato, harManuell };
+    }
+
+    /**
+     * Render status-celle for en sone i telleplantabellen.
+     */
+    static renderTelleStatus(sone, info) {
+        const { totalt, teltI2026, sisteTelledato, harManuell } = info;
+
+        // Manuell overstyring vises alltid øverst
+        if (harManuell) {
+            return `
+                <span style="color:#1565c0;font-weight:600;">✏️ Manuelt satt</span><br>
+                <span style="font-size:11px;color:#555;">${this.esc(sone.sist_telt)}</span>
+            `;
+        }
+
+        if (totalt === 0) {
+            return `<span style="color:#999;font-size:12px;">Ingen artikler</span>`;
+        }
+
+        const pst   = Math.round((teltI2026 / totalt) * 100);
+        const alle  = teltI2026 >= totalt;
+        const ingen = teltI2026 === 0;
+
+        const farge   = alle ? '#2e7d32' : ingen ? '#c62828' : '#e65100';
+        const bgFarge = alle ? '#e8f5e9' : ingen ? '#ffebee' : '#fff3e0';
+        const ikon    = alle ? '✅' : ingen ? '🔴' : '🟡';
+        const datoTekst = sisteTelledato
+            ? `<br><span style="font-size:11px;color:#555;">Sist: ${sisteTelledato}</span>`
+            : '';
+
+        return `
+            <span style="display:inline-block;background:${bgFarge};color:${farge};
+                         font-weight:600;font-size:12px;padding:2px 7px;border-radius:10px;
+                         white-space:nowrap;">
+                ${ikon} ${teltI2026} / ${totalt}
+                ${!alle && !ingen ? `<span style="font-weight:400;">(${pst}%)</span>` : ''}
+            </span>
+            ${datoTekst}
+        `;
+    }
+
+    static nullstillManuelDato(idx) {
+        const plan = this.getTelleplan();
+        if (plan[idx]) {
+            plan[idx].sist_telt = null;
+            this.saveTelleplan(plan);
+            this.refreshAll();
+        }
     }
 
     static soneStatus(sistTelt, today) {
@@ -665,11 +761,13 @@ class VartellingMode {
         const til  = (document.getElementById(`edit-til-${idx}`)?.value  || '').trim();
         const ukeEl = document.getElementById(`edit-uke-${idx}`);
         const uke  = ukeEl && ukeEl.value ? parseInt(ukeEl.value) || null : null;
+        const sistTeltEl = document.getElementById(`edit-sone-sist-telt-${idx}`);
+        const sist_telt = sistTeltEl && sistTeltEl.value ? sistTeltEl.value : null;
         if (!navn || !fra || !til) {
             alert('Sonenavn, Fra og Til lokasjon må fylles ut.');
             return;
         }
-        this.oppdaterSone(idx, { navn, fra, til, uke });
+        this.oppdaterSone(idx, { navn, fra, til, uke, sist_telt });
     }
 
     static oppdaterSone(idx, data) {
