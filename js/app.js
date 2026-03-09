@@ -16,7 +16,8 @@
  */
 class DashboardApp {
     constructor() {
-        // Datakilder (6 filer — 3 påkrevd, 3 valgfri + 1 masterfil v2)
+        // Datakilder — MV2-modus (standard): Borregaard_SA_Master_v2.xlsx + Ordrer_Jeeves.xlsx
+        // Fallback-modus: Master.xlsx + SA-nummer.xlsx + Ordrer_Jeeves.xlsx (FASE 6.1)
         this.files = {
             masterV2: null,         // Borregaard_SA_Master_v2.xlsx (FASE 7.0 — erstatter alle 4)
             master: null,           // Master.xlsx (REQUIRED)
@@ -135,7 +136,11 @@ class DashboardApp {
     /**
      * Håndter multi-file drop — detekter og ruter filer til riktig input
      *
-     * FASE 6.1: 3 file types are REQUIRED:
+     * FASE 7.x (standard): 2 filer påkrevd:
+     *   masterV2  → Borregaard_SA_Master_v2.xlsx
+     *   ordersOut → Ordrer_Jeeves.xlsx
+     *
+     * FASE 6.1 (fallback): 3 filer påkrevd:
      *   sa        → SA-nummer.xlsx
      *   master    → Master.xlsx
      *   ordersOut → Ordrer_Jeeves.xlsx
@@ -220,10 +225,13 @@ class DashboardApp {
 
         // Add missing file warnings
         if (routed.masterV2) {
-            // FASE 7.0: masterV2 alene er nok — vis informasjonsmelding
-            results.push({ status: 'ok', message: 'Masterfil v2 gjenkjent — alle data lastes fra én fil' });
+            // FASE 7.x: MV2 er lastet — vis status for MV2 + Ordrer
+            results.push({ status: 'ok', message: 'Borregaard_SA_Master_v2.xlsx gjenkjent — alle lagerdata lastes fra én fil' });
+            if (!routed.ordersOut) {
+                results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd for salgshistorikk)' });
+            }
         } else {
-            // Eksisterende advarsler for individuelle filer
+            // Fallback: gammel modus med separate filer
             if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
             if (!routed.ordersOut) results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd)' });
             if (!routed.sa) results.push({ status: 'warning', message: 'SA-nummer.xlsx mangler (påkrevd)' });
