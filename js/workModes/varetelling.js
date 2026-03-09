@@ -11,6 +11,7 @@ class VartellingMode {
     static _lastFiltered = [];
     static _activeTab    = 'lokasjonssok'; // 'lokasjonssok' | 'telleplan' | 'avvikslogg'
     static _pendingRader = null;           // Buffer for fullforTelling-data
+    static _utestaaendeIdx = null;         // Hvilken sone som har utestående-panelet åpent
 
     static TELLEPLAN_KEY  = 'borregaard_telleplan_v1';
     static AVVIKSLOGG_KEY = 'borregaard_avvikslogg_v1';
@@ -274,6 +275,11 @@ class VartellingMode {
                                                     style="padding:4px 10px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;">
                                                 Tell nå
                                             </button>
+                                            <button onclick="VartellingMode.visUtestaaende(${rawIdx})"
+                                                    title="Vis artikler ikke telt i 2026"
+                                                    style="padding:4px 8px;background:${this._utestaaendeIdx === rawIdx ? '#f9a825' : '#fff8e1'};color:#e65100;border:1px solid #f9a825;border-radius:3px;cursor:pointer;font-size:13px;font-weight:600;margin-right:4px;">
+                                                ⏳
+                                            </button>
                                             <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
                                                     style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;"
                                                     title="Rediger sone">
@@ -286,6 +292,9 @@ class VartellingMode {
                                             </button>
                                         </td>
                                     </tr>
+                                    ${this._utestaaendeIdx === rawIdx
+                                        ? this.renderUtestaaendePanel(sone, items)
+                                        : ''}
                                     <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
                                         <td colspan="8" style="padding:10px 12px;">
                                             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
@@ -456,6 +465,152 @@ class VartellingMode {
             </span>
             ${datoTekst}
         `;
+    }
+
+    static visUtestaaende(idx) {
+        this._utestaaendeIdx = (this._utestaaendeIdx === idx) ? null : idx;
+        this.refreshAll();
+    }
+
+    /**
+     * Render panel med artikler som ikke er telt i 2026 for en sone.
+     */
+    static renderUtestaaendePanel(sone, items) {
+        const alleISone = this.filterByLocationRange(items, sone.fra, sone.til);
+
+        // Artikler IKKE telt i 2026
+        const utestaaende = alleISone.filter(item => {
+            if (!item.sistTelt) return true;
+            return !item.sistTelt.startsWith('2026');
+        });
+
+        if (utestaaende.length === 0) {
+            return `
+                <tr class="utestaaende-panel-row">
+                    <td colspan="8" style="padding:0;">
+                        <div style="background:#e8f5e9;border-left:4px solid #2e7d32;
+                                    padding:12px 20px;font-size:13px;color:#2e7d32;font-weight:600;">
+                            ✅ Alle artikler i denne sonen er telt i 2026!
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Sorter etter lokasjon
+        const sortert = [...utestaaende].sort((a, b) => {
+            const la = a.location || a.lagerplass || '';
+            const lb = b.location || b.lagerplass || '';
+            return this.compareLocations(this.parseLocation(la), this.parseLocation(lb));
+        });
+
+        const rader = sortert.map(item => {
+            const lok      = item.location || item.lagerplass || '—';
+            const sistTelt = item.sistTelt || '–– aldri telt ––';
+            const erGammel = item.sistTelt && !item.sistTelt.startsWith('2026');
+            const datoFarge = erGammel ? '#e65100' : '#888';
+
+            return `
+                <tr style="background:#fffde7;">
+                    <td style="font-family:monospace;font-size:12px;padding:5px 10px;">
+                        ${this.esc(item.toolsArticleNumber || item.saNumber || '—')}
+                    </td>
+                    <td style="font-size:12px;padding:5px 10px;">
+                        ${this.esc(item.description || '—')}
+                    </td>
+                    <td style="font-family:monospace;font-size:12px;padding:5px 10px;">
+                        ${this.esc(lok)}
+                    </td>
+                    <td style="font-size:12px;color:${datoFarge};padding:5px 10px;">
+                        ${this.esc(sistTelt)}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        const eksporterOnclick = `VartellingMode.exportUtestaaende(${JSON.stringify(sone.navn)}, ${JSON.stringify(sone.fra)}, ${JSON.stringify(sone.til)})`;
+
+        return `
+            <tr class="utestaaende-panel-row">
+                <td colspan="8" style="padding:0;">
+                    <div style="background:#fffde7;border-left:4px solid #f9a825;padding:0;">
+
+                        <div style="display:flex;justify-content:space-between;align-items:center;
+                                    padding:10px 16px;border-bottom:1px solid #f0e0a0;">
+                            <span style="font-size:13px;font-weight:600;color:#e65100;">
+                                ⏳ ${utestaaende.length} artikler ikke telt i 2026
+                            </span>
+                            <div style="display:flex;gap:8px;">
+                                <button onclick="${eksporterOnclick}"
+                                        style="padding:5px 12px;background:#1a6b2c;color:#fff;border:none;
+                                               border-radius:4px;cursor:pointer;font-size:12px;">
+                                    📥 Eksporter Excel
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="max-height:320px;overflow-y:auto;">
+                            <table style="width:100%;border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#f5e6a0;font-size:11px;font-weight:600;color:#555;">
+                                        <th style="padding:5px 10px;text-align:left;">Art.nr</th>
+                                        <th style="padding:5px 10px;text-align:left;">Beskrivelse</th>
+                                        <th style="padding:5px 10px;text-align:left;">Lokasjon</th>
+                                        <th style="padding:5px 10px;text-align:left;">Sist telt</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rader}
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    static exportUtestaaende(sonenavn, fra, til) {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke tilgjengelig.');
+            return;
+        }
+
+        const items     = this._store ? this._store.getAllItems() : [];
+        const alleISone = this.filterByLocationRange(items, fra, til);
+
+        const utestaaende = alleISone
+            .filter(item => !item.sistTelt || !item.sistTelt.startsWith('2026'))
+            .sort((a, b) => {
+                const la = a.location || a.lagerplass || '';
+                const lb = b.location || b.lagerplass || '';
+                return this.compareLocations(this.parseLocation(la), this.parseLocation(lb));
+            });
+
+        if (utestaaende.length === 0) {
+            alert('Ingen utestående artikler å eksportere.');
+            return;
+        }
+
+        const rows = utestaaende.map(item => ({
+            'Art.nr':        item.toolsArticleNumber || '',
+            'SA-nummer':     item.saNumber || '',
+            'Beskrivelse':   item.description || '',
+            'Lokasjon':      item.location || item.lagerplass || '',
+            'Sist telt':     item.sistTelt || '',
+            'Saldo':         item.stock ?? '',
+            'Tellet antall': '',   // tom kolonne for papirbruk
+            'Avvik':         ''    // tom kolonne for papirbruk
+        }));
+
+        const wb  = XLSX.utils.book_new();
+        const ws  = XLSX.utils.json_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, 'Utestående');
+
+        const dato    = new Date().toISOString().slice(0, 10);
+        const filnavn = `utestaaende_${sonenavn.replace(/[^a-zA-Z0-9]/g, '_')}_${dato}.xlsx`;
+        XLSX.writeFile(wb, filnavn);
     }
 
     static nullstillManuelDato(idx) {
