@@ -26,11 +26,12 @@ class DashboardApp {
             lagerplan: null,        // Analyse_Lagerplan.xlsx (OPTIONAL — BP/EOK)
             artikkelstatus: null,   // Master_Artikkelstatus.xlsx (OPTIONAL — Lagerhylla override)
             agreement: null,        // Avtalefil/katalog (OPTIONAL — inAgreement, pris, leverandør)
-            replacement: null       // data(4).xlsx (OPTIONAL — replacedByArticle, vareStatus)
+            replacement: null,      // data(4).xlsx (OPTIONAL — replacedByArticle, vareStatus)
+            bestillinger: null      // bestillinger.xlsx — åpne innkjøpsordrer (OPTIONAL)
         };
 
         // Pending files from drag-and-drop (replaces DOM file inputs)
-        this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
+        this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null, bestillinger: null };
 
         // Samlet datastruktur
         this.dataStore = null;
@@ -149,7 +150,7 @@ class DashboardApp {
         this.updateDropStatus([{ status: 'info', message: `Identifiserer ${files.length} fil(er)...` }]);
 
         const results = [];
-        const routed = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null, agreement: null, replacement: null };
+        const routed = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, kategori: null, artikkelstatus: null, agreement: null, replacement: null, bestillinger: null };
 
         for (const file of files) {
             try {
@@ -178,6 +179,7 @@ class DashboardApp {
         if (routed.artikkelstatus) this.pendingFiles.artikkelstatus = routed.artikkelstatus;
         if (routed.agreement) this.pendingFiles.agreement = routed.agreement;
         if (routed.replacement) this.pendingFiles.replacement = routed.replacement;
+        if (routed.bestillinger) this.pendingFiles.bestillinger = routed.bestillinger;
 
         // Slot assignment debug log — helps diagnose "mangler" false positives
         console.log('FILE SLOTS after drop:', {
@@ -230,6 +232,7 @@ class DashboardApp {
             if (!routed.ordersOut) {
                 results.push({ status: 'warning', message: 'Ordrer_Jeeves.xlsx mangler (påkrevd for salgshistorikk)' });
             }
+            if (!routed.bestillinger) results.push({ status: 'info', message: 'bestillinger.xlsx ikke funnet (valgfri — åpne innkjøpsordrer)' });
         } else {
             // Fallback: gammel modus med separate filer
             if (!routed.master) results.push({ status: 'warning', message: 'Master.xlsx mangler (påkrevd)' });
@@ -278,6 +281,7 @@ class DashboardApp {
         const filenameRules = [
             { match: 'borregaard_sa_master',  type: 'masterV2' },       // FASE 7.0 — én fil erstatter alle 4
             { match: 'kategori',              type: 'kategori' },
+            { match: 'bestillinger',           type: 'bestillinger' },   // FASE 7.3 — åpne innkjøpsordrer
             { match: 'master_artikkelstatus', type: 'master' },         // IS the master file
             { match: 'artikkelstatus',        type: 'artikkelstatus' }, // standalone enrichment only
             { match: 'master',                type: 'master' },
@@ -434,7 +438,8 @@ class DashboardApp {
             kategori: 'Kategori',
             artikkelstatus: 'Artikkelstatus (hylleinfo)',
             agreement: 'Avtale/Katalog',
-            replacement: 'Erstatning/VareStatus (data(4))'
+            replacement: 'Erstatning/VareStatus (data(4))',
+            bestillinger: 'Bestillinger (innkjøpsordrer)'
         };
         return labels[type] || type;
     }
@@ -454,6 +459,7 @@ class DashboardApp {
         const artikkelstatusFile = this.pendingFiles.artikkelstatus || null;
         const agreementFile = this.pendingFiles.agreement || null;
         const replacementFile = this.pendingFiles.replacement || null;
+        const bestillingerFile = this.pendingFiles.bestillinger || null;
 
         // FASE 7.0: masterV2 alene er nok — hopp over validering av individuelle filer
         if (!masterV2File) {
@@ -482,7 +488,8 @@ class DashboardApp {
                 lagerplan: lagerplanFile,
                 artikkelstatus: artikkelstatusFile,
                 agreement: agreementFile,
-                replacement: replacementFile
+                replacement: replacementFile,
+                bestillinger: bestillingerFile
             }, (status) => this.showStatus(status, 'info'));
 
             console.log(`[FASE 6.1] Prosessert: ${this.dataStore.items.size} SA-artikler`);
@@ -663,6 +670,12 @@ class DashboardApp {
                     // Focus search input after render
                     const searchInput = document.getElementById('artikkelOppslagSearch');
                     if (searchInput) searchInput.focus();
+                }
+                break;
+
+            case 'bpKontroll':
+                if (typeof BPKontrollMode !== 'undefined') {
+                    contentDiv.innerHTML = BPKontrollMode.render(this.dataStore);
                 }
                 break;
 
@@ -905,7 +918,8 @@ class DashboardApp {
                 lagerplan: null,
                 artikkelstatus: null,
                 agreement: null,
-                replacement: null
+                replacement: null,
+                bestillinger: null
             };
             this.dataStore = null;
 
@@ -913,7 +927,7 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV3');
 
             // Nullstill pending files og drop-status
-            this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null };
+            this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null, bestillinger: null };
             const dropStatus = document.getElementById('dropStatus');
             if (dropStatus) dropStatus.innerHTML = '';
 

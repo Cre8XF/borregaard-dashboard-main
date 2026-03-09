@@ -209,6 +209,7 @@ class DataProcessor {
         kalkylPris:    ['Kalkylpris_bas', 'Kalkylpris bas', 'Kalkylpris'],    // FASE 7.1
         ordrekvantitet:['EOK', 'Ordrekvantitet'],                            // FASE 7.1
         sistTelt:      ['Sist_telt', 'SistTelt', 'InvDat', 'sist_telt'],    // FASE 7.2
+        ledetidDager:  ['Ledetid_dager', 'LedetidDager', 'Ledetid dager'],  // FASE 7.3
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -277,6 +278,13 @@ class DataProcessor {
                     this.processOrdersOutData(ordersOutData.data, store);
                 } else {
                     console.log('[FASE 7.0] Ordrer_Jeeves.xlsx: ikke lastet (Rapporter vil mangle avdelingsdata)');
+                }
+
+                // FASE 7.3 — Bestillinger (valgfri)
+                if (files.bestillinger) {
+                    statusCallback('Leser bestillinger.xlsx...');
+                    const bestillingerData = await this.loadFile(files.bestillinger);
+                    this.processBestillingerData(bestillingerData.data, store);
                 }
 
                 store.calculateAll();
@@ -1707,6 +1715,13 @@ class DataProcessor {
                 item.sistTelt = sistTeltRaw.toString().trim(); // 'YYYY-MM-DD'
             }
 
+            // 16. Ledetid (FASE 7.3)
+            const ledetidRaw = this.getMasterV2Value(row, 'ledetidDager');
+            if (ledetidRaw !== '' && ledetidRaw !== null) {
+                const ldVal = this.parseNumber(ledetidRaw);
+                if (ldVal > 0) item.ledetidDager = ldVal;
+            }
+
             enrichedCount++;
         });
 
@@ -1727,6 +1742,66 @@ class DataProcessor {
         if (skippedCount > 0) {
             console.log(`  Hoppet over (mangler SA-nr): ${skippedCount}`);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  BESTILLINGER.XLSX PROCESSING — FASE 7.3
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Prosesser bestillinger.xlsx — berik items med åpne innkjøpsordrer
+     *
+     * @param {Array} rows - Array of objects fra DataLoader.loadExcel/loadFile
+     * @param {UnifiedDataStore} store
+     */
+    static processBestillingerData(rows, store) {
+        if (!rows || rows.length === 0) return;
+
+        // Hjelpefunksjon: finn verdi fra rad via kolonnenavnvarianter
+        const findValue = (row, variants) => {
+            for (const v of variants) {
+                const key = Object.keys(row).find(k => k.toLowerCase() === v.toLowerCase());
+                if (key !== undefined && row[key] !== '' && row[key] !== null && row[key] !== undefined) {
+                    return row[key];
+                }
+            }
+            return null;
+        };
+
+        let matchCount = 0;
+
+        for (const row of rows) {
+            const artNr = findValue(row, ['Artikelnr', 'Item ID', 'Artikkelnr'])?.toString().trim();
+            if (!artNr) continue;
+
+            const restAntRaw = findValue(row, ['RestAntLgrEnh', 'RestAnt', 'Restantall']);
+            const restAnt = parseFloat((restAntRaw || '0').toString().replace(',', '.')) || 0;
+
+            // Hopp over nullrestantall
+            if (restAnt <= 0) continue;
+
+            // Finn item via toolsLookup
+            const item = store.getByToolsArticleNumber(artNr);
+            if (!item) continue;
+
+            // Parse leveringsdato (format: YYYYMMDD eller YYMMDD)
+            let berLevDat = null;
+            const datRaw = findValue(row, ['BerLevDat', 'Beregnet levdato', 'BerLevDato'])?.toString().trim();
+            if (datRaw && datRaw.length >= 6) {
+                const d = datRaw.length === 6
+                    ? `20${datRaw.slice(0,2)}-${datRaw.slice(2,4)}-${datRaw.slice(4,6)}`
+                    : `${datRaw.slice(0,4)}-${datRaw.slice(4,6)}-${datRaw.slice(6,8)}`;
+                berLevDat = d;
+            }
+
+            const ordreNr = findValue(row, ['Beställningsnummer', 'OrdreNr', 'Ordrenr'])?.toString().trim() || '';
+            const status  = findValue(row, ['BesSt', 'Status', 'Bestillingsstatus'])?.toString().trim() || '';
+
+            item.addOpenOrder({ ordreNr, restAntall: restAnt, berLevDat, status });
+            matchCount++;
+        }
+
+        console.log(`[FASE 7.3] Bestillinger: ${matchCount} åpne ordrelinjer koblet`);
     }
 }
 

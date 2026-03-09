@@ -74,6 +74,10 @@ class UnifiedItem {
         // ── Planlegging (fra Analyse_Lagerplan.xlsx, valgfri) ──
         this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan
         this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan
+        this.ledetidDager = null;        // Ledetid_dager fra MV2 (leverandører.xlsx)
+        this.openOrders = [];            // Åpne innkjøpsordrer fra bestillinger.xlsx
+        this.aapentBestiltAntall = 0;   // Totalt restantall på åpne ordrer
+        this.nesteForventetLevering = null; // Tidligste BerLevDat blant åpne ordrer
 
         // ── SA-fil: hylleplassering ──
         this.lagerplass = null;   // Kundens artbeskr. fra SA-fil (data (4).xlsx)
@@ -137,6 +141,27 @@ class UnifiedItem {
             invoiceNo: order.invoiceNo || ''
         });
         this.hasOutgoingOrders = true;
+    }
+
+    /**
+     * Legg til åpen innkjøpsordre fra bestillinger.xlsx (FASE 7.3)
+     */
+    addOpenOrder(order) {
+        this.openOrders.push({
+            ordreNr:    order.ordreNr || '',
+            restAntall: order.restAntall || 0,
+            berLevDat:  order.berLevDat || null,
+            status:     order.status || ''
+        });
+        this.aapentBestiltAntall += order.restAntall || 0;
+
+        // Oppdater tidligste forventet levering
+        if (order.berLevDat) {
+            if (!this.nesteForventetLevering ||
+                order.berLevDat < this.nesteForventetLevering) {
+                this.nesteForventetLevering = order.berLevDat;
+            }
+        }
     }
 
     /**
