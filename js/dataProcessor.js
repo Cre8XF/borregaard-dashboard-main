@@ -210,6 +210,8 @@ class DataProcessor {
         ordrekvantitet:['EOK', 'Ordrekvantitet'],                            // FASE 7.1
         sistTelt:      ['Sist_telt', 'SistTelt', 'InvDat', 'sist_telt'],    // FASE 7.2
         ledetidDager:  ['Ledetid_dager', 'LedetidDager', 'Ledetid dager'],  // FASE 7.3
+        levLedTid:     ['LevLedTid', 'Lev.led.tid', 'Leveringstid', 'LeadTime'],
+        transportdagar:['Transportdagar', 'Transportdager', 'Transport'],
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -1720,6 +1722,18 @@ class DataProcessor {
             if (ledetidRaw !== '' && ledetidRaw !== null) {
                 const ldVal = this.parseNumber(ledetidRaw);
                 if (ldVal > 0) item.ledetidDager = ldVal;
+            }
+
+            // 17. LevLedTid og Transportdagar — separate ledetid-felt (fra leverandører.xlsx via MV2)
+            const levLedTidRaw = this.getMasterV2Value(row, 'levLedTid');
+            if (levLedTidRaw !== '' && levLedTidRaw !== null) {
+                const v = parseInt(levLedTidRaw, 10);
+                if (!isNaN(v)) item.levLedTid = v;
+            }
+            const transportRaw = this.getMasterV2Value(row, 'transportdagar');
+            if (transportRaw !== '' && transportRaw !== null) {
+                const v = parseInt(transportRaw, 10);
+                if (!isNaN(v)) item.transportdagar = v;
             }
 
             enrichedCount++;

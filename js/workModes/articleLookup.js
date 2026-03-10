@@ -102,7 +102,11 @@ class ArticleLookupMode {
             const eok   = item.ordrekvantitet   || null;
             const avvik = (bp !== null) ? stock - bp : null;
             const status = this.calculateBPStatus(stock, bp);
-            return { item, stock, bp, eok, avvik, status };
+            // Ledetid
+            const levLedTid      = item.levLedTid      || 0;
+            const transportdagar = item.transportdagar || 0;
+            const totalLedetid   = levLedTid + transportdagar;
+            return { item, stock, bp, eok, avvik, status, levLedTid, transportdagar, totalLedetid };
         }).sort((a, b) => {
             const order = { 'Tom lager': 1, 'Under BP': 2, 'OK': 3, 'Ingen BP': 4 };
             return (order[a.status] || 9) - (order[b.status] || 9);
@@ -160,7 +164,7 @@ class ArticleLookupMode {
         }
 
         const rows = results.map(r => {
-            const { item, stock, bp, eok, avvik, status } = r;
+            const { item, stock, bp, eok, avvik, status, levLedTid, transportdagar, totalLedetid } = r;
             const rowBg = status === 'Tom lager' ? 'background:#fee2e2;'
                         : status === 'Under BP'  ? 'background:#fff7ed;'
                         : status === 'OK'        ? 'background:#f0fdf4;' : '';
@@ -176,6 +180,11 @@ class ArticleLookupMode {
                     <td style="font-size:11px;" title="${this.esc(item.description || '')}">${this.esc(this.trunc(item.description || '', 45))}</td>
                     <td style="text-align:right;font-weight:700;">${bp !== null ? bp.toLocaleString('nb-NO') : '<span style="color:#aaa;">–</span>'}</td>
                     <td style="text-align:right;">${eok !== null ? eok.toLocaleString('nb-NO') : '<span style="color:#aaa;">–</span>'}</td>
+                    <td style="text-align:right;">
+                        ${totalLedetid > 0
+                            ? `<span title="Lev: ${levLedTid}d + Transport: ${transportdagar}d">${totalLedetid}</span>`
+                            : '<span style="color:#aaa;">–</span>'}
+                    </td>
                     <td style="text-align:right;font-weight:700;">${stock > 0 ? stock.toLocaleString('nb-NO') : '<span style="color:#dc2626;font-weight:700;">0</span>'}</td>
                     <td style="text-align:right;color:${(item.bestAntLev || 0) > 0 ? '#1565c0' : '#aaa'};">${(item.bestAntLev || 0) > 0 ? (item.bestAntLev).toLocaleString('nb-NO') : '–'}</td>
                     <td style="text-align:right;">${avvikStr}</td>
@@ -194,6 +203,7 @@ class ArticleLookupMode {
                             <th>Beskrivelse</th>
                             <th style="text-align:right;">BP</th>
                             <th style="text-align:right;">Ordrekvantitet</th>
+                            <th style="text-align:right;white-space:nowrap;">Ledetid (d)</th>
                             <th style="text-align:right;">Lager</th>
                             <th style="text-align:right;">Innkommende</th>
                             <th style="text-align:right;">Avvik</th>
@@ -258,18 +268,19 @@ class ArticleLookupMode {
 
         // ── Column definitions: header label + minimum width (chars) ──
         const COLS = [
-            { header: 'Tools nr',       wch: 15 },
-            { header: 'SA-nummer',      wch: 15 },
-            { header: 'Beskrivelse',    wch: 40 },
-            { header: 'BP',             wch:  8 },
-            { header: 'Ordrekvantitet', wch: 16 },
-            { header: 'Lager',          wch:  8 },
-            { header: 'Innkommende',    wch: 14 },
-            { header: 'Avvik',          wch: 10 },
-            { header: 'Status',         wch: 14 }
+            { header: 'Tools nr',        wch: 15 },
+            { header: 'SA-nummer',       wch: 15 },
+            { header: 'Beskrivelse',     wch: 40 },
+            { header: 'BP',              wch:  8 },
+            { header: 'Ordrekvantitet',  wch: 16 },
+            { header: 'Ledetid (dager)', wch: 16 },
+            { header: 'Lager',           wch:  8 },
+            { header: 'Innkommende',     wch: 14 },
+            { header: 'Avvik',           wch: 10 },
+            { header: 'Status',          wch: 14 }
         ];
-        const COL_AVVIK  = 7;   // H (0-based)
-        const COL_STATUS = 8;   // I (0-based)
+        const COL_AVVIK  = 8;   // I (0-based)
+        const COL_STATUS = 9;   // J (0-based)
 
         // ── Build rows as arrays (parallel to COLS) ──
         const dataRows = this._lastResults.map(r => [
@@ -278,6 +289,7 @@ class ArticleLookupMode {
             r.item.description        || '',
             r.bp    !== null ? r.bp    : '',
             r.eok   !== null ? r.eok   : '',
+            r.totalLedetid > 0 ? r.totalLedetid : '',   // Ledetid (dager)
             r.stock,
             r.item.bestAntLev || 0,
             r.avvik !== null  ? r.avvik : '',
@@ -297,7 +309,7 @@ class ArticleLookupMode {
         const ws = XLSX.utils.aoa_to_sheet([COLS.map(c => c.header), ...dataRows]);
         ws['!cols']       = colWidths;
         ws['!freeze']     = { xSplit: 0, ySplit: 1 };
-        const tableRef    = `A1:I${dataRows.length + 1}`;
+        const tableRef    = `A1:J${dataRows.length + 1}`;
         ws['!autofilter'] = { ref: tableRef };
 
         // Register as named Excel table (SheetJS Pro 0.20+; silently skipped otherwise)
