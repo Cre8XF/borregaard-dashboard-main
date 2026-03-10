@@ -75,6 +75,10 @@ class UnifiedItem {
         this.bestillingspunkt = null;  // BP fra Analyse_Lagerplan
         this.ordrekvantitet = null;    // EOK fra Analyse_Lagerplan
         this.ledetidDager = null;        // Ledetid_dager fra MV2 (leverandører.xlsx)
+
+        // ── Leverandørledetid (fra MV2 via leverandører.xlsx) ──
+        this.levLedTid      = 0;   // Leverandørens produksjons-/pakketid (dager)
+        this.transportdagar = 0;   // Transittid til lager (dager)
         this.openOrders = [];            // Åpne innkjøpsordrer fra bestillinger.xlsx
         this.aapentBestiltAntall = 0;   // Totalt restantall på åpne ordrer
         this.nesteForventetLevering = null; // Tidligste BerLevDat blant åpne ordrer
@@ -422,6 +426,8 @@ class UnifiedItem {
             category3: this.category3 || '',
             incomingOrderCount: this.incomingOrders.length,
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
+            levLedTid:      this.levLedTid      || 0,
+            transportdagar: this.transportdagar || 0,
             issues: this.getIssues()
         };
     }

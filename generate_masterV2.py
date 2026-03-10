@@ -149,6 +149,7 @@ def main():
 
     # ── 5. leverandører.xlsx ──
     lev_ledetid = {}
+    lev_ledtid_map = {}  # Oppslag per leverandørnavn (Företagsnamn)
     if os.path.exists(LEV_FILE):
         print('Leser leverandører.xlsx...')
         lev_rows = read_sheet(LEV_FILE)
@@ -169,7 +170,16 @@ def main():
             except (ValueError, TypeError):
                 tra_val = 0
             lev_ledetid[fnr_str] = {'total': lev_val + tra_val, 'lev': lev_val, 'transport': tra_val}
+
+            # Bygg navnbasert oppslag: Företagsnamn.strip().upper() → (LevLedTid, Transportdagar)
+            navn = val(row, 'Företagsnamn')
+            if navn:
+                key = str(navn).strip().upper()
+                if key not in lev_ledtid_map:
+                    lev_ledtid_map[key] = (lev_val, tra_val)
+
         print(f'  Ledetid-oppslag: {len(lev_ledetid)} unike leverandørnr')
+        print(f'  Ledetid-oppslag (navn): {len(lev_ledtid_map)} leverandører')
     else:
         print('  leverandører.xlsx ikke funnet — Ledetid_dager blir tom')
 
@@ -206,7 +216,10 @@ def main():
         'LAGERFØRT', 'VAREMERKE', 'PakkeStørrelse', 'Enhet / Ant Des',
         'Item category 1', 'Item category 2', 'Item category 3',
         'Ordre_TotAntall', 'Ordre_SisteDato', 'Dagens_Pris',
-        'Kalkylpris_bas', 'EOK', 'Lokasjon_SA',
+        'Kalkylpris_bas', 'EOK',
+        'LevLedTid',       # Leverandørens produksjons-/pakketid (dager) fra leverandører.xlsx
+        'Transportdagar',  # Transittid til lager (dager) fra leverandører.xlsx
+        'Lokasjon_SA',
         'Ledetid_dager', 'Ledetid_lev', 'Ledetid_transport',
         'Sist_telt',   # FASE 7.2
     ]
@@ -239,6 +252,11 @@ def main():
         lev_nr_str  = str(lev_nr_raw).strip().lstrip('0') if lev_nr_raw else ''
         lev_info    = lev_ledetid.get(lev_nr_str, {})
 
+        # Ledetid: navnbasert oppslag via Leverantör fra Lagerplan
+        supplier_navn = val(l, 'Leverantör')
+        supplier_key  = str(supplier_navn).strip().upper() if supplier_navn else ''
+        lev_ledtid_tuple = lev_ledtid_map.get(supplier_key, (0, 0))
+
         sist_telt   = invdat_by_art.get(tools_art_key, '')  # FASE 7.2
 
         output_rows.append({
@@ -269,6 +287,8 @@ def main():
             'Dagens_Pris':       '',
             'Kalkylpris_bas':    kalkylpris,
             'EOK':               val(l, 'EOK'),
+            'LevLedTid':         lev_ledtid_tuple[0],
+            'Transportdagar':    lev_ledtid_tuple[1],
             'Lokasjon_SA':       lokasjon_sa,
             'Ledetid_dager':     lev_info.get('total', ''),
             'Ledetid_lev':       lev_info.get('lev', ''),
@@ -291,6 +311,7 @@ def main():
     lokasjon_count   = sum(1 for r in output_rows if r.get('Lokasjon_SA'))
     erstatning_count = sum(1 for r in output_rows if r.get('ErsattsAvArtNr'))
     ledetid_count    = sum(1 for r in output_rows if r.get('Ledetid_dager') != '')
+    lev_ledtid_count = sum(1 for r in output_rows if r.get('LevLedTid', 0) > 0 or r.get('Transportdagar', 0) > 0)
     sist_telt_count  = sum(1 for r in output_rows if r.get('Sist_telt'))
 
     print(f'\nFerdig!')
@@ -303,6 +324,7 @@ def main():
     print(f'  Lokasjon_SA:     {lokasjon_count} av {len(output_rows)}')
     print(f'  ErsattsAvArtNr:  {erstatning_count} av {len(output_rows)}')
     print(f'  Ledetid_dager:   {ledetid_count} av {len(output_rows)}')
+    print(f'  Artikler med ledetid (LevLedTid/Transportdagar): {lev_ledtid_count} av {len(output_rows)}')
     print(f'  Sist_telt:       {sist_telt_count} av {len(output_rows)}  [FASE 7.2]')
 
 
