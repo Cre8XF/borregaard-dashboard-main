@@ -212,6 +212,7 @@ class DataProcessor {
         ledetidDager:  ['Ledetid_dager', 'LedetidDager', 'Ledetid dager'],  // FASE 7.3
         levLedTid:     ['LevLedTid', 'Lev.led.tid', 'Leveringstid', 'LeadTime'],
         transportdagar:['Transportdagar', 'Transportdager', 'Transport'],
+        invDat:        ['InvDat', 'invdat', 'Inv.Dat', 'InvDato'],
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -1735,6 +1736,9 @@ class DataProcessor {
                 const v = parseInt(transportRaw, 10);
                 if (!isNaN(v)) item.transportdagar = v;
             }
+
+            // 18. InvDat — siste inventardato (format YYYYMMDD)
+            item.invDat = this.getMasterV2Value(row, 'invDat') || '';
 
             enrichedCount++;
         });

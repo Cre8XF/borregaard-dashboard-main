@@ -172,18 +172,19 @@ class VartellingMode {
             return ua - ub;
         });
 
-        // ── Totaltelling 2026 ──
+        // ── Totaltelling 2026 — bruker InvDat fra MV2 ──
         const totaltArtikler  = items.length;
-        const teltI2026Totalt = items.filter(item =>
-            item.sistTelt && item.sistTelt.startsWith('2026')
-        ).length;
+        const teltI2026Totalt = items.filter(item => {
+            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+            return d.length === 8 && d >= '20260101';
+        }).length;
         const pstTotalt = totaltArtikler > 0
             ? Math.round((teltI2026Totalt / totaltArtikler) * 100)
             : 0;
 
         const alleDatoer2026 = items
-            .filter(item => item.sistTelt && item.sistTelt.startsWith('2026'))
-            .map(item => item.sistTelt)
+            .map(i => String(i.invDat || '').replace(/\D/g, ''))
+            .filter(d => d.length === 8 && d >= '20260101')
             .sort();
         const sisteTeltTotalt = alleDatoer2026.length > 0
             ? alleDatoer2026[alleDatoer2026.length - 1]
@@ -237,10 +238,16 @@ class VartellingMode {
             </div>
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
-                <p style="color:#555;font-size:13px;margin:0;">
-                    Definer soner for rullerende varetelling.
-                    Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
-                </p>
+                <div>
+                    <p style="color:#555;font-size:13px;margin:0 0 4px 0;">
+                        Definer soner for rullerende varetelling.
+                        Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
+                    </p>
+                    <p style="font-size:11px;color:#888;margin:0;">
+                        ℹ️ «Telt 2026» og «Sist telt» hentes fra InvDat i MV2 (Master.xlsx).
+                        Oppdater MV2 ukentlig for å holde telledatoene ferske.
+                    </p>
+                </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button onclick="VartellingMode.lastInnStandardplan()"
                             style="padding:7px 14px;background:#78909c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
@@ -327,10 +334,12 @@ class VartellingMode {
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
                                         <td style="text-align:right;">${artCount}</td>
-                                        <td style="text-align:right;">
-                                            <span style="font-size:13px;font-weight:600;color:${info.teltI2026 >= info.totalt && info.totalt > 0 ? '#2e7d32' : '#e65100'};">
-                                                ${info.teltI2026} / ${info.totalt}
-                                            </span>
+                                        <td style="text-align:right;font-weight:600;color:${
+                                            info.teltI2026 === 0 ? '#c62828'
+                                            : info.teltI2026 < info.totalt ? '#e65100'
+                                            : '#2e7d32'
+                                        };">
+                                            ${info.teltI2026} / ${info.totalt}
                                         </td>
                                         <td>${status}${planlagtTekst}</td>
                                         <td style="white-space:nowrap;">
@@ -471,17 +480,18 @@ class VartellingMode {
         const totalt = sonArtikler.length;
 
         const teltI2026 = sonArtikler.filter(item => {
-            if (!item.sistTelt) return false;
-            return item.sistTelt.startsWith('2026');
+            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+            return d.length === 8 && d >= '20260101';
         }).length;
 
-        // Nyeste telledato blant artikler telt i 2026
-        const datoer2026 = sonArtikler
-            .filter(item => item.sistTelt && item.sistTelt.startsWith('2026'))
-            .map(item => item.sistTelt)
+        // Nyeste telledato blant artikler telt i 2026 (fra InvDat, format YYYYMMDD → DD.MM.YYYY)
+        const datoer = sonArtikler
+            .map(i => String(i.invDat || '').replace(/\D/g, ''))
+            .filter(d => d.length === 8)
             .sort();
-        const sisteTelledato = datoer2026.length > 0
-            ? datoer2026[datoer2026.length - 1]
+        const sisteTeltRaw = datoer.length > 0 ? datoer[datoer.length - 1] : null;
+        const sisteTelledato = sisteTeltRaw
+            ? `${sisteTeltRaw.slice(6)}.${sisteTeltRaw.slice(4, 6)}.${sisteTeltRaw.slice(0, 4)}`
             : null;
 
         // Manuell overstyring fra localStorage overstyrer MV2-verdien
@@ -541,10 +551,10 @@ class VartellingMode {
     static renderUtestaaendePanel(sone, items) {
         const alleISone = this.filterByLocationRange(items, sone.fra, sone.til);
 
-        // Artikler IKKE telt i 2026
+        // Artikler IKKE telt i 2026 (basert på InvDat fra MV2)
         const utestaaende = alleISone.filter(item => {
-            if (!item.sistTelt) return true;
-            return !item.sistTelt.startsWith('2026');
+            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+            return !(d.length === 8 && d >= '20260101');
         });
 
         if (utestaaende.length === 0) {
@@ -569,8 +579,11 @@ class VartellingMode {
 
         const rader = sortert.map(item => {
             const lok      = item.location || item.lagerplass || '—';
-            const sistTelt = item.sistTelt || '–– aldri telt ––';
-            const erGammel = item.sistTelt && !item.sistTelt.startsWith('2026');
+            const invDatRaw = String(item.invDat || '').replace(/\D/g, '');
+            const invDatVist = invDatRaw.length === 8
+                ? `${invDatRaw.slice(6)}.${invDatRaw.slice(4, 6)}.${invDatRaw.slice(0, 4)}`
+                : '–– aldri telt ––';
+            const erGammel = invDatRaw.length === 8 && invDatRaw < '20260101';
             const datoFarge = erGammel ? '#e65100' : '#888';
 
             return `
@@ -585,7 +598,7 @@ class VartellingMode {
                         ${this.esc(lok)}
                     </td>
                     <td style="font-size:12px;color:${datoFarge};padding:5px 10px;">
-                        ${this.esc(sistTelt)}
+                        ${this.esc(invDatVist)}
                     </td>
                 </tr>
             `;
@@ -644,7 +657,10 @@ class VartellingMode {
         const alleISone = this.filterByLocationRange(items, fra, til);
 
         const utestaaende = alleISone
-            .filter(item => !item.sistTelt || !item.sistTelt.startsWith('2026'))
+            .filter(item => {
+                const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+                return !(d.length === 8 && d >= '20260101');
+            })
             .sort((a, b) => {
                 const la = a.location || a.lagerplass || '';
                 const lb = b.location || b.lagerplass || '';
@@ -656,16 +672,22 @@ class VartellingMode {
             return;
         }
 
-        const rows = utestaaende.map(item => ({
-            'Art.nr':        item.toolsArticleNumber || '',
-            'SA-nummer':     item.saNumber || '',
-            'Beskrivelse':   item.description || '',
-            'Lokasjon':      item.location || item.lagerplass || '',
-            'Sist telt':     item.sistTelt || '',
-            'Saldo':         item.stock ?? '',
-            'Tellet antall': '',   // tom kolonne for papirbruk
-            'Avvik':         ''    // tom kolonne for papirbruk
-        }));
+        const rows = utestaaende.map(item => {
+            const d = String(item.invDat || '').replace(/\D/g, '');
+            const invDatVist = d.length === 8
+                ? `${d.slice(6)}.${d.slice(4, 6)}.${d.slice(0, 4)}`
+                : '';
+            return {
+                'Art.nr':        item.toolsArticleNumber || '',
+                'SA-nummer':     item.saNumber || '',
+                'Beskrivelse':   item.description || '',
+                'Lokasjon':      item.location || item.lagerplass || '',
+                'Sist telt':     invDatVist,
+                'Saldo':         item.stock ?? '',
+                'Tellet antall': '',   // tom kolonne for papirbruk
+                'Avvik':         ''    // tom kolonne for papirbruk
+            };
+        });
 
         const wb  = XLSX.utils.book_new();
         const ws  = XLSX.utils.json_to_sheet(rows);

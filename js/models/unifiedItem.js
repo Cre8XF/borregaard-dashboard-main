@@ -112,6 +112,7 @@ class UnifiedItem {
         this.category2 = '';         // Item category 2
         this.category3 = '';         // Item category 3
         this.sistTelt = null;        // 'YYYY-MM-DD' streng eller null (FASE 7.2)
+        this.invDat = '';            // Siste inventardato fra Master.xlsx, format YYYYMMDD
 
         // ── Metadata ──
         this.hasIncomingOrders = false;
@@ -428,6 +429,7 @@ class UnifiedItem {
             incomingQuantity: this.bestAntLev || this.incomingOrders.reduce((sum, o) => sum + (o.quantity || 0), 0),
             levLedTid:      this.levLedTid      || 0,
             transportdagar: this.transportdagar || 0,
+            invDat: this.invDat,
             issues: this.getIssues()
         };
     }
