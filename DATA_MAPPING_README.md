@@ -1,312 +1,135 @@
-# 📊 Datamapping-system - Borregaard Dashboard
+# DATA_MAPPING_README — Borregaard Dashboard
 
-## Hovedprinsipp
+**Sist oppdatert:** Mars 2026 (FASE 7.2)
 
-Dashboardet er **IKKE** avhengig av faktiske kolonnenavn i CSV/Excel-filer.
-
-### Hvordan det fungerer:
-
-1. **Interne standardiserte felt** - Dashboardet bruker kun egne feltnavn
-2. **Mapping-filer** - Kobler CSV-kolonner til interne felt
-3. **Dynamisk parsing** - CSV-filer lastes uten antakelser om kolonnenavn
+> **Merk:** Dette dokumentet beskriver FASE 7.x-arkitekturen med MV2 som enkelt datakjerne.
+> Den gamle CSV-mapping-løsningen (mapping-filer i `data/mapping/`) er avviklet.
 
 ---
 
-## 📁 Filstruktur
+## Prinsipp
 
-```
-data/
-├── raw/                          # CSV-filer (rådata)
-│   ├── articles.csv              # Artikkeldata
-│   ├── orders_internal.csv       # Interne ordre/etterfylling
-│   └── orders_external.csv       # Eksterne innkjøp
-│
-└── mapping/                      # Mapping-konfigurasjon
-    ├── articles.map.json         # Mapping for artikler
-    ├── orders_internal.map.json  # Mapping for interne ordre
-    └── orders_external.map.json  # Mapping for eksterne innkjøp
-```
+Dashboardet bruker interne standardiserte feltnavn (`UnifiedItem`-modellen) og kobler disse til faktiske kolonner i Excel-filene via **kolonnevariant-lister** i `dataProcessor.js`. Dette betyr at dashboardet tåler mindre variasjoner i kolonnenavn mellom eksporter uten at koden må endres.
 
 ---
 
-## 🧩 Datatyper og interne felt
+## Primærkilder og felttilknytning
 
-### 1️⃣ Artikler (`articles`)
+### `Borregaard_SA_Master_v2.xlsx` (MV2)
 
-**Interne standardiserte felt:**
-- `articleId` - Artikkel-ID (påkrevd)
-- `description` - Beskrivelse
-- `category` - Kategori/produktgruppe
-- `isStockItem` - Om artikkelen er lagerført (Ja/Nei)
+Genereres av `generate_masterV2.py`. Inneholder kolonner fra SANummer.xlsx og Master_Artikkelstatus.xlsx bakt sammen.
 
-**Eksempel CSV:**
-```csv
-Artikkel-ID;Beskrivelse;Produktkategori;Lagerført
-ART-001;Testprodukt 1;Kategori A;Ja
-ART-002;Testprodukt 2;Kategori B;Nei
-```
+| Internt felt (UnifiedItem) | Forventede kolonnenavn i MV2 | Påkrevd |
+|---------------------------|------------------------------|---------|
+| `saNumber` | `SANummer`, `Kunds artikkelnummer` | **Ja** |
+| `toolsArticleNumber` | `Artikelnr`, `Tools art.nr` | **Ja** |
+| `description` | `Artikelbeskrivning`, `Beskrivelse` | Ja |
+| `articleStatus` | `Artikelstatus`, `Artikkelstatus` | Ja |
+| `stock` | `TotLagSaldo`, `Lagersaldo` | Ja |
+| `availableStock` | `DispLagSaldo`, `Available` | Ja |
+| `reserved` | `ReservAnt`, `Reservert` | Ja |
+| `kalkylPris` | `Kalkylpris bas`, `Kalkylpris` | Ja |
+| `ordrekvantitet` (EOK) | `EOK` | Ja |
+| `bestAntLev` | `BestAntLev`, `Ordered Qty` | Ja |
+| `bestillingsNummer` | `Beställningsnummer`, `Bestillingsnr` | Nei |
+| `ersattAvArtikel` | `Ersätts av artikel`, `ErsattsAvArtNr` | Nei |
+| `ersatterArtikel` | `Ersätter artikel` | Nei |
+| `location` | `Lagerhylla`, `Lokasjon_SA` | Nei |
+| `supplier` | `Företagsnamn`, `Leverandør` | Nei |
+| `category` | `Varugrupp`, `Kategori` | Nei |
+| `invDat` | `InvDat` | Nei |
+| `r12` | `R12 Del Qty` | Nei |
+| `bp` | `BP`, `Bestillingspunkt` | Nei |
 
-### 2️⃣ Interne ordre / etterfylling (`orders_internal`)
-
-**Interne standardiserte felt:**
-- `articleId` - Artikkel-ID (påkrevd)
-- `warehouse` - Lager (Lager 1-7)
-- `quantity` - Antall/mengde
-- `date` - Ordredato
-
-**Eksempel CSV:**
-```csv
-Varenummer;Lager;Antall;Ordredato
-ART-001;Lager 1;50;2026-01-15
-ART-002;Lager 3;25;2026-01-16
-```
-
-### 3️⃣ Eksterne innkjøp (`orders_external`)
-
-**Interne standardiserte felt:**
-- `articleId` - Artikkel-ID (påkrevd)
-- `supplier` - Leverandør
-- `quantity` - Antall/mengde
-- `expectedDate` - Forventet leveringsdato
-
-**Eksempel CSV:**
-```csv
-Produkt-ID;Leverandørnavn;Mengde;Forventet levering
-ART-001;Leverandør AS;200;2026-02-01
-ART-002;Supplier AB;150;2026-02-05
-```
+Matching er **case-insensitiv** og bruker "first match wins" — første variant som finnes i Excel-kolonnehodene vinner.
 
 ---
 
-## ⚙️ Slik konfigurerer du mapping
+### `Ordrer_Jeeves.xlsx`
 
-### Steg 1: Identifiser kolonnenavn i din CSV-fil
+Brukes av `buildJeevesMap()` i `dataProcessor.js`. Inneholder kjøpshistorikk (avdelingsordrer fra Jeeves).
 
-Åpne CSV-filen i Excel eller en teksteditor og noter kolonnenavn.
+| Internt felt (jeevesMap) | Forventede kolonnenavn | Merknad |
+|--------------------------|----------------------|---------|
+| Artikkelnummer (join-nøkkel) | `Artikelnr`, `Item ID`, `ItemNo` | Matches mot `toolsArticleNumber` |
+| Antall | `OrdRadAnt`, `Quantity`, `Antall` | Per ordrelinje |
+| Dato | `OrdDtm`, `Date`, `Ordredato` | ISO eller DD.MM.YYYY |
+| Kunde/avdeling | `Företagsnamn`, `Customer` | Filtrert på `424186` |
+| Leveringslager | `Delivery location ID`, `Lager` | Brukes i `byLocation` |
 
-**Eksempel:** Din CSV for artikler har følgende kolonner:
-```
-Varenr;Produkt navn;Gruppe;På lager
-```
-
-### Steg 2: Åpne mapping-filen
-
-Åpne tilsvarende mapping-fil, f.eks. `data/mapping/articles.map.json`
-
-**Standard (tom) mapping:**
-```json
-{
-  "_comment": "Mapping mellom CSV-kolonner og interne felter for artikler",
-  "_instructions": "Fyll inn kolonnenavn fra CSV-filen...",
-  "articleId": "",
-  "description": "",
-  "category": "",
-  "isStockItem": ""
-}
-```
-
-### Steg 3: Fyll inn kolonnenavn
-
-Koble hver intern felt til riktig CSV-kolonne:
-
-```json
-{
-  "_comment": "Mapping mellom CSV-kolonner og interne felter for artikler",
-  "_instructions": "Fyll inn kolonnenavn fra CSV-filen...",
-  "articleId": "Varenr",
-  "description": "Produkt navn",
-  "category": "Gruppe",
-  "isStockItem": "På lager"
-}
-```
-
-### Steg 4: Lagre og test
-
-1. Lagre mapping-filen
-2. Gå til dashboardet (index.html)
-3. Klikk "🔄 Oppdater datamapping-status"
-4. Sjekk at data vises korrekt
+**Viktig:** Bare rader der `Företagsnamn` / `Customer` inneholder `'424186'` inkluderes i `jeevesMap`.
 
 ---
 
-## ✅ Validering og feilhåndtering
+### `bestillinger.xlsx` (valgfri)
 
-Dashboardet håndterer følgende tilfeller automatisk:
+Åpne innkjøpsordrer med restantall og beregnet leveringsdato.
 
-| Situasjon | Resultat |
-|-----------|----------|
-| CSV-fil ikke funnet | Viser "Ingen data" |
-| Mapping-fil ikke funnet | Viser "Mapping mangler" |
-| Mapping er tom | Viser "Mapping tom" |
-| Kolonnenavn matcher ikke | Viser "0 gyldige rader" |
-| Alt OK | Viser antall mappede rader + aggregering |
+| Internt felt | Forventede kolonnenavn |
+|-------------|----------------------|
+| Artikkelnummer | `Artikelnr`, `Item ID` |
+| Restantall | `RestAntLgrEnh`, `RestAnt` |
+| Beregnet leveringsdato | `BerLevDat`, `Beregnet levdato` |
 
 ---
 
-## 🔄 Hvordan legge til nye kolonner
+## Kolonnevariant-konfigurasjon
 
-Hvis CSV-filen får nye kolonner, trenger du **IKKE** endre kode.
+Alle varianter er definert i `DataProcessor.MASTER_COLUMN_VARIANTS` i `dataProcessor.js`. Legg til nye varianter her dersom eksportformatet fra Butler eller Jeeves endrer kolonnenavn:
 
-**Eksempel:** CSV får ny kolonne "Leverandør"
-
-1. Åpne mapping-filen
-2. Legg til nytt felt:
-```json
-{
-  "articleId": "Varenr",
-  "description": "Produkt navn",
-  "category": "Gruppe",
-  "isStockItem": "På lager",
-  "supplier": "Leverandør"  // <-- Ny mapping
-}
-```
-
-**OBS:** Hvis du vil bruke dette nye feltet i dashboardet, må du:
-1. Legge til feltet i `DATA_TYPE_FIELDS` i `dataMapper.js`
-2. Oppdatere aggregeringslogikk om nødvendig
-
----
-
-## 🚀 Slik legger du til ny datatype
-
-Hvis du trenger en ny datatype (f.eks. "leverandører"):
-
-### Steg 1: Definer interne felt
-
-I `js/dataMapper.js`, legg til:
 ```javascript
-const SUPPLIER_FIELDS = ['supplierId', 'supplierName', 'country'];
-
-const DATA_TYPE_FIELDS = {
-  articles: ARTICLE_FIELDS,
-  orders_internal: INTERNAL_ORDER_FIELDS,
-  orders_external: EXTERNAL_ORDER_FIELDS,
-  suppliers: SUPPLIER_FIELDS  // <-- Ny datatype
+static MASTER_COLUMN_VARIANTS = {
+    articleNumber: ['Artikelnr', 'Item ID', 'VareNr', ...],
+    kalkylPris:    ['Kalkylpris bas', 'Kalkylpris', ...],
+    // ...
 };
 ```
 
-### Steg 2: Opprett mapping-fil
+---
 
-Opprett `data/mapping/suppliers.map.json`:
-```json
-{
-  "supplierId": "",
-  "supplierName": "",
-  "country": ""
-}
-```
+## Feilsøking
 
-### Steg 3: Legg til CSV-fil
+### "0 artikler lastet" etter opplasting
 
-Plasser CSV-fil i `data/raw/suppliers.csv`
+1. Sjekk at filen er `Borregaard_SA_Master_v2.xlsx` (ikke en gammel versjon)
+2. Åpne filen i Excel og verifiser at kolonnen `SANummer` eller `Kunds artikkelnummer` finnes
+3. Sjekk nettleserens konsoll (F12) for feilmeldinger fra `processMasterV2File()`
 
-### Steg 4: Oppdater UI
+### Kjøpshistorikk vises ikke i Artikkel Oppslag
 
-Legg til ny seksjon i `index.html` for å vise status.
+1. Sjekk at `Ordrer_Jeeves.xlsx` ble lastet inn (ikke bare MV2)
+2. Verifiser at kolonne for kundenummer/firma inneholder `424186` for Borregaard-rader
+3. Sjekk konsollen for `[JeevesMap] Bygget kjøpshistorikk for X artikler`
+
+### Bestillinger vises ikke
+
+1. Sjekk at `bestillinger.xlsx` ble lastet inn som valgfri fil
+2. Verifiser at `RestAntLgrEnh` > 0 for relevante rader (rader med 0 restantall hoppes over)
+
+### Lokasjon mangler for mange artikler
+
+`Lokasjon_SA` / `Lagerhylla` er ikke alltid populert i MV2. Sjekk kildefilen `SANummer.xlsx` kolonne `Artikelbeskrivning.1` — dette feltet inneholder hylleadresser (f.eks. `12-3-B`) for noen artikler og kan bakes inn i MV2 via `generate_masterV2.py`.
 
 ---
 
-## 📝 Viktige prinsipper
+## Viktige prinsipper
 
-### ✅ GJØR DETTE:
-- Bruk kun interne feltnavn i all kode
-- Oppdater mapping-filer når CSV-kolonner endres
-- Valider at mapping matcher faktiske kolonnenavn
-
-### ❌ IKKE GJØR DETTE:
-- Hardkode kolonnenavn i JavaScript
-- Anta rekkefølge på kolonner
-- Bruk CSV-kolonnenavn direkte i logikk
+- **Bruk kun interne feltnavn** i all JavaScript-logikk — aldri kolonnenavn direkte
+- **Legg til varianter i MASTER_COLUMN_VARIANTS** når eksportformat endres — ikke endre logikken
+- **MV2 er sannhetskilden** — alle andre filer er sekundære beriker
+- **Jeeves er alltid separat** — tidsseriedata kan ikke forhåndsaggregeres uten å miste fleksibilitet
 
 ---
 
-## 🐛 Feilsøking
+## Avviklede konsepter
 
-### Problem: "0 gyldige rader" selv om mapping er fylt inn
+Følgende fra tidligere dokumentasjon er **ikke lenger i bruk**:
 
-**Løsning:**
-1. Åpne CSV-filen og sjekk eksakte kolonnenavn (case-sensitive)
-2. Sammenlign med mapping-fil
-3. Pass på at det ikke er ekstra mellomrom eller usynlige tegn
-
-### Problem: Dashboardet viser "Mapping mangler"
-
-**Løsning:**
-1. Sjekk at mapping-fil eksisterer i `data/mapping/`
-2. Sjekk at filnavnet stemmer (f.eks. `articles.map.json`)
-3. Sjekk at JSON-syntaksen er korrekt
-
-### Problem: CSV vises ikke
-
-**Løsning:**
-1. Sjekk at CSV-fil ligger i `data/raw/`
-2. Sjekk at filnavnet stemmer
-3. Sjekk at CSV har riktig format (header-linje + data)
-
----
-
-## 📚 API-dokumentasjon
-
-### DataMapper.processDataType(dataType)
-
-Hovedfunksjon for å prosessere data.
-
-**Parametre:**
-- `dataType` (String): 'articles', 'orders_internal', eller 'orders_external'
-
-**Returnerer:**
-```javascript
-{
-  dataType: 'articles',
-  rawDataLoaded: true,
-  mappingLoaded: true,
-  mappingValid: true,
-  rowsParsed: 100,
-  rowsMapped: 95,
-  data: [...],
-  errors: []
-}
-```
-
-### DataAggregator.generateSummary(data, dataType)
-
-Genererer oppsummering av mappet data.
-
-**Parametre:**
-- `data` (Array): Mappet data
-- `dataType` (String): Datatype
-
-**Returnerer:**
-```javascript
-{
-  dataType: 'articles',
-  totalRows: 95,
-  uniqueArticles: 45,
-  breakdown: {
-    byCategory: { 'Kategori A': 30, 'Kategori B': 65 }
-  }
-}
-```
-
----
-
-## 🎯 Neste steg
-
-1. ✅ Fyll inn mapping-filer med riktige kolonnenavn
-2. ✅ Test at data vises korrekt i dashboardet
-3. ✅ Bygg videre funksjonalitet basert på mappet data
-4. ✅ Hold mapping-filer oppdatert når CSV-format endres
-
----
-
-## 📞 Support
-
-Hvis du har spørsmål eller problemer, sjekk:
-1. Denne README-filen
-2. Kommentarer i JavaScript-filene
-3. Nettleserens console for feilmeldinger
-
----
-
-**Versjon:** 1.0
-**Sist oppdatert:** 2026-01-22
+| Avviklet | Erstattet av |
+|----------|-------------|
+| `data/mapping/*.map.json` | `MASTER_COLUMN_VARIANTS` i `dataProcessor.js` |
+| `data/raw/*.csv` | `Borregaard_SA_Master_v2.xlsx` |
+| `DataMapper`, `DataAggregator` (gammel) | `DataProcessor.processMasterV2File()` |
+| SA-Nummer.xlsx som primærkilde | Bakt inn i MV2 via `generate_masterV2.py` |
+| Analyse_Lagerplan.xlsx | BP og EOK bakt inn i MV2 |
+| Master_Artikkelstatus.xlsx (direkte) | Bakt inn i MV2 via `generate_masterV2.py` |

@@ -1,158 +1,172 @@
-# Borregaard Dashboard - Dataflyt
+# DATAFLOW — Borregaard Dashboard
 
-## Datakilder
+**Sist oppdatert:** Mars 2026 (FASE 7.2)
 
-### 1. Butler Excel-eksport (daglig)
-**Fil:** `Lager_Borregaard.xlsx` eller lignende
-**Kolonner:** ~88 (Artikelnr, Lagersaldo, DispLagSaldo, BP, R12 Del Qty, etc.)
-**Destinasjon:** `ButlerAnalyzer`
-**Frekvens:** Daglig
+---
 
-### 2. Salgshistorikk med Delivery Location (NY!)
-**Fil:** `c2409b41-9fae-4adb-b5c1-4d2b84c8dc5a.xlsx`
-**Kolonner:** 8 (Date, Customer ID, Delivery location ID, Item ID, Item, Order number, Delivered value, Delivered quantity)
-**Destinasjon:** `LocationAnalyzer` -> `InsightEngine`
-**Frekvens:** Ukentlig/Månedlig
-
-**Nøkkeltall:**
-- 14,330 ordrelinjer
-- 2,302 unike artikler
-- 9 leveringslokasjoner
-
-### 3. SA-nummer mapping (Jeeves)
-**Fil:** Artikkelknytte fra Jeeves
-**Destinasjon:** `ButlerAnalyzer` (beriker data)
-**Frekvens:** Ved behov
-
-### 4. Ordre historikk (Tools - generell)
-**Fil:** Diverse ordreeksporter
-**Destinasjon:** `OrderAnalyzer`
-**Frekvens:** Ved behov
-
-## Modulkjede
+## Oversikt
 
 ```
-1. Datainnlasting
-   ↓
-2. Import Wizard (brukervalg av modul)
-   ↓
-3. Kolonnedeteksjon (DataLoader)
-   ↓
-4. Modul-analyse
-   ├── ButlerAnalyzer (lagerstatus)
-   ├── LocationAnalyzer (salg per lager) ← NY!
-   └── OrderAnalyzer (salgshistorikk)
-   ↓
-5. Kryssanalyse
-   └── InsightEngine (Butler + Location) ← NY!
-   ↓
-6. Prioritert handlingsliste
+generate_masterV2.py
+  SANummer.xlsx ──────────────────┐
+  Master_Artikkelstatus.xlsx ─────┴──► Borregaard_SA_Master_v2.xlsx (MV2)
+                                                  │
+                                                  ▼
+                             DataProcessor.processMasterV2File()
+                                                  │
+                             Ordrer_Jeeves.xlsx ──┤ buildJeevesMap()
+                             bestillinger.xlsx ───┤ processBestillingerData()  [valgfri]
+                                                  │
+                                                  ▼
+                                        UnifiedDataStore
+                                     (items keyed by saNumber)
+                                                  │
+                         ┌────────────────────────┼────────────────────────┐
+                         ▼                        ▼                        ▼
+                   Varetelling            Artikkel Oppslag           Order Analyzer
+                   Butler Analyzer        Shutdown Planner           Flow Issues
 ```
 
-## Kryssmodulkobling
+---
 
-### InsightEngine kombinerer:
-- **Butler:** Artikler med 0-saldo, under minimum, negativ
-- **Location:** Hvilke lagre som kjøper disse ofte
-- **Resultat:** Prioritert etterfyllingsliste per lager
+## Fase 7.x pipeline i detalj
 
-### Eksempel-flyt:
-1. Butler melder: "Artikkel 12345 har 0 i saldo"
-2. LocationAnalyzer finner: "Satellitt 3 kjøper denne 8 ganger siste år"
-3. InsightEngine konkluderer: "Risikoscore 85 - artikkel 12345 trenger etterfylling for Satellitt 3"
-4. Foreslår bestilling: Median(historiske ordre) x 1.2
+### Steg 1 — MV2 lastes og oppretter artikler
 
-## Modulhierarki for beslutninger
+`processMasterV2File(rows, store)` itererer alle rader i MV2.
 
-### For lagerspesifikke beslutninger (primær):
-1. **InsightEngine** - Kombinert analyse (Butler + Location)
-2. **LocationAnalyzer** - Salgshistorikk per leveringslokasjon
-3. **ButlerAnalyzer** - Dagens lagerstatus
+For hver rad:
+- Henter `SANummer` (påkrevd — rader uten hoppes over)
+- Kaller `store.createFromSA(saNumber, toolsArtNr)` → ny `UnifiedItem`
+- Beriker med alle tilgjengelige felt (se tabell under)
 
-### OrderAnalyzer beholdes for:
-- Generell trendanalyse (alle kunder samlet)
-- Sesongmonstre over flere ar
-- Totaloversikt uten lagerdimensjon
+### Steg 2 — Jeeves-data beriker salgshistorikk
 
-### OrderAnalyzer brukes IKKE for:
-- Lagerspesifikke bestillinger (bruk LocationAnalyzer)
-- Kritisk-lav analyse (bruk InsightEngine)
-- Satellittlager-spesifikk analyse (bruk LocationAnalyzer)
+`buildJeevesMap(rows)` bygger et oppslagskart keyed på `toolsArticleNumber`:
 
-**Forklaring:**
-OrderAnalyzer ble bygget for Delivery Location ID ble oppdaget. Den viser generelle kjopsmonstre, men LocationAnalyzer gir lagerspesifikk innsikt som er nodvendig for presis etterfylling.
-
-## Leveringslokasjoner
-
-| ID | Navn | Andel |
-|----|------|-------|
-| 424186 | Hovedlager | 72% |
-| 10003790 | Spesiallager | 10% |
-| 424186-2 | Satellitt 2 | 6% |
-| 424186-6 | Satellitt 6 | 5% |
-| 424186-5 | Satellitt 5 | 3% |
-| 424186-3 | Satellitt 3 | 3% |
-| 424186-4 | Satellitt 4 | 1% |
-| 424186-1 | Satellitt 1 | 1% |
-| 424186-7 | Satellitt 7 | <1% |
-
-## Risikoscore-beregning (InsightEngine)
-
-Risikoscore: 0-100 poeng basert pa:
-
-| Faktor | Maks poeng | Logikk |
-|--------|------------|--------|
-| Butler-status | 40p | 0-saldo=40, Negativ=35, Under min=20 |
-| Ordrefrekvens | 30p | >=10 ordre=30, >=6=20, >=3=10 |
-| Nylig aktivitet | 20p | <=7 dager=20, <=30=15, <=60=10 |
-| Verdi | 10p | >=10k=10, >=5k=7, >=1k=5 |
-
-**Terskel:** Score >= 50 vises i prioritetsliste
-
-## Utilities
-
-### DateParser (sentralisert)
-Brukes av alle moduler for:
-- `parse(dateStr)` - Multi-format datoparsing
-- `getWeekNumber(date)` - ISO uke-nummer
-- `parseNumber(value)` - Norsk/svensk tallformat
-- `toNorwegian(date)` - DD.MM.YYYY
-
-### SortableTable
-Brukes for klikkbare kolonneoverskrifter:
-- Klikk = sorter stigende
-- Klikk igjen = sorter synkende
-- Tredje klikk = original rekkefolge
-- Stotter norsk tallformat
-
-## Filstruktur
-
-```
-js/
-├── utils/
-│   ├── dateParser.js      # Sentralisert dato/tall-parsing
-│   └── sortableTable.js   # Sorterbare tabeller
-├── app.js                 # Hovedkontroller
-├── dataLoader.js          # Filhandtering
-├── dataMapper.js          # Kolonnemapping
-├── dataAggregator.js      # Aggregering
-├── butlerAnalyzer.js      # Butler-analyse
-├── orderAnalyzer.js       # Ordreanalyse (generell)
-├── locationAnalyzer.js    # Lokasjonsanalyse (NY!)
-├── insightEngine.js       # Kryssanalyse (NY!)
-├── shutdownAnalyzer.js    # Vedlikeholdsplanlegging
-├── inventoryRisk.js       # Risikoanalyse
-├── flowIssues.js          # Problemsporing
-└── assortment.js          # Kundesortiment
+```javascript
+jeevesMap[toolsArtNr] = {
+    totalOrders,
+    lastDate,       // DD.MM.YYYY
+    avgQty,
+    minQty,
+    maxQty,
+    byLocation: {   // per leveringslager
+        [loc]: { orders, lastDate, avgQty }
+    }
+}
 ```
 
-## Viktig for brukere
+Filtrerer på CustomerID ∋ `'424186'` (Borregaard AS).
 
-### Datainnlasting-rekkefolge:
-1. Last Butler-eksport forst (gir lagerstatus)
-2. Last salgshistorikk med Delivery Location (gir frekvens per lager)
-3. InsightEngine aktiveres automatisk nar begge finnes
+`store.jeevesMap` brukes av **Artikkel Oppslag** for kjøpshistorikk-panel og av **Order Analyzer** for frekvensanalyse.
 
-### Disclaimer:
-Alle forslag fra InsightEngine er beslutningsstotte.
-Endelig bestilling vurderes manuelt av plassansvarlig.
+### Steg 3 — Bestillinger (valgfri)
+
+`processBestillingerData(rows, store)` beriker items med åpne innkjøpsordrer:
+- Slår opp via `toolsLookup` (toolsArtNr → saNumber)
+- Setter `item.bestillinger[]` med restantall og beregnet leveringsdato
+
+---
+
+## MV2-feltdekning (29/40 UnifiedItem-felt)
+
+| UnifiedItem-felt | MV2-kolonne | Kilde |
+|------------------|-------------|-------|
+| `saNumber` | SANummer | SANummer.xlsx |
+| `toolsArticleNumber` | Tools art.nr | SANummer.xlsx |
+| `description` | Artikelbeskrivning | Master_Artikkelstatus.xlsx |
+| `articleStatus` | Artikelstatus | Master_Artikkelstatus.xlsx |
+| `isDiscontinued` | Avledet fra Artikelstatus | — |
+| `stock` | TotLagSaldo | Master_Artikkelstatus.xlsx |
+| `availableStock` | DispLagSaldo | Master_Artikkelstatus.xlsx |
+| `reserved` | ReservAnt | Master_Artikkelstatus.xlsx |
+| `kalkylPris` | Kalkylpris bas | Master_Artikkelstatus.xlsx |
+| `ordrekvantitet` (EOK) | EOK | Master_Artikkelstatus.xlsx |
+| `bestAntLev` | BestAntLev | Master_Artikkelstatus.xlsx |
+| `bestillingsNummer` | Beställningsnummer | Master_Artikkelstatus.xlsx |
+| `ersattAvArtikel` | Ersätts av artikel | Master_Artikkelstatus.xlsx |
+| `ersatterArtikel` | Ersätter artikel | Master_Artikkelstatus.xlsx |
+| `location` | Lagerhylla / Lokasjon_SA | SANummer.xlsx / Master |
+| `supplier` | Företagsnamn | Master_Artikkelstatus.xlsx |
+| `category` | Varugrupp | Master_Artikkelstatus.xlsx |
+| `invDat` | InvDat | Master_Artikkelstatus.xlsx |
+| `r12` | R12 Del Qty | Master_Artikkelstatus.xlsx |
+| `bp` | BP / Bestillingspunkt | Analyse_Lagerplan (bakt inn i MV2) |
+| `outgoingOrders[]` | — | Ordrer_Jeeves.xlsx (alltid separat) |
+| `jeevesMap` | — | Ordrer_Jeeves.xlsx (alltid separat) |
+| `bestillinger[]` | — | bestillinger.xlsx (valgfri) |
+
+**Felt som gjenstår (11/40):** Primært avanserte planleggingsfelt og felt med usikker kilde. Se `AUDIT_TOOLS_SA_ARTIKLER.md` for full liste.
+
+---
+
+## Hvorfor Ordrer_Jeeves.xlsx alltid er separat
+
+Tidsseriedata (salg per dato, per avdeling, per leveringslager) kan ikke forhåndsaggregeres i MV2 uten å miste fleksibilitet:
+- `sales6m` vs `sales12m` beregnes dynamisk fra rådata
+- Per-lager-breakdown (`byLocation`) krever alle ordrelinjer
+- Trendanalyse over tid krever full historikk
+
+Jeeves-filen er derfor den **eneste uunngåelige tilleggsfilen** ved siden av MV2.
+
+---
+
+## Kjøpsstatus-logikk (Order Analyzer)
+
+```
+Median dager mellom leveranser (m) beregnes per artikkel
+  (filtrerer intervaller > 365 dager som prosjektordre)
+
+daysSinceLast ≤ m × 1.2  →  ✅ OK
+daysSinceLast ≤ m × 1.6  →  ⚠️  Følg med
+daysSinceLast > m × 1.6  →  🔴 Bør bestilles
+< 3 gyldige intervaller  →  ⬜ For lite historikk
+```
+
+Konstanter: `OK_THRESHOLD=1.2`, `FOLLOW_UP_THRESHOLD=1.6`, `MIN_INTERVALS=3`, `MAX_INTERVAL_DAYS=365`, `SAFETY_FACTOR=1.2`
+
+---
+
+## Sesonganalyse (uke 16 og 42)
+
+For hvert fokusår analyseres tre vinduer: uke_før → fokusuke → uke_etter.
+
+| Mønster | Klassifisering |
+|---------|---------------|
+| qty_fokus >> qty_før OG qty_etter = 0 | 🔴 Sesongspike |
+| Aktivitet kun i fokusuke | 🟡 Engangs/event |
+| Aktivitet også før/etter | 🟢 Stabil etterspørsel |
+
+Anbefalt kvantitet = median historisk × 1.2 (20 % sikkerhetsmargin).
+
+---
+
+## Varetelling — 32-sesjoners telleplan 2026
+
+- **Periode:** Uke 11–44, hopper over uke 16 og 42 (vedlikeholdsstopp)
+- **Sesjoner:** 32 telleuker, 1 sesjon per uke
+- **Soner:** ~3 261 artikler fordelt på 381 lokasjoner
+- **Mål per sesjon:** 100–170 artikler
+- **`invDat`** fra MV2 brukes for å vise «Sist telt» og beregne fremgang
+- Bufferveker er innlagt for å tåle avvik i den operative hverdagen
+
+---
+
+## localStorage-skjema
+
+Datastore serialiseres til `borregaardDashboardV4` i `localStorage`:
+
+```json
+{
+  "version": "4.3",
+  "timestamp": "...",
+  "items": [...],
+  "toolsLookup": [...],
+  "alternativeArticles": [...],
+  "masterOnlyArticles": [...],
+  "dataQuality": {...}
+}
+```
+
+Data bevares mellom nettleserøkter. Nullstilles med **Nullstill**-knappen i UI.
