@@ -385,24 +385,6 @@ class ArtikkelOppslagMode {
             ? Math.round(item.daysToEmpty)
             : null;
 
-        const optionalRows = [
-            bp != null ? `
-                <div class="detail-item">
-                    <span class="detail-label">BP</span>
-                    <span class="detail-value">${bp}</span>
-                </div>` : '',
-            coverageDays != null ? `
-                <div class="detail-item">
-                    <span class="detail-label">Dekning</span>
-                    <span class="detail-value">${coverageDays} dager</span>
-                </div>` : '',
-            item.ersattAvArtikel ? `
-                <div class="detail-item">
-                    <span class="detail-label">Erstattet av</span>
-                    <span class="detail-value" style="font-family:monospace;">${this.esc(item.ersattAvArtikel)}</span>
-                </div>` : ''
-        ].join('');
-
         const statusHtml = this._statusBadge(item);
 
         // Safe values for inline onclick strings (no single quotes in data)
@@ -410,108 +392,124 @@ class ArtikkelOppslagMode {
         const safeSa    = (item.saNumber           || '').replace(/'/g, '&#39;');
         const safeLoc   = (item.location            || '').replace(/'/g, '&#39;');
 
+        // Status line: badge + optional BP / Dekning / Erstattet
+        const statusLineExtra = [
+            bp != null
+                ? `<span style="font-size:12px;color:#64748b;">
+                       <b style="color:#374151;font-weight:600;">BP</b>&nbsp;${bp}
+                   </span>`
+                : '',
+            coverageDays != null
+                ? `<span style="font-size:12px;color:#64748b;">
+                       <b style="color:#374151;font-weight:600;">Dekning</b>&nbsp;${coverageDays}&nbsp;dager
+                   </span>`
+                : '',
+            item.ersattAvArtikel
+                ? `<span style="font-size:12px;color:#64748b;">
+                       <b style="color:#374151;font-weight:600;">Erstattet&nbsp;av</b>&nbsp;<span style="font-family:monospace;">${this.esc(item.ersattAvArtikel)}</span>
+                   </span>`
+                : ''
+        ].filter(Boolean).join('');
+
         const modal = document.createElement('div');
         modal.id = 'artikkelOppslagModal';
         modal.className = 'modal-overlay';
         modal.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:9999;';
         modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
+        // Shared section styles (override the CSS auto-styling on .modal-body > div)
+        const S = 'background:#fff;border-radius:0;padding:0;margin-bottom:0;border-bottom:1px solid #e5e7eb;';
+        const SA = 'background:#f8fafc;border-radius:0;padding:0;margin-bottom:0;border-bottom:1px solid #e5e7eb;';
+
         modal.innerHTML = `
-            <div class="modal"
-                 style="max-width:520px;width:95%;max-height:85vh;overflow-y:auto;"
-                 onclick="event.stopPropagation()">
+            <div class="modal" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <h3 style="margin:0;font-size:16px;">
+                    <h3 style="margin:0;font-size:15px;font-weight:600;line-height:1.35;
+                                max-width:calc(100% - 36px);">
                         ${this.esc(item.description || item.toolsArticleNumber || 'Artikkel')}
                     </h3>
                     <button class="modal-close"
                             onclick="document.getElementById('artikkelOppslagModal').remove()"
                             style="font-size:22px;background:none;border:none;cursor:pointer;
-                                   color:#666;line-height:1;padding:0 4px;">&times;</button>
+                                   color:#666;line-height:1;padding:0 4px;flex-shrink:0;">&times;</button>
                 </div>
-                <div class="modal-body" style="padding:16px;">
+                <div class="modal-body">
 
-                    <!-- Identifikasjon -->
-                    <div class="detail-section" style="margin-bottom:14px;">
-                        <div class="detail-item">
-                            <span class="detail-label">TOOLS ART.NR</span>
-                            <span class="detail-value"
-                                  style="font-family:monospace;font-weight:700;">
-                                ${this.esc(item.toolsArticleNumber || '–')}
-                            </span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">SA-NUMMER</span>
-                            <span class="detail-value" style="font-family:monospace;">
-                                ${this.esc(item.saNumber || '–')}
-                            </span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">LOKASJON</span>
-                            <span class="detail-value" style="font-weight:600;">
-                                ${this.esc(item.location || '–')}
-                            </span>
-                        </div>
+                    <!-- S2: Identifikasjon -->
+                    <div style="${S}padding:10px 16px;display:grid;
+                                 grid-template-columns:auto 1fr;align-items:center;gap:5px 16px;">
+                        <span style="font-size:10px;font-weight:700;color:#94a3b8;
+                                     text-transform:uppercase;white-space:nowrap;">Tools art.nr</span>
+                        <span style="font-size:13px;font-family:monospace;font-weight:700;
+                                     color:#111827;">${this.esc(item.toolsArticleNumber || '–')}</span>
+
+                        <span style="font-size:10px;font-weight:700;color:#94a3b8;
+                                     text-transform:uppercase;white-space:nowrap;">SA-nummer</span>
+                        <span style="font-size:13px;font-family:monospace;
+                                     color:#374151;">${this.esc(item.saNumber || '–')}</span>
+
+                        <span style="font-size:10px;font-weight:700;color:#94a3b8;
+                                     text-transform:uppercase;white-space:nowrap;">Lokasjon</span>
+                        <span style="font-size:13px;font-weight:600;
+                                     color:#374151;">${this.esc(item.location || '–')}</span>
                     </div>
 
-                    <!-- Beskrivelse -->
-                    <div style="padding:10px 12px;background:#f8f9fa;border-radius:6px;
-                                margin-bottom:14px;">
-                        <div style="font-size:11px;color:#666;font-weight:600;
-                                    text-transform:uppercase;margin-bottom:4px;">Beskrivelse</div>
-                        <div style="font-size:14px;">${this.esc(item.description || '–')}</div>
-                    </div>
-
-                    <!-- Leverandør -->
-                    <div class="detail-section" style="margin-bottom:14px;">
-                        <div class="detail-item">
-                            <span class="detail-label">LEVERANDØR</span>
-                            <span class="detail-value">${this.esc(item.supplier || '–')}</span>
+                    <!-- S3: Leverandør -->
+                    <div style="${SA}padding:10px 16px;display:flex;gap:24px;flex-wrap:wrap;">
+                        <div>
+                            <div style="font-size:10px;font-weight:700;color:#94a3b8;
+                                        text-transform:uppercase;margin-bottom:3px;">Leverandør</div>
+                            <div style="font-size:13px;color:#374151;">
+                                ${this.esc(item.supplier || '–')}
+                            </div>
                         </div>
-                        <div class="detail-item">
-                            <span class="detail-label">LEVERANDØR ART.NR</span>
-                            <span class="detail-value" style="font-family:monospace;">
+                        <div>
+                            <div style="font-size:10px;font-weight:700;color:#94a3b8;
+                                        text-transform:uppercase;margin-bottom:3px;">Lev.art.nr</div>
+                            <div style="font-size:13px;font-family:monospace;color:#374151;">
                                 ${this.esc(item.supplierArticleNumber || '–')}
-                            </span>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Lagerstatus -->
-                    <div class="detail-section" style="margin-bottom:14px;">
-                        <div style="font-size:11px;color:#666;font-weight:600;
-                                    text-transform:uppercase;margin-bottom:6px;">Lagerstatus</div>
-                        <div class="detail-item">
-                            <span class="detail-label">Beholdning</span>
-                            <span class="detail-value"
-                                  style="font-weight:700;color:${(item.stock||0)>0?'#16a34a':'#dc2626'};">
-                                ${stock}
-                            </span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Innkommende</span>
-                            <span class="detail-value" style="color:#1565c0;">${incoming}</span>
+                    <!-- S4: Lagerstatus -->
+                    <div style="${S}padding:10px 16px;">
+                        <div style="font-size:10px;font-weight:700;color:#94a3b8;
+                                    text-transform:uppercase;margin-bottom:8px;">Lagerstatus</div>
+                        <div style="display:flex;gap:32px;flex-wrap:wrap;">
+                            <div>
+                                <div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">Beholdning</div>
+                                <div style="font-size:22px;font-weight:700;line-height:1;
+                                            color:${(item.stock||0)>0?'#16a34a':'#dc2626'};">
+                                    ${stock}
+                                </div>
+                            </div>
+                            <div>
+                                <div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">Innkommende</div>
+                                <div style="font-size:22px;font-weight:700;line-height:1;
+                                            color:${(item.bestAntLev||0)>0?'#1565c0':'#94a3b8'};">
+                                    ${incoming}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Status -->
-                    <div class="detail-section" style="margin-bottom:14px;">
-                        <div style="font-size:11px;color:#666;font-weight:600;
-                                    text-transform:uppercase;margin-bottom:6px;">Status</div>
+                    <!-- S5: Status + BP + Dekning + Erstattet av -->
+                    <div style="${SA}padding:10px 16px;display:flex;
+                                 align-items:center;gap:10px;flex-wrap:wrap;">
                         ${statusHtml}
+                        ${statusLineExtra}
                     </div>
 
-                    <!-- Valgfrie felt -->
-                    ${optionalRows ? `
-                        <div class="detail-section" style="margin-bottom:14px;">
-                            ${optionalRows}
-                        </div>` : ''}
+                    <!-- S6: Kjøpshistorikk -->
+                    <div style="${S}border-bottom:none;padding:10px 16px 2px;">
+                        ${this._buildPurchaseHistoryHTML(item)}
+                    </div>
 
-                    <!-- Kjøpshistorikk -->
-                    ${this._buildPurchaseHistoryHTML(item)}
-
-                    <!-- Kopieringsknapper -->
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;
-                                padding-top:14px;border-top:1px solid #e5e7eb;">
+                    <!-- S7: Kopieringsknapper -->
+                    <div style="background:#f8fafc;border-radius:0;padding:10px 16px;
+                                display:flex;gap:8px;flex-wrap:wrap;
+                                border-top:1px solid #e5e7eb;margin-bottom:0;">
                         <button class="btn-secondary btn-small"
                                 onclick="ArtikkelOppslagMode._copy('${safeTools}', this)"
                                 style="font-size:12px;">
