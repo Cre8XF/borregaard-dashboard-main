@@ -506,6 +506,9 @@ class ArtikkelOppslagMode {
                             ${optionalRows}
                         </div>` : ''}
 
+                    <!-- Kjøpshistorikk -->
+                    ${this._buildPurchaseHistoryHTML(item)}
+
                     <!-- Kopieringsknapper -->
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;
                                 padding-top:14px;border-top:1px solid #e5e7eb;">
@@ -609,6 +612,100 @@ class ArtikkelOppslagMode {
             document.execCommand('copy');
             ta.remove();
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  KJØPSHISTORIKK PANEL
+    // ════════════════════════════════════════════════════
+
+    static _buildPurchaseHistoryHTML(item) {
+        const toolsNr = item.toolsArticleNumber || '';
+
+        // Jeeves-data ikke lastet inn ennå
+        if (!this._store || !this._store.jeevesMap) {
+            return `
+                <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                    <div style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;
+                                color:#475569;text-transform:uppercase;letter-spacing:0.05em;">
+                        Kjøpshistorikk (Jeeves)
+                    </div>
+                    <div style="padding:10px 12px;font-size:12px;color:#94a3b8;font-style:italic;">
+                        Last inn Ordrer_Jeeves.xlsx for å se kjøpshistorikk
+                    </div>
+                </div>`;
+        }
+
+        const hist = toolsNr ? this._store.jeevesMap[toolsNr] : null;
+
+        // Ingen historikk funnet for denne artikkelen
+        if (!hist) {
+            return `
+                <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                    <div style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;
+                                color:#475569;text-transform:uppercase;letter-spacing:0.05em;">
+                        Kjøpshistorikk (Jeeves)
+                    </div>
+                    <div style="padding:10px 12px;font-size:12px;color:#94a3b8;font-style:italic;">
+                        Ingen kjøpshistorikk i Jeeves-data
+                    </div>
+                </div>`;
+        }
+
+        // Format quantity: show 1 decimal if not integer
+        const fmtQty = (n) => {
+            if (n == null) return '–';
+            return Number.isInteger(n) ? n.toString() : n.toFixed(1);
+        };
+
+        const summaryRows = `
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;
+                        font-size:12px;padding:10px 12px;">
+                <span style="color:#64748b;white-space:nowrap;">Totalt kjøpt</span>
+                <span style="font-weight:600;">${hist.totalOrders} ganger</span>
+                <span style="color:#64748b;white-space:nowrap;">Siste kjøp</span>
+                <span style="font-weight:600;">${hist.lastDate || '–'}</span>
+                <span style="color:#64748b;white-space:nowrap;">Snitt/ordre</span>
+                <span style="font-weight:600;">${fmtQty(hist.avgQty)} stk</span>
+                <span style="color:#64748b;white-space:nowrap;">Min / Maks</span>
+                <span style="font-weight:600;">${fmtQty(hist.minQty)} / ${fmtQty(hist.maxQty)} stk</span>
+            </div>`;
+
+        // Per-location breakdown (only if more than one location, or always if present)
+        const locationKeys = Object.keys(hist.byLocation || {});
+        let locationHTML = '';
+        if (locationKeys.length > 0) {
+            const rows = locationKeys.map(loc => {
+                const l = hist.byLocation[loc];
+                return `
+                    <div style="display:flex;gap:6px;align-items:baseline;
+                                font-size:11px;padding:2px 0;border-top:1px solid #f1f5f9;">
+                        <span style="font-family:monospace;font-weight:600;min-width:80px;
+                                     color:#334155;">${this.esc(loc)}</span>
+                        <span style="color:#64748b;">${l.orders} kjøp</span>
+                        <span style="color:#94a3b8;">|</span>
+                        <span style="color:#64748b;">snitt ${fmtQty(l.avgQty)} stk</span>
+                        <span style="color:#94a3b8;">|</span>
+                        <span style="color:#64748b;">sist ${l.lastDate || '–'}</span>
+                    </div>`;
+            }).join('');
+
+            locationHTML = `
+                <div style="padding:6px 12px 10px 12px;border-top:1px solid #e2e8f0;">
+                    <div style="font-size:10px;color:#94a3b8;font-weight:600;
+                                text-transform:uppercase;margin-bottom:4px;">Per leveringssted</div>
+                    ${rows}
+                </div>`;
+        }
+
+        return `
+            <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                <div style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;
+                            color:#475569;text-transform:uppercase;letter-spacing:0.05em;">
+                    Kjøpshistorikk (Jeeves)
+                </div>
+                ${summaryRows}
+                ${locationHTML}
+            </div>`;
     }
 
     // ════════════════════════════════════════════════════

@@ -279,6 +279,7 @@ class DataProcessor {
                     console.log(`  Kolonner (${ordersOutData.columns.length}): ${ordersOutData.columns.join(', ')}`);
                     console.log(`  Rader: ${ordersOutData.rowCount}`);
                     this.processOrdersOutData(ordersOutData.data, store);
+                    store.jeevesMap = this.buildJeevesMap(ordersOutData.data);
                 } else {
                     console.log('[FASE 7.0] Ordrer_Jeeves.xlsx: ikke lastet (Rapporter vil mangle avdelingsdata)');
                 }
@@ -362,6 +363,7 @@ class DataProcessor {
             console.log(`  Rader: ${ordersOutData.rowCount}`);
 
             this.processOrdersOutData(ordersOutData.data, store);
+            store.jeevesMap = this.buildJeevesMap(ordersOutData.data);
             const withSales = store.getAllItems().filter(i => i.outgoingOrders.length > 0).length;
             console.log(`[FASE 6.1] Ordrer_Jeeves.xlsx prosessert:`);
             console.log(`  SA-artikler med salgsdata: ${withSales} av ${saArticleCount} (${Math.round(withSales/saArticleCount*100)}%)`);
@@ -941,6 +943,132 @@ class DataProcessor {
         if (unmatchedCount > 0) {
             console.log(`  Ordrelinjer uten SA-match (ignorert): ${unmatchedCount}`);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  JEEVES KJØPSHISTORIKK — PURCHASE HISTORY MAP
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Bygg kjøpshistorikk-kart fra Ordrer_Jeeves.xlsx
+     *
+     * Filtrerer rader der Customer ID inneholder '424186' (Borregaard).
+     * Gruppert per Item ID (= Tools art.nr).
+     *
+     * @param {Array} data - Rå rader fra Ordrer_Jeeves.xlsx
+     * @returns {Object} jeevesMap[toolsArtNr] = { totalOrders, lastDate, avgQty, minQty, maxQty, byLocation }
+     */
+    static buildJeevesMap(data) {
+        if (!data || data.length === 0) return {};
+
+        // Intermediate: accumulate raw order lines per article
+        const raw = {}; // itemId → { orders: [{qty, dateObj, location}] }
+
+        data.forEach(row => {
+            // Filter: Customer ID must contain '424186'
+            const customerId = this._getJeevesVal(row, ['Customer ID', 'CustomerID', 'Kunde ID', 'KundeID']);
+            if (!customerId || !customerId.toString().includes('424186')) return;
+
+            const itemId = this._getJeevesVal(row, ['Item ID', 'Artikelnr', 'ItemNo', 'Varenr']);
+            if (!itemId) return;
+
+            const key = itemId.toString().trim();
+            const qty = parseFloat(
+                this._getJeevesVal(row, ['Delivered quantity', 'OrdRadAnt', 'Antall', 'Quantity']) || 0
+            );
+            const locationId = (this._getJeevesVal(row, ['Delivery location ID', 'LevPlFtgKod', 'Leveringssted']) || '').toString().trim();
+            const dateRaw = this._getJeevesVal(row, ['Date', 'Dato', 'FaktDat']);
+            const dateObj = this._parseJeevesDate(dateRaw);
+
+            if (!raw[key]) raw[key] = { orders: [] };
+            raw[key].orders.push({ qty, dateObj, location: locationId });
+        });
+
+        // Compute statistics
+        const jeevesMap = {};
+        Object.keys(raw).forEach(itemId => {
+            const orders = raw[itemId].orders;
+            const validQtyOrders = orders.filter(o => o.qty > 0);
+            const allQtys = validQtyOrders.map(o => o.qty);
+
+            const dateTimes = orders.filter(o => o.dateObj).map(o => o.dateObj.getTime());
+            const lastDateObj = dateTimes.length > 0 ? new Date(Math.max(...dateTimes)) : null;
+
+            const totalOrders = orders.length;
+            const sum = allQtys.reduce((a, b) => a + b, 0);
+            const avgQty = allQtys.length > 0 ? Math.round((sum / allQtys.length) * 10) / 10 : 0;
+            const minQty = allQtys.length > 0 ? Math.min(...allQtys) : 0;
+            const maxQty = allQtys.length > 0 ? Math.max(...allQtys) : 0;
+
+            // byLocation: group orders by Delivery location ID
+            const locMap = {};
+            orders.forEach(o => {
+                if (!o.location) return;
+                if (!locMap[o.location]) locMap[o.location] = [];
+                locMap[o.location].push(o);
+            });
+
+            const byLocation = {};
+            Object.keys(locMap).sort().forEach(loc => {
+                const locOrders = locMap[loc];
+                const locQtys = locOrders.filter(o => o.qty > 0).map(o => o.qty);
+                const locTimes = locOrders.filter(o => o.dateObj).map(o => o.dateObj.getTime());
+                const locLastObj = locTimes.length > 0 ? new Date(Math.max(...locTimes)) : null;
+                const locSum = locQtys.reduce((a, b) => a + b, 0);
+                byLocation[loc] = {
+                    orders: locOrders.length,
+                    lastDate: locLastObj ? this._formatJeevesDate(locLastObj) : null,
+                    avgQty: locQtys.length > 0 ? Math.round((locSum / locQtys.length) * 10) / 10 : 0
+                };
+            });
+
+            jeevesMap[itemId] = {
+                totalOrders,
+                lastDate: lastDateObj ? this._formatJeevesDate(lastDateObj) : null,
+                avgQty,
+                minQty,
+                maxQty,
+                byLocation
+            };
+        });
+
+        console.log(`[JeevesMap] Bygget kjøpshistorikk for ${Object.keys(jeevesMap).length} artikler (Customer ID ∋ '424186')`);
+        return jeevesMap;
+    }
+
+    /** Hent verdi fra Jeeves-rad med eksakt eller case-insensitive kolonne-match */
+    static _getJeevesVal(row, names) {
+        for (const name of names) {
+            if (row[name] !== undefined && row[name] !== null && row[name] !== '') return row[name];
+            // Case-insensitive fallback
+            const lower = name.toLowerCase();
+            for (const key of Object.keys(row)) {
+                if (key.toLowerCase() === lower && row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                    return row[key];
+                }
+            }
+        }
+        return '';
+    }
+
+    /** Parse Jeeves-dato (ISO YYYY-MM-DD eller liknende) til Date-objekt */
+    static _parseJeevesDate(str) {
+        if (!str) return null;
+        const s = str.toString().trim();
+        // ISO format: YYYY-MM-DD
+        const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (iso) return new Date(parseInt(iso[1]), parseInt(iso[2]) - 1, parseInt(iso[3]));
+        // Norwegian: DD.MM.YYYY
+        const nor = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+        if (nor) return new Date(parseInt(nor[3]), parseInt(nor[2]) - 1, parseInt(nor[1]));
+        return null;
+    }
+
+    /** Formater Date-objekt til DD.MM.YYYY */
+    static _formatJeevesDate(date) {
+        const d = date.getDate().toString().padStart(2, '0');
+        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+        return `${d}.${m}.${date.getFullYear()}`;
     }
 
     // ════════════════════════════════════════════════════
