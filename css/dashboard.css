@@ -3587,14 +3587,6 @@ button:hover {
     color: #1a1a1a !important;
 }
 
-/* Info bokser inne i modalen */
-#artikkelOppslagModal .modal-body div {
-    background: #f4f6f8;
-    border-radius: 6px;
-    padding: 8px 10px;
-    margin-bottom: 6px;
-    font-size: 14px;
-}
 
 /* Linjer */
 #artikkelOppslagModal hr {
