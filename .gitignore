@@ -1,0 +1,6 @@
+# Excel-råfiler commites ikke
+*.xlsx
+*.xls
+
+# Men JSON-data skal commites
+!data/dashboard-data.json
