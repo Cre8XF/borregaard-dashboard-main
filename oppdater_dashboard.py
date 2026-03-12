@@ -10,6 +10,7 @@ Rogers morgenrutine:
 import os
 import sys
 import json
+import shutil
 import subprocess
 from datetime import datetime
 
@@ -19,67 +20,116 @@ except ImportError:
     print("❌ pandas er ikke installert. Kjør: pip install pandas openpyxl")
     sys.exit(1)
 
-# ── Steg 0: Sjekk at alle 4 daglige filer er på plass ──────────────────────
-required = [
-    "Master_Artikkelstatus.xlsx",
-    "Master.xlsx",
-    "Ordrer_Jeeves.xlsx",
-    "bestillinger.xlsx"
-]
+# ── Filstier ────────────────────────────────────────────────────────────────
+BASE     = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter"
+DAGLIG   = os.path.join(BASE, "01-Daglig")
+UKENTLIG = os.path.join(BASE, "02_Ukentlig")
+SJELDEN  = os.path.join(BASE, "03-Sjelden")
 
+required = {
+    "Master_Artikkelstatus.xlsx": DAGLIG,
+    "Master.xlsx":                DAGLIG,
+    "Ordrer_Jeeves.xlsx":         DAGLIG,
+    "bestillinger.xlsx":          DAGLIG,
+    "SA-Nummer.xlsx":             SJELDEN,
+    "leverandører.xlsx":          SJELDEN,
+    "Analyse_Lagerplan.xlsx":     UKENTLIG,
+}
+
+# data (7).xlsx sjekkes separat pga. rename
+data7_src = os.path.join(SJELDEN, "data (7).xlsx")
+
+# ── Steg 0: Sjekk at alle filer er på plass ─────────────────────────────────
 print("Sjekker påkrevde filer...")
-for f in required:
-    if not os.path.exists(f):
-        print(f"❌ Mangler fil: {f}")
-        print("   Eksporter denne fra Butler/Jeeves og legg den i samme mappe.")
-        sys.exit(1)
-print("✅ Alle filer funnet")
+mangler = False
+for fil, mappe in required.items():
+    full_sti = os.path.join(mappe, fil)
+    if not os.path.exists(full_sti):
+        print(f"❌ Mangler fil: {fil}")
+        print(f"   Forventet sti: {full_sti}")
+        mangler = True
+    else:
+        print(f"✅ {fil}")
+
+if not os.path.exists(data7_src):
+    print(f"❌ Mangler fil: data (7).xlsx")
+    print(f"   Forventet sti: {data7_src}")
+    mangler = True
+else:
+    print(f"✅ data (7).xlsx")
+
+if mangler:
+    print("\nEksporter manglende filer fra Butler/Jeeves og prøv igjen.")
+    sys.exit(1)
 
 try:
-    # ── Steg 1: Kjør generate_masterV2.py ───────────────────────────────────
-    print("\n[1/4] Genererer Borregaard_SA_Master_v2.xlsx...")
-    subprocess.run([sys.executable, "generate_masterV2.py"], check=True)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # ── Steg 1: Kopier filer til prosjektmappen ──────────────────────────────
+    print("\n[1/5] Kopierer Excel-filer til prosjektmappen...")
+    for fil, mappe in required.items():
+        src = os.path.join(mappe, fil)
+        dst = os.path.join(script_dir, fil)
+        shutil.copy2(src, dst)
+        print(f"  → {fil}")
+
+    # data (7).xlsx kopieres med nytt navn
+    shutil.copy2(data7_src, os.path.join(script_dir, "data_7.xlsx"))
+    print(f"  → data (7).xlsx  (lagret som data_7.xlsx)")
+    print("✅ Filer kopiert")
+
+    # ── Steg 2: Kjør generate_masterV2.py ────────────────────────────────────
+    print("\n[2/5] Genererer Borregaard_SA_Master_v2.xlsx...")
+    subprocess.run([sys.executable, "generate_masterV2.py"], check=True,
+                   cwd=script_dir)
     print("✅ MV2 generert")
 
-    # ── Steg 2: Les Excel-filer og bygg JSON ────────────────────────────────
-    print("\n[2/4] Konverterer Excel til JSON...")
+    # ── Steg 3: Les Excel-filer og bygg JSON ─────────────────────────────────
+    print("\n[3/5] Konverterer Excel til JSON...")
 
     master = pd.read_excel(
-        "Borregaard_SA_Master_v2.xlsx",
+        os.path.join(script_dir, "Borregaard_SA_Master_v2.xlsx"),
         sheet_name="SA-Oversikt",
         dtype=str
     ).fillna("")
 
-    orders = pd.read_excel("Ordrer_Jeeves.xlsx", dtype=str).fillna("")
-    best   = pd.read_excel("bestillinger.xlsx",  dtype=str).fillna("")
+    orders = pd.read_excel(
+        os.path.join(script_dir, "Ordrer_Jeeves.xlsx"), dtype=str
+    ).fillna("")
+
+    best = pd.read_excel(
+        os.path.join(script_dir, "bestillinger.xlsx"), dtype=str
+    ).fillna("")
 
     data = {
-        "generert":      datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "master":        master.to_dict(orient="records"),
-        "orders":        orders.to_dict(orient="records"),
-        "bestillinger":  best.to_dict(orient="records")
+        "generert":     datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "master":       master.to_dict(orient="records"),
+        "orders":       orders.to_dict(orient="records"),
+        "bestillinger": best.to_dict(orient="records")
     }
 
-    os.makedirs("data", exist_ok=True)
-    with open("data/dashboard-data.json", "w", encoding="utf-8") as f:
+    os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
+    json_path = os.path.join(script_dir, "data", "dashboard-data.json")
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
-    size_kb = os.path.getsize("data/dashboard-data.json") / 1024
+    size_kb = os.path.getsize(json_path) / 1024
     print(f"✅ JSON generert ({size_kb:.0f} KB, {len(master)} artikler)")
 
-    # ── Steg 3: Git push ────────────────────────────────────────────────────
-    print("\n[3/4] Pusher til GitHub...")
-    subprocess.run(["git", "add", "data/dashboard-data.json"], check=True)
+    # ── Steg 4: Git push ──────────────────────────────────────────────────────
+    print("\n[4/5] Pusher til GitHub...")
+    subprocess.run(["git", "add", "data/dashboard-data.json"], check=True,
+                   cwd=script_dir)
     subprocess.run(
         ["git", "commit", "-m",
          f"Data oppdatert {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
-        check=True
+        check=True, cwd=script_dir
     )
-    subprocess.run(["git", "push"], check=True)
+    subprocess.run(["git", "push"], check=True, cwd=script_dir)
     print("✅ Pushet til GitHub")
 
-    # ── Steg 4: Ferdig ──────────────────────────────────────────────────────
-    print("\n[4/4] Netlify redeployer automatisk (~10 sekunder)")
+    # ── Steg 5: Ferdig ───────────────────────────────────────────────────────
+    print("\n[5/5] Netlify redeployer automatisk (~10 sekunder)")
     print("\n🎉 Dashboard oppdatert! Kollega kan åpne linken nå.")
 
 except subprocess.CalledProcessError as e:

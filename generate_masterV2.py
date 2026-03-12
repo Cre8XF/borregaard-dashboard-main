@@ -251,7 +251,7 @@ def main():
     skipped = 0
 
     for sa_row in sa_rows:
-        sa_nr = val(sa_row, 'Kunds artikkelnummer')
+        sa_nr = val(sa_row, 'Kunds artikkelnummer', 'Kunds artikelnummer')
         if not sa_nr:
             skipped += 1
             continue
