@@ -51,6 +51,7 @@ class DashboardApp {
         this.setupEventListeners();
         this.setupDropZone();
         this.loadStoredData();
+        this.autoLoad();
     }
 
     /**
@@ -903,6 +904,86 @@ class DashboardApp {
         store.calculateAll();
 
         return store;
+    }
+
+    /**
+     * Auto-last data/dashboard-data.json ved oppstart (FASE 8.0)
+     *
+     * Henter JSON-filen som genereres av oppdater_dashboard.py og commites til repo.
+     * Lykkes → opplastingsfeltet skjules.
+     * Feiler → opplastingsfeltet forblir synlig som fallback.
+     */
+    async autoLoad() {
+        const statusEl = document.getElementById('dropStatus');
+        if (statusEl) statusEl.innerHTML =
+            '<span style="color:#666">⏳ Laster data...</span>';
+
+        try {
+            const res = await fetch('./data/dashboard-data.json');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const payload = await res.json();
+
+            if (payload.generert && statusEl) {
+                statusEl.innerHTML =
+                    `<span style="color:green">✅ Data fra ${payload.generert}</span>`;
+            }
+
+            await this.processJsonData({
+                master:       payload.master       || [],
+                orders:       payload.orders       || [],
+                bestillinger: payload.bestillinger || []
+            });
+
+            const uploadSection = document.getElementById('uploadSection');
+            if (uploadSection) uploadSection.style.display = 'none';
+
+        } catch (err) {
+            console.warn('Auto-load feilet — manuell opplasting tilgjengelig:', err.message);
+            if (statusEl) statusEl.innerHTML =
+                '<span style="color:#e67e22">⚠️ Datafiler ikke funnet — last opp manuelt</span>';
+        }
+    }
+
+    /**
+     * Prosesser JSON-data fra dashboard-data.json (FASE 8.0)
+     *
+     * Tilsvarer FASE 7.0-stien i DataProcessor.processAllFiles, men med
+     * JSON-arrays i stedet for File-objekter. Mater data inn i eksisterende
+     * DataProcessor-pipeline via de statiske metodene direkte.
+     *
+     * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
+     */
+    async processJsonData({ master, orders, bestillinger }) {
+        if (!master || master.length === 0) {
+            throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
+        }
+
+        const store = new UnifiedDataStore();
+
+        // Master (SA-Oversikt fra MV2) — oppretter og beriker alle SA-items
+        DataProcessor.processMasterV2File(master, store);
+
+        // Ordrer_Jeeves — beriker items med salgshistorikk og avdelingsdata
+        if (orders && orders.length > 0) {
+            DataProcessor.processOrdersOutData(orders, store);
+            store.jeevesMap = DataProcessor.buildJeevesMap(orders);
+        }
+
+        // Bestillinger — åpne innkjøpsordrer
+        if (bestillinger && bestillinger.length > 0) {
+            DataProcessor.processBestillingerData(bestillinger, store);
+        }
+
+        store.calculateAll();
+
+        this.dataStore = store;
+        this.updateSummaryCards();
+        this.renderCurrentModule();
+        this.saveData();
+
+        const quality = store.getDataQualityReport();
+        console.log(`[FASE 8.0] JSON-data prosessert: ${quality.totalArticles} SA-artikler`);
     }
 
     /**
