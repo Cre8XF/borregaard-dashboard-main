@@ -35,6 +35,19 @@ class WorkMode {
 
     static render(store) {
         this.dataStore = store;
+
+        // Håndter filter fra sammendragskort (satt via navigateToModule)
+        const pendingFilter = sessionStorage.getItem('filter_work');
+        if (pendingFilter) {
+            sessionStorage.removeItem('filter_work');
+            this.currentMainTab = 'drift';
+            if (pendingFilter === 'kritiske') {
+                this.driftBoxActive = 'red';
+            } else if (pendingFilter === 'advarsler') {
+                this.driftBoxActive = 'yellow';
+            }
+        }
+
         const stats = this.computeStats(store);
 
         const tab = this.currentMainTab;

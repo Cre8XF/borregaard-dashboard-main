@@ -44,21 +44,25 @@
           <div class="card-value" id="totalItems">-</div>
           <div class="card-label">Totalt SA-artikler</div>
         </div>
-        <div class="summary-card card-critical">
+        <div class="summary-card card-critical clickable" onclick="navigateToModule('arbeid', { filter: 'kritiske' })">
           <div class="card-value" id="criticalCount">-</div>
-          <div class="card-label">Kritiske</div>
+          <div class="card-label">Kritiske ↗</div>
         </div>
-        <div class="summary-card card-warning">
+        <div class="summary-card card-warning clickable" onclick="navigateToModule('arbeid', { filter: 'advarsler' })">
           <div class="card-value" id="warningCount">-</div>
-          <div class="card-label">Advarsler</div>
+          <div class="card-label">Advarsler ↗</div>
         </div>
         <div class="summary-card card-ok">
           <div class="card-value" id="saNumberCoverage">-</div>
           <div class="card-label">SA-dekning</div>
         </div>
-        <div class="summary-card">
+        <div class="summary-card clickable" onclick="navigateToModule('bp-kontroll')">
           <div class="card-value" id="incomingCount">-</div>
-          <div class="card-label">På vei inn</div>
+          <div class="card-label">På vei inn ↗</div>
+        </div>
+        <div class="summary-card card-neutral clickable" onclick="navigateToModule('artikkeloppslag', { filter: 'mangler-lokasjon' })">
+          <div class="card-value" id="manglerLokasjonCount">-</div>
+          <div class="card-label">📍 Mangler lokasjon ↗</div>
         </div>
       </section>
 

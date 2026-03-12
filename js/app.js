@@ -561,6 +561,15 @@ class DashboardApp {
         if (incomingEl) {
             incomingEl.textContent = quality.withIncoming.toLocaleString('nb-NO');
         }
+
+        // Mangler lokasjon
+        const manglerLokasjonEl = document.getElementById('manglerLokasjonCount');
+        if (manglerLokasjonEl) {
+            const manglerLokasjon = items.filter(item =>
+                !item.location || item.location.trim() === ''
+            ).length;
+            manglerLokasjonEl.textContent = manglerLokasjon.toLocaleString('nb-NO');
+        }
     }
 
     /**
@@ -1031,6 +1040,35 @@ class DashboardApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new DashboardApp();
 });
+
+/**
+ * Naviger til en modul fra sammendragskort.
+ * Bruker data-module-attributter fra tab-navigasjonen.
+ */
+function navigateToModule(moduleId, options = {}) {
+    const moduleMap = {
+        'arbeid':          'work',
+        'rapporter':       'reports',
+        'varetelling':     'varetelling',
+        'bp-kontroll':     'bpKontroll',
+        'artikkeloppslag': 'articleLookup',
+    };
+
+    const actualModule = moduleMap[moduleId] || moduleId;
+
+    if (options.filter) {
+        sessionStorage.setItem(`filter_${actualModule}`, options.filter);
+    }
+
+    if (window.app) {
+        window.app.switchModule(actualModule);
+    }
+
+    setTimeout(() => {
+        const moduleEl = document.querySelector('#moduleContent');
+        if (moduleEl) moduleEl.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+}
 
 console.log('Borregaard Dashboard v4.3 loaded');
 console.log('[FASE 6.1] SA-nummer er primærnøkkel');
