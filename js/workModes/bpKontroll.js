@@ -13,7 +13,9 @@ class BPKontrollMode {
         const bp          = item.bestillingspunkt ?? 0;
         const saldo       = item.stock ?? 0;
         const bestilt     = item.aapentBestiltAntall ?? item.bestAntLev ?? 0;
-        const ledetid     = item.ledetidDager ?? 14; // default 14 dager
+        const levLedTid     = parseFloat(item.levLedTid)     || 0;
+        const transportDagar = parseFloat(item.transportdagar) || 0;
+        const ledetid     = (levLedTid + transportDagar) || item.ledetidDager || 14; // 14 som fallback
         const ledetidUker = ledetid / 7;
         const sales12m    = item.sales12m ?? 0;
         const snittPerUke = sales12m > 0 ? sales12m / 52 : 0;

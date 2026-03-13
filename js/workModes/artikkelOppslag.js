@@ -20,6 +20,17 @@ class ArtikkelOppslagMode {
         this._store = store;
         this._initFuse(store);
 
+        // Sjekk om vi ble navigert hit fra sammendragskortet «Mangler lokasjon»
+        const pendingFilter = sessionStorage.getItem('filter_artikkelOppslag');
+        if (pendingFilter) {
+            sessionStorage.removeItem('filter_artikkelOppslag');
+            if (pendingFilter === 'mangler-lokasjon' || pendingFilter === 'uten-lokasjon') {
+                this._activeFilter = 'uten-lokasjon';
+            } else {
+                this._activeFilter = pendingFilter;
+            }
+        }
+
         if (this._searchTerm.length >= 2) {
             this._runSearch();
         } else {

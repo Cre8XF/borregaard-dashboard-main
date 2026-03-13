@@ -1051,7 +1051,7 @@ function navigateToModule(moduleId, options = {}) {
         'rapporter':       'reports',
         'varetelling':     'varetelling',
         'bp-kontroll':     'bpKontroll',
-        'artikkeloppslag': 'articleLookup',
+        'artikkeloppslag': 'artikkelOppslag',
     };
 
     const actualModule = moduleMap[moduleId] || moduleId;
