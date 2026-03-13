@@ -12,7 +12,7 @@ class BPKontrollMode {
     static beregnBPInfo(item) {
         const bp          = item.bestillingspunkt ?? 0;
         const saldo       = item.stock ?? 0;
-        const bestilt     = item.aapentBestiltAntall ?? item.bestAntLev ?? 0;
+        const bestilt     = item.aapentBestiltAntall || item.bestAntLev || 0;
         const levLedTid     = parseFloat(item.levLedTid)     || 0;
         const transportDagar = parseFloat(item.transportdagar) || 0;
         const ledetid     = (levLedTid + transportDagar) || item.ledetidDager || 14; // 14 som fallback
@@ -33,7 +33,8 @@ class BPKontrollMode {
 
         // Vurdering
         let vurdering = 'ok';
-        if (bp === 0 && snittPerUke === 0) vurdering = 'ingen-salg';
+        if (saldo < 0)                     vurdering = 'negativ-saldo';
+        else if (bp === 0 && snittPerUke === 0) vurdering = 'ingen-salg';
         else if (snittPerUke === 0)        vurdering = 'ingen-salg';
         else if (dekningUker < ledetidUker) vurdering = 'ok-bp';  // under BP allerede eller snart
         else if (foreslattBP !== null && bp > foreslattBP * 1.5)  vurdering = 'reduser-bp';
@@ -54,9 +55,18 @@ class BPKontrollMode {
         const analyse = items
             .map(item => ({ item, info: this.beregnBPInfo(item) }));
 
+        const negativSaldo = analyse.filter(a => a.info.vurdering === 'negativ-saldo');
         const okBP     = analyse.filter(a => a.info.vurdering === 'ok-bp');
         const redserBP = analyse.filter(a => a.info.vurdering === 'reduser-bp');
-        const alle     = analyse.filter(a => a.info.snittPerUke > 0);
+        const alle     = analyse.filter(a => a.info.snittPerUke > 0 && a.info.vurdering !== 'negativ-saldo');
+
+        const negativSaldoInfo = negativSaldo.length > 0
+            ? `<div style="margin-bottom:12px;padding:8px 12px;background:#fff8e1;border-left:3px solid #f9a825;
+                           border-radius:3px;font-size:13px;color:#555;">
+                   ℹ️ ${negativSaldo.length} artikler med negativt saldo er skjult fra alle visninger
+                   (mulig lagerregistreringsfeil)
+               </div>`
+            : '';
 
         return `
             <div class="module-header">
@@ -64,6 +74,7 @@ class BPKontrollMode {
             </div>
 
             ${this.renderTabs(okBP.length, redserBP.length, alle.length)}
+            ${negativSaldoInfo}
 
             <div id="bp-tab-content">
                 ${this._activeTab === 'ok-bp'
