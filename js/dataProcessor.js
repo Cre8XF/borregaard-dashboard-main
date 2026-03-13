@@ -205,6 +205,7 @@ class DataProcessor {
         salesTotAntall:['Ordre_TotAntall', 'TotAntall', 'Salg antall'],
         salesTotVerdi: ['Ordre_TotVerdi', 'TotVerdi', 'Salg verdi'],
         saleSisteDato: ['Ordre_SisteDato', 'SisteDato', 'Sist solgt'],
+        ordreAntall:   ['Ordre_Antall', 'OrdreAntall', 'Antall ordrelinjer'],
         agreementPrice:['Dagens_Pris', 'Pris', 'Avtalepris'],
         kalkylPris:    ['Kalkylpris_bas', 'Kalkylpris bas', 'Kalkylpris'],    // FASE 7.1
         ordrekvantitet:['EOK', 'Ordrekvantitet'],                            // FASE 7.1
@@ -1800,13 +1801,24 @@ class DataProcessor {
             const cat3Raw = this.getMasterV2Value(row, 'category3').toString().trim();
             if (cat3Raw) item.category3 = cat3Raw;
 
-            // 11. Salgsdata (tilsvarende processOrdersOutData)
+            // 11. Salgsdata fra Ordrer_Jeeves (via MV2)
             const salesTotAntallRaw = this.getMasterV2Value(row, 'salesTotAntall');
             const salesTotAntall = this.parseNumber(salesTotAntallRaw);
             if (salesTotAntall > 0) {
                 item.sales12m = salesTotAntall;
-                item.orderCount = salesTotAntall; // proxy — antall ordre ikke separat
                 item.hasOutgoingOrders = true;
+            }
+
+            const ordreAntallRaw = this.getMasterV2Value(row, 'ordreAntall');
+            const ordreAntall = this.parseNumber(ordreAntallRaw);
+            if (ordreAntall > 0) {
+                item.orderCount = ordreAntall;
+            }
+
+            const salesTotVerdiRaw = this.getMasterV2Value(row, 'salesTotVerdi');
+            const salesTotVerdi = this.parseNumber(salesTotVerdiRaw);
+            if (salesTotVerdi > 0) {
+                item.salesValue = salesTotVerdi;
             }
 
             const saleSisteDatoRaw = this.getMasterV2Value(row, 'saleSisteDato');
