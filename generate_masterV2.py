@@ -275,7 +275,7 @@ def main():
         'Item category 1', 'Item category 2', 'Item category 3',
         'Ordre_TotAntall', 'Ordre_TotVerdi', 'Ordre_SisteDato', 'Ordre_Antall',
         'Dagens_Pris',
-        'Kalkylpris_bas', 'EOK', 'Lokasjon_SA',
+        'Kalkylpris_bas', 'EOK',
         'LevLedTid', 'Transportdagar',
         'InvDat',
     ]
@@ -320,7 +320,7 @@ def main():
             'R12 Del Qty':     '',
             'Artikelstatus':   val(m, 'Artikelstatus'),
             'Supplier Name':   val(l, 'Leverantör'),
-            'Lagerhylla':      val(m, 'Lagerhylla'),
+            'Lagerhylla':      lokasjon_by_varenr.get(varenr, ''),
             'VareStatus':      varestatus,
             'ErsattsAvArtNr':  erstatning,
             'LAGERFØRT':       val(row, 'LAGERFØRT'),
@@ -337,7 +337,6 @@ def main():
             'Dagens_Pris':     '',
             'Kalkylpris_bas':  kalkylpris,
             'EOK':             val(l, 'EOK'),
-            'Lokasjon_SA':     lokasjon,
             'LevLedTid':       lev_tuple[0],
             'Transportdagar':  lev_tuple[1],
             'InvDat':          invdat,
@@ -354,7 +353,6 @@ def main():
     wb_out.save(OUTPUT_FILE)
 
     # ── Verifisering ──────────────────────────────────────────────────────────
-    lokasjon_count   = sum(1 for r in output_rows if r.get('Lokasjon_SA'))
     erstatning_count = sum(1 for r in output_rows if r.get('ErsattsAvArtNr'))
     ledetid_count    = sum(1 for r in output_rows if r.get('LevLedTid', 0) > 0 or r.get('Transportdagar', 0) > 0)
     invdat_count     = sum(1 for r in output_rows if r.get('InvDat'))
@@ -370,7 +368,6 @@ def main():
     print(f'  Hoppet over (ingen SA-nr): {skipped}')
     print(f'  Kolonner: {len(output_columns)}')
     print(f'\n  ── Verifisering ──')
-    print(f'  Lokasjon_SA ikke-tomme:    {lokasjon_count} av {len(output_rows)}')
     print(f'  ErsattsAvArtNr ikke-tomme: {erstatning_count} av {len(output_rows)}')
     print(f'  VareStatus ikke-tomme:     {varestatus_count} av {len(output_rows)}')
     print(f'  Artikler med ledetid:      {ledetid_count} av {len(output_rows)}')
