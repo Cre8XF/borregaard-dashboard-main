@@ -9,12 +9,19 @@ Kildefiler (alle i samme mappe som dette scriptet):
   4. Master.xlsx                — ErsattsAvArtNr (fallback), InvDat (sist telt)
   5. leverandører.xlsx          — LevLedTid, Transportdagar (nøkkel: Företagsnr)
   6. SA-Nummer.xlsx             — fallback SA-nr for artikler ikke i data_7
+  7. Ordrer_Jeeves.xlsx         — salgshistorikk (Ordre_TotAntall, TotVerdi, SisteDato, Antall)
 
 Output:
-  Borregaard_SA_Master_v2.xlsx  — 31 kolonner, ark "SA-Oversikt"
+  Borregaard_SA_Master_v2.xlsx  — 33 kolonner, ark "SA-Oversikt"
+
+Endringer:
+  - Selvpekende erstatninger filtreres ut (ErsattsAvArtNr == Tools_ArtNr)
+  - Ugyldige lokasjoner (artikkelbeskrivelser) filtreres bort via LOK_PATTERN
+  - Ordrer_Jeeves.xlsx kobles inn for salgshistorikk
 """
 
 import os
+import re
 import openpyxl
 from openpyxl import Workbook
 
@@ -26,7 +33,11 @@ MASTER_FULL_FILE = os.path.join(SCRIPT_DIR, 'Master.xlsx')
 LAGERPLAN_FILE   = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
 LEVERANDOR_FILE  = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
 SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
+ORDRER_FILE      = os.path.join(SCRIPT_DIR, 'Ordrer_Jeeves.xlsx')
 OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
+
+# Mønster for gyldige hylleadresser — f.eks. T-1-1, 19-6-C, OLJEBOD-12, BORSKUFF
+LOK_PATTERN = re.compile(r'^[A-Z0-9]+-', re.IGNORECASE)
 
 
 # ── Hjelpefunksjoner ──────────────────────────────────────────────────────────
@@ -118,7 +129,8 @@ def main():
 
         if sa_nr:
             sa_nr_by_varenr[varenr] = str(sa_nr).strip()
-        if lokasjon:
+        # Bare lagre lokasjoner som matcher hylleadresse-mønsteret (f.eks. T-1-1, 19-6-C)
+        if lokasjon and LOK_PATTERN.match(str(lokasjon).strip()):
             lokasjon_by_varenr[varenr] = str(lokasjon).strip()
         if vs:
             varestatus_by_art[varenr] = str(vs).strip()
@@ -126,7 +138,8 @@ def main():
         best = str(erst).strip() if erst and str(erst).strip() not in ('0', '') else ''
         if not best:
             best = str(alt).strip() if alt and str(alt).strip() not in ('0', '') else ''
-        if best:
+        # Forhindre selvpekende erstatninger (ErsattsAvArtNr == Tools_ArtNr)
+        if best and best != varenr:
             erstatning_by_art[varenr] = best
 
     sa_dekning  = sum(1 for v in data7_by_varenr if v in sa_nr_by_varenr)
@@ -161,11 +174,14 @@ def main():
             if key not in sa_nr_by_varenr:
                 sa_nr_by_varenr[key] = sa_nr_str
                 fallback_sa_count += 1
-            # Lagre lokasjon keyed på SA-nr som ekstra oppslag
-            if lokasjon and sa_nr_str not in lokasjon_sa_map:
-                lokasjon_sa_map[sa_nr_str] = str(lokasjon).strip()
-        if lokasjon and key not in lokasjon_by_varenr:
-            lokasjon_by_varenr[key] = str(lokasjon).strip()
+            # Lagre lokasjon keyed på SA-nr som ekstra oppslag — kun gyldige hylleadresser
+            lok_str = str(lokasjon).strip() if lokasjon else ''
+            if lok_str and LOK_PATTERN.match(lok_str) and sa_nr_str not in lokasjon_sa_map:
+                lokasjon_sa_map[sa_nr_str] = lok_str
+        # Fallback lokasjon — kun gyldige hylleadresser
+        lok_str = str(lokasjon).strip() if lokasjon else ''
+        if lok_str and LOK_PATTERN.match(lok_str) and key not in lokasjon_by_varenr:
+            lokasjon_by_varenr[key] = lok_str
             fallback_lok_count += 1
 
     print(f'  Fallback SA-nr lagt til:   {fallback_sa_count}')
@@ -200,8 +216,9 @@ def main():
         if not art:
             continue
         art_key = str(art).strip()
-        if erst and str(erst).strip() not in ('0', '') and art_key not in erstatning_by_art:
-            erstatning_by_art[art_key] = str(erst).strip()
+        erst_str = str(erst).strip() if erst else ''
+        if erst_str and erst_str not in ('0', '') and erst_str != art_key and art_key not in erstatning_by_art:
+            erstatning_by_art[art_key] = erst_str
             master_fallback_count += 1
         formatted = format_invdat(invdat)
         if formatted:
@@ -234,6 +251,35 @@ def main():
 
     print(f'  Ledetid-oppslag: {len(lev_ledtid_map)} leverandører')
 
+    # ── 7. Ordrer_Jeeves.xlsx — salgshistorikk ────────────────────────────────
+    ordre_by_art = {}  # Tools_ArtNr → {antall, verdi, siste, linjer}
+    if os.path.exists(ORDRER_FILE):
+        print('Leser Ordrer_Jeeves.xlsx (salgshistorikk)...')
+        orders_rows = read_sheet(ORDRER_FILE)
+        print(f'  {len(orders_rows)} rader')
+        for row in orders_rows:
+            item_id = val(row, 'Item ID')
+            if not item_id:
+                continue
+            key = str(item_id).strip()
+            qty   = row.get('Delivered quantity') or 0
+            verdi = row.get('Delivered value')   or 0
+            dato  = val(row, 'Date')
+            if key not in ordre_by_art:
+                ordre_by_art[key] = {'antall': 0, 'verdi': 0, 'siste': '', 'linjer': 0}
+            try:
+                ordre_by_art[key]['antall'] += float(str(qty).replace(',', '.'))
+                ordre_by_art[key]['verdi']  += float(str(verdi).replace(',', '.'))
+                ordre_by_art[key]['linjer'] += 1
+            except (ValueError, TypeError):
+                pass
+            dato_str = str(dato).strip()[:10] if dato else ''
+            if dato_str > ordre_by_art[key]['siste']:
+                ordre_by_art[key]['siste'] = dato_str
+        print(f'  Ordre-oppslag: {len(ordre_by_art)} artikler med salgsdata')
+    else:
+        print(f'  ADVARSEL: Ordrer_Jeeves.xlsx ikke funnet — Ordre_TotAntall/Verdi/SisteDato/Antall forblir tomme')
+
     # ── Kolonner i output ──────────────────────────────────────────────────────
     output_columns = [
         'SA_Nummer', 'Tools_ArtNr', 'Beskrivelse',
@@ -242,7 +288,8 @@ def main():
         'VareStatus', 'ErsattsAvArtNr',
         'LAGERFØRT', 'VAREMERKE', 'PakkeStørrelse', 'Enhet / Ant Des',
         'Item category 1', 'Item category 2', 'Item category 3',
-        'Ordre_TotAntall', 'Ordre_SisteDato', 'Dagens_Pris',
+        'Ordre_TotAntall', 'Ordre_TotVerdi', 'Ordre_SisteDato', 'Ordre_Antall',
+        'Dagens_Pris',
         'Kalkylpris_bas', 'EOK', 'Lokasjon_SA',
         'LevLedTid', 'Transportdagar',
         'InvDat',
@@ -273,6 +320,8 @@ def main():
 
         beskrivelse = val(row, 'Artikelbeskrivning') or val(m, 'Artikelbeskrivning')
 
+        o = ordre_by_art.get(varenr, {})
+
         output_rows.append({
             'SA_Nummer':       sa_nr,
             'Tools_ArtNr':     varenr,
@@ -296,8 +345,10 @@ def main():
             'Item category 1': val(m, 'Varugrupp'),
             'Item category 2': val(row, 'NordicCategoryStruct5'),
             'Item category 3': '',
-            'Ordre_TotAntall': '',
-            'Ordre_SisteDato': '',
+            'Ordre_TotAntall': int(o.get('antall', 0)) or '',
+            'Ordre_TotVerdi':  round(o.get('verdi', 0)) or '',
+            'Ordre_SisteDato': o.get('siste', ''),
+            'Ordre_Antall':    o.get('linjer', 0) or '',
             'Dagens_Pris':     '',
             'Kalkylpris_bas':  kalkylpris,
             'EOK':             val(l, 'EOK'),
