@@ -8,8 +8,7 @@ Kildefiler (alle i samme mappe som dette scriptet):
   3. Analyse_Lagerplan.xlsx     — BP, EOK, Maxlager, leverandørnummer
   4. Master.xlsx                — ErsattsAvArtNr (fallback), InvDat (sist telt)
   5. leverandører.xlsx          — LevLedTid, Transportdagar (nøkkel: Företagsnr)
-  6. SA-Nummer.xlsx             — fallback SA-nr for artikler ikke i data_7
-  7. Ordrer_Jeeves.xlsx         — salgshistorikk (Ordre_TotAntall, TotVerdi, SisteDato, Antall)
+  6. SA-Nummer.xlsx             — fallback SA-nr for artikler ikke i data_7 (IKKE lokasjon)
 
 Output:
   Borregaard_SA_Master_v2.xlsx  — 33 kolonner, ark "SA-Oversikt"
@@ -149,23 +148,19 @@ def main():
     print(f'  VareStatus: {len(varestatus_by_art)} artikler')
     print(f'  Erstatning: {len(erstatning_by_art)} artikler')
 
-    # ── 2. SA-Nummer.xlsx — fallback SA-nr og lokasjon ────────────────────────
+    # ── 2. SA-Nummer.xlsx — fallback SA-nr kun ────────────────────────────────
     print('Leser SA-Nummer.xlsx (fallback)...')
     sa_rows = read_sheet(SA_FILE)
     print(f'  {len(sa_rows)} rader')
 
     fallback_sa_count  = 0
-    fallback_lok_count = 0
-    # Bygg varenr→SA-nr og SA-nr→lokasjon fra SA-Nummer
-    # Kolonne: Artikelnr=Tools-artnr, Kunds artikelnummer=SA-nr, Artikelbeskrivning_2=lokasjon
+    # Bygg varenr→SA-nr fra SA-Nummer (kun SA-nr fallback, IKKE lokasjon)
+    # Lokasjon hentes utelukkende fra data_7.xlsx (Kundens artbeskr.)
     sa_nr_fallback   = {}   # VareNr → SA-nr  (kun for de ikke i data_7)
-    lokasjon_sa_map  = {}   # SA-nr  → lokasjon (brukes som ekstra oppslag)
 
     for row in sa_rows:
         varenr = val(row, 'Artikelnr')
         sa_nr  = val(row, 'Kunds artikkelnummer', 'Kunds artikelnummer')
-        # Lokasjon ligger i andre Artikelbeskrivning-kolonne (duplikat → _2)
-        lokasjon = val(row, 'Artikelbeskrivning_2', 'Artikelbeskrivning')
         if not varenr:
             continue
         key = str(varenr).strip()
@@ -174,18 +169,8 @@ def main():
             if key not in sa_nr_by_varenr:
                 sa_nr_by_varenr[key] = sa_nr_str
                 fallback_sa_count += 1
-            # Lagre lokasjon keyed på SA-nr som ekstra oppslag — kun gyldige hylleadresser
-            lok_str = str(lokasjon).strip() if lokasjon else ''
-            if lok_str and LOK_PATTERN.match(lok_str) and sa_nr_str not in lokasjon_sa_map:
-                lokasjon_sa_map[sa_nr_str] = lok_str
-        # Fallback lokasjon — kun gyldige hylleadresser
-        lok_str = str(lokasjon).strip() if lokasjon else ''
-        if lok_str and LOK_PATTERN.match(lok_str) and key not in lokasjon_by_varenr:
-            lokasjon_by_varenr[key] = lok_str
-            fallback_lok_count += 1
 
     print(f'  Fallback SA-nr lagt til:   {fallback_sa_count}')
-    print(f'  Fallback lokasjon lagt til: {fallback_lok_count}')
     print(f'  Totalt SA-nr-oppslag: {len(sa_nr_by_varenr)}')
 
     # ── 3. Master_Artikkelstatus.xlsx ─────────────────────────────────────────
@@ -308,7 +293,7 @@ def main():
         m = master_by_art.get(varenr, {})
         l = lagerplan_by_art.get(varenr, {})
 
-        lokasjon   = lokasjon_by_varenr.get(varenr, '') or lokasjon_sa_map.get(sa_nr, '')
+        lokasjon   = lokasjon_by_varenr.get(varenr, '')
         varestatus = varestatus_by_art.get(varenr, '')
         erstatning = erstatning_by_art.get(varenr, '')
         kalkylpris = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
