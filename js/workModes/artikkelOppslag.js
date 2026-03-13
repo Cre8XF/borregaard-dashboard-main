@@ -8,7 +8,7 @@ class ArtikkelOppslagMode {
     static _fuse         = null;
     static _allItems     = null;
     static _searchTerm   = '';
-    static _activeFilter = 'alle';   // 'alle' | 'med-lager' | 'utgaende' | 'uten-lokasjon'
+    static _activeFilters = new Set(); // tomt Set = vis alle; AND-kombinert
     static _lastResults  = [];
     static _searchMode   = 'fuzzy'; // 'exact' | 'location' | 'fuzzy'
 
@@ -24,16 +24,14 @@ class ArtikkelOppslagMode {
         const pendingFilter = sessionStorage.getItem('filter_artikkelOppslag');
         if (pendingFilter) {
             sessionStorage.removeItem('filter_artikkelOppslag');
-            if (pendingFilter === 'mangler-lokasjon' || pendingFilter === 'uten-lokasjon') {
-                this._activeFilter = 'uten-lokasjon';
-            } else {
-                this._activeFilter = pendingFilter;
-            }
+            const mapped = (pendingFilter === 'mangler-lokasjon') ? 'uten-lokasjon' : pendingFilter;
+            this._activeFilters.clear();
+            this._activeFilters.add(mapped);
         }
 
         if (this._searchTerm.length >= 2) {
             this._runSearch();
-        } else if (this._activeFilter !== 'alle') {
+        } else if (this._activeFilters.size > 0) {
             this._runFilterOnly();
         } else {
             this._lastResults = [];
@@ -42,10 +40,10 @@ class ArtikkelOppslagMode {
         return this._buildHTML();
     }
 
-    /** Vis alle artikler som matcher aktivt filter, uten søketerm. */
+    /** Vis alle artikler som matcher aktive filtre, uten søketerm. */
     static _runFilterOnly() {
         if (!this._allItems) { this._lastResults = []; return; }
-        const filtered = this._applyFilter(this._allItems);
+        const filtered = this._applyFilters(this._allItems);
         filtered.sort((a, b) => {
             const locCmp = this._cmpLocation(a.location || '', b.location || '');
             if (locCmp !== 0) return locCmp;
@@ -89,23 +87,61 @@ class ArtikkelOppslagMode {
     // ════════════════════════════════════════════════════
 
     static _buildHTML() {
-        const term   = this._searchTerm;
-        const filter = this._activeFilter;
+        const term = this._searchTerm;
+        const active = this._activeFilters;
+        const all = this._allItems || [];
 
-        const filters = [
-            { id: 'alle',          label: 'Alle' },
-            { id: 'med-lager',     label: 'Kun med lager' },
-            { id: 'utgaende',      label: 'Utgående' },
-            { id: 'uten-lokasjon', label: 'Uten lokasjon' }
+        // Pre-count per filter across all items (not search results)
+        const counts = {
+            'med-lager':     all.filter(i => (i.stock || 0) > 0).length,
+            'uten-lager':    all.filter(i => (i.stock || 0) === 0).length,
+            'aktiv':         all.filter(i => {
+                                 const vs = (i.vareStatus || '').toLowerCase();
+                                 return !vs.includes('discontinued') && !vs.includes('utgå');
+                             }).length,
+            'utgaende':      all.filter(i => {
+                                 const s = (i._status || i.status || '').toUpperCase();
+                                 const vs = (i.vareStatus || '').toLowerCase();
+                                 return s.includes('UTGÅ') || s.includes('DISCONTINUED') ||
+                                        vs.includes('discontinued') || vs.includes('planned discontinued');
+                             }).length,
+            'uten-lokasjon': all.filter(i => !i.location || i.location.trim() === '').length,
+        };
+
+        const FILTER_DEFS = [
+            { id: 'med-lager',     label: 'Med beholdning',  color: '#2e7d32' },
+            { id: 'uten-lager',    label: 'Uten beholdning', color: '#e65100' },
+            { id: 'aktiv',         label: 'Kun aktive',      color: '#1565c0' },
+            { id: 'utgaende',      label: 'Utgående',        color: '#c62828' },
+            { id: 'uten-lokasjon', label: 'Uten lokasjon',   color: '#6a1b9a' },
         ];
 
-        const filterHTML = filters.map(f => `
-            <button
-                class="btn-${f.id === filter ? 'primary' : 'secondary'} btn-small"
-                onclick="ArtikkelOppslagMode.setFilter('${f.id}')"
-                style="font-size:12px;padding:4px 12px;"
-            >${this.esc(f.label)}</button>
-        `).join('');
+        const filterHTML = FILTER_DEFS.map(f => {
+            const isActive = active.has(f.id);
+            const cnt = all.length > 0 ? ` (${counts[f.id].toLocaleString('nb-NO')})` : '';
+            return `<button
+                onclick="ArtikkelOppslagMode.toggleFilter('${f.id}')"
+                style="font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;
+                       border:2px solid ${f.color};font-weight:600;white-space:nowrap;
+                       background:${isActive ? f.color : '#fff'};
+                       color:${isActive ? '#fff' : f.color};"
+            >${this.esc(f.label)}${cnt}</button>`;
+        }).join('');
+
+        const clearLink = active.size > 0
+            ? `<button onclick="ArtikkelOppslagMode.clearFilters()"
+                       style="font-size:12px;color:#666;background:none;border:none;
+                              cursor:pointer;text-decoration:underline;padding:2px 4px;">
+                   Nullstill filter
+               </button>`
+            : '';
+
+        const exportBtn = `<button onclick="ArtikkelOppslagMode.exportExcel()"
+                style="font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;
+                       border:2px solid #374151;background:#374151;color:#fff;
+                       font-weight:600;white-space:nowrap;margin-left:auto;">
+            ⬇ Excel
+        </button>`;
 
         return `
             <div class="module-header">
@@ -136,6 +172,8 @@ class ArtikkelOppslagMode {
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <span style="font-size:12px;color:#666;font-weight:600;">Filter:</span>
                     ${filterHTML}
+                    ${clearLink}
+                    ${exportBtn}
                 </div>
             </div>
 
@@ -149,7 +187,7 @@ class ArtikkelOppslagMode {
         const term    = this._searchTerm;
         const results = this._lastResults;
 
-        if (term.length < 2 && this._activeFilter === 'alle') {
+        if (term.length < 2 && this._activeFilters.size === 0) {
             return `<div class="alert alert-info" style="margin-top:16px;">Skriv minst 2 tegn for å søke.</div>`;
         }
         if (results.length === 0) {
@@ -211,7 +249,7 @@ class ArtikkelOppslagMode {
             }
         }
 
-        candidates = this._applyFilter(candidates);
+        candidates = this._applyFilters(candidates);
 
         // Sort: location ASC (natural), then toolsArticleNumber ASC
         candidates.sort((a, b) => {
@@ -223,23 +261,84 @@ class ArtikkelOppslagMode {
         this._lastResults = candidates;
     }
 
-    static _applyFilter(items) {
-        switch (this._activeFilter) {
+    static _applyFilters(items) {
+        if (this._activeFilters.size === 0) return items;
+        return items.filter(item => {
+            for (const f of this._activeFilters) {
+                if (!this._matchFilter(item, f)) return false;
+            }
+            return true;
+        });
+    }
+
+    static _matchFilter(item, filterId) {
+        switch (filterId) {
             case 'med-lager':
-                return items.filter(i => (i.stock || 0) > 0);
+                return (item.stock || 0) > 0;
+            case 'uten-lager':
+                return (item.stock || 0) === 0;
+            case 'aktiv': {
+                const vs = (item.vareStatus || '').toLowerCase();
+                return !vs.includes('discontinued') && !vs.includes('utgå');
+            }
             case 'utgaende': {
-                return items.filter(i => {
-                    const s = (i._status || i.status || '').toUpperCase();
-                    return s.includes('UTGÅ') || s.includes('UTGA') ||
-                           s === 'U' || s.includes('DISCONTINUED') ||
-                           (i.vareStatus || '').toLowerCase().includes('discontinued');
-                });
+                const s = (item._status || item.status || '').toUpperCase();
+                const vs = (item.vareStatus || '').toLowerCase();
+                return s.includes('UTGÅ') || s.includes('DISCONTINUED') ||
+                       vs.includes('discontinued') || vs.includes('planned discontinued');
             }
             case 'uten-lokasjon':
-                return items.filter(i => !i.location || i.location.trim() === '');
+                return !item.location || item.location.trim() === '';
             default:
-                return items;
+                return true;
         }
+    }
+
+    static toggleFilter(filterId) {
+        if (this._activeFilters.has(filterId)) {
+            this._activeFilters.delete(filterId);
+        } else {
+            // Gjensidig utelukkende par
+            if (filterId === 'med-lager')  this._activeFilters.delete('uten-lager');
+            if (filterId === 'uten-lager') this._activeFilters.delete('med-lager');
+            if (filterId === 'aktiv')      this._activeFilters.delete('utgaende');
+            if (filterId === 'utgaende')   this._activeFilters.delete('aktiv');
+            this._activeFilters.add(filterId);
+        }
+
+        if (this._searchTerm.length >= 2) {
+            this._runSearch();
+        } else if (this._activeFilters.size > 0) {
+            this._runFilterOnly();
+        } else {
+            this._lastResults = [];
+        }
+
+        // Rebuild full HTML (oppdaterer knapper og resultater)
+        const contentDiv = document.getElementById('moduleContent');
+        if (!contentDiv || !this._store) return;
+        contentDiv.innerHTML = this._buildHTML();
+
+        const input = document.getElementById('artikkelOppslagSearch');
+        if (input) {
+            input.focus();
+            const len = input.value.length;
+            input.setSelectionRange(len, len);
+        }
+    }
+
+    static clearFilters() {
+        this._activeFilters.clear();
+        if (this._searchTerm.length >= 2) {
+            this._runSearch();
+        } else {
+            this._lastResults = [];
+        }
+        const contentDiv = document.getElementById('moduleContent');
+        if (!contentDiv || !this._store) return;
+        contentDiv.innerHTML = this._buildHTML();
+        const input = document.getElementById('artikkelOppslagSearch');
+        if (input) { input.focus(); }
     }
 
     // Natural sort for warehouse locations like "11-10-A", "2-3-B"
@@ -577,6 +676,8 @@ class ArtikkelOppslagMode {
 
         if (value.length >= 2) {
             this._runSearch();
+        } else if (this._activeFilters.size > 0) {
+            this._runFilterOnly();
         } else {
             this._lastResults = [];
         }
@@ -588,29 +689,65 @@ class ArtikkelOppslagMode {
         }
     }
 
-    static setFilter(filterId) {
-        this._activeFilter = filterId;
+    // ════════════════════════════════════════════════════
+    //  EXCEL-EKSPORT
+    // ════════════════════════════════════════════════════
 
-        if (this._searchTerm.length >= 2) {
-            this._runSearch();
-        } else if (filterId !== 'alle') {
-            this._runFilterOnly();
-        } else {
-            this._lastResults = [];
+    static exportExcel() {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke lastet. Kan ikke eksportere.');
+            return;
+        }
+        const rows = this._lastResults;
+        if (!rows || rows.length === 0) {
+            alert('Ingen artikler å eksportere. Bruk søk eller filter for å hente en liste.');
+            return;
         }
 
-        // Rebuild full HTML to update active filter button style
-        const contentDiv = document.getElementById('moduleContent');
-        if (!contentDiv || !this._store) return;
-        contentDiv.innerHTML = this._buildHTML();
+        const data = rows.map(item => ({
+            'TOOLS NR':     item.toolsArticleNumber || '',
+            'SA-NUMMER':    item.saNumber           || '',
+            'BESKRIVELSE':  item.description        || '',
+            'LOKASJON':     item.location           || '',
+            'LAGER':        item.stock              ?? 0,
+            'INNKOMMENDE':  item.bestAntLev         ?? 0,
+            'STATUS':       item.vareStatus         || (item._status || item.status || ''),
+            'LEVERANDØR':   item.supplier           || '',
+            'NY LOKASJON':  '',   // Tom kolonne for håndskriving
+        }));
 
-        // Return focus to search input
-        const input = document.getElementById('artikkelOppslagSearch');
-        if (input) {
-            input.focus();
-            const len = input.value.length;
-            input.setSelectionRange(len, len);
-        }
+        const ws = XLSX.utils.json_to_sheet(data);
+
+        // Kolonnebredder (tegnbredde)
+        ws['!cols'] = [
+            { wch: 15 }, // TOOLS NR
+            { wch: 15 }, // SA-NUMMER
+            { wch: 40 }, // BESKRIVELSE
+            { wch: 15 }, // LOKASJON
+            { wch: 8  }, // LAGER
+            { wch: 12 }, // INNKOMMENDE
+            { wch: 20 }, // STATUS
+            { wch: 20 }, // LEVERANDØR
+            { wch: 20 }, // NY LOKASJON
+        ];
+
+        // Frys første rad
+        ws['!views'] = [{ state: 'frozen', ySplit: 1, xSplit: 0, topLeftCell: 'A2', activePane: 'bottomLeft' }];
+
+        // Autofilter
+        const lastCol = XLSX.utils.encode_col(data[0] ? Object.keys(data[0]).length - 1 : 8);
+        ws['!autofilter'] = { ref: `A1:${lastCol}${data.length + 1}` };
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Artikler');
+
+        const date = new Date().toISOString().slice(0, 10);
+        const hasUtenLokasjon = this._activeFilters.has('uten-lokasjon');
+        const filename = hasUtenLokasjon
+            ? `Artikler_uten_lokasjon_${date}.xlsx`
+            : `Artikkel_Oppslag_${date}.xlsx`;
+
+        XLSX.writeFile(wb, filename);
     }
 
     // ════════════════════════════════════════════════════
