@@ -33,11 +33,25 @@ class ArtikkelOppslagMode {
 
         if (this._searchTerm.length >= 2) {
             this._runSearch();
+        } else if (this._activeFilter !== 'alle') {
+            this._runFilterOnly();
         } else {
             this._lastResults = [];
         }
 
         return this._buildHTML();
+    }
+
+    /** Vis alle artikler som matcher aktivt filter, uten søketerm. */
+    static _runFilterOnly() {
+        if (!this._allItems) { this._lastResults = []; return; }
+        const filtered = this._applyFilter(this._allItems);
+        filtered.sort((a, b) => {
+            const locCmp = this._cmpLocation(a.location || '', b.location || '');
+            if (locCmp !== 0) return locCmp;
+            return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
+        });
+        this._lastResults = filtered;
     }
 
     static _initFuse(store) {
@@ -135,7 +149,7 @@ class ArtikkelOppslagMode {
         const term    = this._searchTerm;
         const results = this._lastResults;
 
-        if (term.length < 2) {
+        if (term.length < 2 && this._activeFilter === 'alle') {
             return `<div class="alert alert-info" style="margin-top:16px;">Skriv minst 2 tegn for å søke.</div>`;
         }
         if (results.length === 0) {
@@ -579,6 +593,10 @@ class ArtikkelOppslagMode {
 
         if (this._searchTerm.length >= 2) {
             this._runSearch();
+        } else if (filterId !== 'alle') {
+            this._runFilterOnly();
+        } else {
+            this._lastResults = [];
         }
 
         // Rebuild full HTML to update active filter button style
