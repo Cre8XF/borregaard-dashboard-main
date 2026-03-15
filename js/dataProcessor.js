@@ -214,6 +214,11 @@ class DataProcessor {
         levLedTid:     ['LevLedTid', 'Lev.led.tid', 'Leveringstid', 'LeadTime'],
         transportdagar:['Transportdagar', 'Transportdager', 'Transport'],
         invDat:        ['InvDat', 'invdat', 'Inv.Dat', 'InvDato'],
+        // ── Prisliste-felt (FASE 9.0) ──
+        avtalepris:    ['Ny pris', 'Avtalepris', 'Ny_Pris', 'agreementPrice'],
+        listpris:      ['artlistpris', 'Listpris', 'List price'],
+        nyDG:          ['Ny DG', 'NyDG', 'Dekningsgrad'],
+        prisAnbefaling:['Anbefaling', 'PrisAnbefaling'],
     };
 
     // ── Column variants for Analyse_Lagerplan.xlsx ──
@@ -1035,6 +1040,35 @@ class DataProcessor {
 
         console.log(`[JeevesMap] Bygget kjøpshistorikk for ${Object.keys(jeevesMap).length} artikler (Customer ID ∋ '424186')`);
         return jeevesMap;
+    }
+
+    /**
+     * Prosesser prisliste-data og bygg prisMap keyed på toolsArticleNumber
+     * FASE 9.0
+     * @param {Array} rows - prisliste-rader fra dashboard-data.json
+     * @returns {Object} prisMap: { [artnr]: { avtalepris, listpris, kalkylpris, nyDG, status, anbefaling, saNummer } }
+     */
+    static buildPrisMap(rows) {
+        const prisMap = {};
+        if (!rows || rows.length === 0) return prisMap;
+
+        rows.forEach(row => {
+            const artnr = (row['artnr'] || '').toString().trim();
+            if (!artnr || artnr === 'nan') return;
+
+            const avtalepris = parseFloat(row['Ny pris']) || 0;
+            const listpris   = parseFloat(row['artlistpris']) || 0;
+            const kalkylpris = parseFloat(row['q_replacement_value']) || 0;
+            const nyDG       = parseFloat(row['Ny DG']) || 0;
+            const status     = (row['Status'] || '').toString().trim();
+            const anbefaling = (row['Anbefaling'] || '').toString().trim();
+            const saNummer   = (row['SA-Nummer'] || '').toString().trim();
+
+            prisMap[artnr] = { avtalepris, listpris, kalkylpris, nyDG, status, anbefaling, saNummer };
+        });
+
+        console.log(`[PrisMap] Bygget priskart for ${Object.keys(prisMap).length} artikler`);
+        return prisMap;
     }
 
     /** Hent verdi fra Jeeves-rad med eksakt eller case-insensitive kolonne-match */

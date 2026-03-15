@@ -630,6 +630,19 @@ class DashboardApp {
             const dagerValEl = document.querySelector('#dagerTilTomtCard .card-value');
             if (dagerValEl) dagerValEl.style.color = antall > 0 ? '#c62828' : '#2e7d32';
         }
+
+        // Prislisteavvik (FASE 9.0) — kun synlig hvis prisliste er lastet
+        const prisEl = document.getElementById('prisStatusEndringerCount');
+        const prisCard = document.getElementById('prislisteavvikCard');
+        if (prisEl && this.dataStore && this.dataStore.prisMap) {
+            if (prisCard) prisCard.style.display = '';
+            const prisEndringer = this.checkPrislisteStatusEndringer();
+            prisEl.textContent = prisEndringer.length > 0 ? prisEndringer.length : '✓';
+            prisEl.parentElement.classList.toggle('card-warning', prisEndringer.length > 0);
+            prisEl.parentElement.classList.toggle('card-ok', prisEndringer.length === 0);
+        } else if (prisCard) {
+            prisCard.style.display = 'none';
+        }
     }
 
     /**
@@ -1001,7 +1014,8 @@ class DashboardApp {
             await this.processJsonData({
                 master:       payload.master       || [],
                 orders:       payload.orders       || [],
-                bestillinger: payload.bestillinger || []
+                bestillinger: payload.bestillinger || [],
+                prisliste:    payload.prisliste    || [],   // FASE 9.0
             });
 
             const uploadSection = document.getElementById('uploadSection');
@@ -1023,7 +1037,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger }) {
+    async processJsonData({ master, orders, bestillinger, prisliste }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1046,6 +1060,29 @@ class DashboardApp {
 
         store.calculateAll();
 
+        // FASE 9.0: Bygg prisMap og berik alle items med prisdata
+        if (prisliste && prisliste.length > 0) {
+            store.prisMap = DataProcessor.buildPrisMap(prisliste);
+
+            store.getAllItems().forEach(item => {
+                const pris = store.prisMap[item.toolsArticleNumber];
+                if (pris) {
+                    item.avtalepris     = pris.avtalepris;
+                    item.listpris       = pris.listpris;
+                    item.prisKalkyl     = pris.kalkylpris;
+                    item.nyDG           = pris.nyDG;
+                    item.prisStatus     = pris.status;
+                    item.prisAnbefaling = pris.anbefaling;
+                    item.iInPrisliste   = true;
+                }
+            });
+
+            // Beregn prisavvik på nytt etter beriking
+            store.getAllItems().forEach(item => item.calculate());
+
+            console.log(`[FASE 9.0] Prisdata beriket for ${Object.keys(store.prisMap).length} artikler`);
+        }
+
         this.dataStore = store;
         this.updateSummaryCards();
         this.renderCurrentModule();
@@ -1053,6 +1090,36 @@ class DashboardApp {
 
         const quality = store.getDataQualityReport();
         console.log(`[FASE 8.0] JSON-data prosessert: ${quality.totalArticles} SA-artikler`);
+    }
+
+    /**
+     * Sjekk om noen artikler har endret VareStatus siden prislisten ble satt opp.
+     * Flagg artikler der VareStatus er Planned Discontinued/Discontinued
+     * men prisAnbefaling sier "OK — aktiv vare".
+     * FASE 9.0
+     */
+    checkPrislisteStatusEndringer() {
+        if (!this.dataStore || !this.dataStore.prisMap) return [];
+
+        const endringer = [];
+        this.dataStore.getAllItems().forEach(item => {
+            if (!item.iInPrisliste) return;
+
+            const erAktivIPrisliste = item.prisAnbefaling.startsWith('OK —');
+            const erUtgaaende = ['Planned Discontinued', 'Discontinued'].includes(item.vareStatus);
+
+            if (erAktivIPrisliste && erUtgaaende) {
+                endringer.push({
+                    toolsNr:     item.toolsArticleNumber,
+                    saNummer:    item.saNumber,
+                    beskrivelse: item.description,
+                    vareStatus:  item.vareStatus,
+                    anbefaling:  item.prisAnbefaling,
+                });
+            }
+        });
+
+        return endringer;
     }
 
     /**
@@ -1083,11 +1150,13 @@ class DashboardApp {
 
             // Nullstill sammendragskort
             ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount',
-             'manglerLokasjonCount', 'underBPUtenOrdreCount', 'dagerTilTomtCount']
+             'manglerLokasjonCount', 'underBPUtenOrdreCount', 'dagerTilTomtCount', 'prisStatusEndringerCount']
                 .forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = '-';
                 });
+            const prisCard = document.getElementById('prislisteavvikCard');
+            if (prisCard) prisCard.style.display = 'none';
             const nesteLeveringEl = document.getElementById('nesteLeveringLabel');
             if (nesteLeveringEl) nesteLeveringEl.textContent = '';
             ['underBPCard', 'dagerTilTomtCard'].forEach(id => {

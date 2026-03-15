@@ -625,7 +625,12 @@ class ArtikkelOppslagMode {
                         ${statusLineExtra}
                     </div>
 
-                    <!-- S6: Kjøpshistorikk -->
+                    <!-- S6: Prisinfo (FASE 9.0) -->
+                    <div style="${S}border-bottom:none;padding:10px 16px 2px;">
+                        ${this._buildPrisInfoHTML(item)}
+                    </div>
+
+                    <!-- S7: Kjøpshistorikk -->
                     <div style="${S}border-bottom:none;padding:10px 16px 2px;">
                         ${this._buildPurchaseHistoryHTML(item)}
                     </div>
@@ -776,6 +781,78 @@ class ArtikkelOppslagMode {
             document.execCommand('copy');
             ta.remove();
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  PRISINFO PANEL (FASE 9.0)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Bygg prisinfo-panel for artikkelkort
+     * Vises mellom lagerstatus og kjøpshistorikk
+     * FASE 9.0
+     */
+    static _buildPrisInfoHTML(item) {
+        if (!item.iInPrisliste) {
+            return `
+                <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                    <div style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;
+                                color:#475569;text-transform:uppercase;letter-spacing:0.05em;">
+                        Prisliste
+                    </div>
+                    <div style="padding:10px 12px;font-size:12px;color:#94a3b8;font-style:italic;">
+                        Ikke i prisliste
+                    </div>
+                </div>`;
+        }
+
+        const fmt = (v) => v > 0 ? v.toFixed(2).replace('.', ',') + ' kr' : '–';
+        const fmtPct = (v) => v !== 0 ? (v > 0 ? '+' : '') + v.toFixed(1) + '%' : '–';
+
+        const avvikFarge = Math.abs(item.prisAvvik) > 10 ? '#dc2626' :
+                           Math.abs(item.prisAvvik) > 5  ? '#d97706' : '#16a34a';
+
+        const prisStatusHtml = item.prisStatus
+            ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;
+                            border-radius:4px;font-size:11px;font-weight:600;">
+                   ${item.prisStatus}
+               </span>`
+            : '';
+
+        return `
+            <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                <div style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;
+                            color:#475569;text-transform:uppercase;letter-spacing:0.05em;
+                            display:flex;justify-content:space-between;align-items:center;">
+                    <span>Prisliste</span>
+                    ${prisStatusHtml}
+                </div>
+                <div style="padding:10px 12px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+                        <div>
+                            <div style="color:#94a3b8;font-size:10px;margin-bottom:2px;">Avtalepris (inkl. 3%)</div>
+                            <div style="font-weight:700;color:#1e40af;font-size:15px;">${fmt(item.avtalepris)}</div>
+                        </div>
+                        <div>
+                            <div style="color:#94a3b8;font-size:10px;margin-bottom:2px;">Listpris</div>
+                            <div style="font-weight:600;color:#374151;">${fmt(item.listpris)}</div>
+                        </div>
+                        <div>
+                            <div style="color:#94a3b8;font-size:10px;margin-bottom:2px;">Dekningsgrad</div>
+                            <div style="font-weight:600;color:#374151;">${item.nyDG > 0 ? (item.nyDG * 100).toFixed(1) + '%' : '–'}</div>
+                        </div>
+                        <div>
+                            <div style="color:#94a3b8;font-size:10px;margin-bottom:2px;">Prisavvik (liste vs MV2)</div>
+                            <div style="font-weight:600;color:${avvikFarge};">${fmtPct(item.prisAvvik)}</div>
+                        </div>
+                    </div>
+                    ${item.prisAnbefaling && !item.prisAnbefaling.startsWith('OK') ? `
+                        <div style="margin-top:8px;padding:6px 10px;background:#fef9c3;
+                                    border-radius:6px;font-size:11px;color:#854d0e;">
+                            ⚠️ ${item.prisAnbefaling}
+                        </div>` : ''}
+                </div>
+            </div>`;
     }
 
     // ════════════════════════════════════════════════════
