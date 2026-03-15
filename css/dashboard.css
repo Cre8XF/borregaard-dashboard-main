@@ -3661,3 +3661,10 @@ button:hover {
     font-size: 15px;
     font-weight: 600;
 }
+
+/* ===================================
+   LAGEROPPSLAG — LAGERSTATUS-FARGER
+   =================================== */
+.stock-green { color: #1e8c3a; background-color: #eafaf1; }
+.stock-yellow { color: #7d5c00; background-color: #fef9e7; }
+.stock-red { color: #c0392b; background-color: #fdf2f2; }
