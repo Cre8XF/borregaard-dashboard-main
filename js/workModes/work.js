@@ -251,7 +251,9 @@ class WorkMode {
                 sales3m,
                 replacementNr: replNr || '',
                 replacementStock: replStock,
-                group
+                group,
+                daysToEmpty: item.daysToEmpty || 0,
+                lastSaleDate: item.lastSaleDate || null
             });
         });
 
@@ -342,6 +344,18 @@ class WorkMode {
 
         const dash = '\u2013';
         const fmt  = (n) => (n > 0) ? Math.round(n).toLocaleString('nb-NO') : dash;
+        const fmtDate = (d) => {
+            if (!d) return '';
+            try {
+                const dt = (d instanceof Date) ? d : new Date(d);
+                if (isNaN(dt.getTime())) return '';
+                const dd = String(dt.getDate()).padStart(2, '0');
+                const mm = String(dt.getMonth() + 1).padStart(2, '0');
+                const yyyy = dt.getFullYear();
+                return `${dd}.${mm}.${yyyy}`;
+            } catch (e) { return ''; }
+        };
+        const fmtDays = (n) => (n > 0 && n < 999999) ? Math.round(n).toString() : '';
 
         const groupDot = (group) => {
             const colors = { red: '#c62828', yellow: '#f57f17', black: '#616161' };
@@ -365,6 +379,8 @@ class WorkMode {
                             <th>Beskrivelse</th>
                             <th>Lokasjon</th>
                             <th style="text-align:right;">Saldo</th>
+                            <th style="text-align:right;" title="Estimerte dager til lageret er tomt basert på salg siste 12 mnd">Dager til tomt</th>
+                            <th title="Dato for siste registrerte salg">Sist solgt</th>
                             <th style="text-align:right;">Innkommende</th>
                             <th style="text-align:right;">Salg 3m</th>
                             <th>Erstatning</th>
@@ -383,6 +399,8 @@ class WorkMode {
                                 <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${this.esc(r.description)}">${this.esc(r.description) || dash}</td>
                                 <td style="font-size:11px;color:${r.location ? 'inherit' : '#bdbdbd'};">${r.location ? this.esc(r.location) : dash}</td>
                                 <td style="text-align:right;font-size:11px;">${fmt(r.stock)}</td>
+                                <td style="text-align:right;font-size:11px;color:${r.daysToEmpty > 0 && r.daysToEmpty < 999999 ? (r.daysToEmpty < 14 ? '#c62828' : '#555') : '#bdbdbd'};">${fmtDays(r.daysToEmpty)}</td>
+                                <td style="font-size:11px;color:${r.lastSaleDate ? 'inherit' : '#bdbdbd'};">${fmtDate(r.lastSaleDate)}</td>
                                 <td style="text-align:right;font-size:11px;color:${r.bestAntLev > 0 ? 'inherit' : '#bdbdbd'};">${fmt(r.bestAntLev)}</td>
                                 <td style="text-align:right;font-size:11px;">${fmt(r.sales3m)}</td>
                                 <td style="font-size:11px;color:${r.replacementNr ? 'inherit' : '#bdbdbd'};">${r.replacementNr ? this.esc(r.replacementNr) : dash}</td>
@@ -446,17 +464,27 @@ class WorkMode {
 
         const groupLabel = { red: 'Klar for migrering', yellow: 'Har lager igjen', black: 'Mangler erstatning/SA' };
 
+        const fmtDateExport = (d) => {
+            if (!d) return '';
+            try {
+                const dt = (d instanceof Date) ? d : new Date(d);
+                if (isNaN(dt.getTime())) return '';
+                return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+            } catch (e) { return ''; }
+        };
         const data = exportRows.map(r => ({
-            'Kategori':    groupLabel[r.group] || '',
-            'Tools nr':    r.toolsNr,
-            'SA':          r.saNumber,
-            'Beskrivelse': r.description,
-            'Lokasjon':    r.location,
-            'Saldo':       r.stock,
-            'Innkommende': r.bestAntLev,
-            'Salg 3m':     r.sales3m,
-            'Erstatning':  r.replacementNr,
-            'Erst. saldo': r.replacementNr ? r.replacementStock : ''
+            'Kategori':       groupLabel[r.group] || '',
+            'Tools nr':       r.toolsNr,
+            'SA':             r.saNumber,
+            'Beskrivelse':    r.description,
+            'Lokasjon':       r.location,
+            'Saldo':          r.stock,
+            'Dager til tomt': (r.daysToEmpty > 0 && r.daysToEmpty < 999999) ? Math.round(r.daysToEmpty) : '',
+            'Sist solgt':     fmtDateExport(r.lastSaleDate),
+            'Innkommende':    r.bestAntLev,
+            'Salg 3m':        r.sales3m,
+            'Erstatning':     r.replacementNr,
+            'Erst. saldo':    r.replacementNr ? r.replacementStock : ''
         }));
 
         const wb = XLSX.utils.book_new();
@@ -466,6 +494,68 @@ class WorkMode {
         const suffix = active ? `_${active}` : '_alle';
         const date   = new Date().toISOString().slice(0, 10);
         XLSX.writeFile(wb, `drift_morgensjekk${suffix}_${date}.xlsx`);
+    }
+
+    // CSV-eksport for ukuransliste (Død lager-undertab)
+    static exportUkuransCSV() {
+        if (!this.dataStore) return;
+
+        const items = this.dataStore.getAllItems();
+        const rader = [];
+
+        const fmtDato = (d) => {
+            if (!d) return '';
+            try {
+                const dt = (d instanceof Date) ? d : new Date(d);
+                if (isNaN(dt.getTime())) return '';
+                return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+            } catch (e) { return ''; }
+        };
+
+        items.forEach(item => {
+            const stock = item.stock || 0;
+            if (stock <= 0 || (item.sales12m || 0) > 0) return;
+            rader.push([
+                item.saNumber || '',
+                item.toolsArticleNumber || '',
+                item.description || '',
+                item.location || item.lagerplass || '',
+                item.lagerfort || '',
+                stock,
+                item.kalkylPris || '',
+                item.estimertVerdi ? Math.round(item.estimertVerdi) : '',
+                fmtDato(item.lastSaleDate),
+                item.enhet || ''
+            ]);
+        });
+
+        // Sorter etter estimert verdi (høyest først)
+        rader.sort((a, b) => (b[7] || 0) - (a[7] || 0));
+
+        const kolonner = [
+            'SA-nummer', 'Tools artikkelnr', 'Beskrivelse', 'Lokasjon',
+            'Lagerført', 'Saldo', 'Kalkylpris', 'Estimert verdi (kr)',
+            'Sist solgt', 'Enhet'
+        ];
+
+        const csvLinjer = [kolonner, ...rader].map(rad =>
+            rad.map(v => {
+                const s = String(v ?? '');
+                return (s.includes(';') || s.includes('"') || s.includes('\n'))
+                    ? `"${s.replace(/"/g, '""')}"` : s;
+            }).join(';')
+        );
+
+        const bom  = '\uFEFF';
+        const csv  = bom + csvLinjer.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        const dato = new Date().toISOString().slice(0, 10);
+        a.href     = url;
+        a.download = `ukurans_${dato}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     // ════════════════════════════════════════════════════
@@ -1438,9 +1528,16 @@ class WorkMode {
             if (stock <= 0 || sales12m > 0) return;
 
             rows.push({
-                toolsNr: item.toolsArticleNumber,
+                saNumber: item.saNumber || '',
+                toolsNr: item.toolsArticleNumber || '',
+                description: item.description || '',
+                location: item.location || item.lagerplass || '',
+                lagerfort: item.lagerfort || '',
                 stock,
+                kalkylPris: item.kalkylPris || 0,
                 estimertVerdi: item.estimertVerdi || 0,
+                lastSaleDate: item.lastSaleDate || null,
+                enhet: item.enhet || '',
                 category: item.category || '',
                 supplier: item.supplier || '',
                 status: item._status || 'UKJENT'
@@ -1473,6 +1570,12 @@ class WorkMode {
                            value="${this.searchTerm}"
                            onkeyup="WorkMode.handleSearch(this.value)">
                 </div>
+                <button onclick="WorkMode.exportUkuransCSV()"
+                        style="padding:6px 14px;background:#1565c0;color:#fff;border:none;
+                               border-radius:4px;cursor:pointer;font-size:13px;margin-left:8px;"
+                        title="Eksporter ukuransliste som CSV (semikolonseparert for norsk Excel)">
+                    📋 Ukuransliste CSV
+                </button>
             </div>
             <div style="margin:8px 0;padding:8px 12px;background:#fff3e0;border-radius:4px;font-size:13px;">
                 <strong>${rows.length} artikler</strong> med lager men null salg siste 12 måneder.

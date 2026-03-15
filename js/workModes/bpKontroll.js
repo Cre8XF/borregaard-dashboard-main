@@ -7,6 +7,7 @@ class BPKontrollMode {
     static _activeTab = 'ok-bp'; // 'ok-bp' | 'reduser-bp' | 'alle'
     static _sortField = 'dekningUker';
     static _sortAsc   = true;
+    static _sortManglerTop = false; // Sorter "Mangler"-rader øverst i Øk BP-fanen
 
     // ── Beregn BP-analyse per item ──
     static beregnBPInfo(item) {
@@ -40,11 +41,19 @@ class BPKontrollMode {
         else if (foreslattBP !== null && bp > foreslattBP * 1.5)  vurdering = 'reduser-bp';
         else if (foreslattBP !== null && bp < foreslattBP * 0.7)  vurdering = 'ok-bp';
 
+        // Bestilling mangler: under BP OG ingen åpen innkjøpsordre (bestillinger.xlsx)
+        const aapentBestiltAntall = item.aapentBestiltAntall ?? 0;
+        const manglerBestilling = (bp > 0)
+            && (saldo < bp)
+            && (aapentBestiltAntall === 0)
+            && (sales12m > 0);
+
         return {
             bp, saldo, bestilt, ledetidUker,
             snittPerUke, dekningUker, foreslattBP,
             vurdering, totalTilgjengelig,
-            verdi: (saldo * (item.kalkylPris || 0))
+            verdi: (saldo * (item.kalkylPris || 0)),
+            manglerBestilling
         };
     }
 
@@ -60,6 +69,9 @@ class BPKontrollMode {
         const redserBP = analyse.filter(a => a.info.vurdering === 'reduser-bp');
         const alle     = analyse.filter(a => a.info.snittPerUke > 0 && a.info.vurdering !== 'negativ-saldo');
 
+        // Antall under BP uten åpen ordre (brukes i sammendragskort)
+        const antManglerBestilling = okBP.filter(a => a.info.manglerBestilling).length;
+
         const negativSaldoInfo = negativSaldo.length > 0
             ? `<div style="margin-bottom:12px;padding:8px 12px;background:#fff8e1;border-left:3px solid #f9a825;
                            border-radius:3px;font-size:13px;color:#555;">
@@ -68,11 +80,28 @@ class BPKontrollMode {
                </div>`
             : '';
 
+        const manglerKortFarge = antManglerBestilling > 0 ? '#c62828' : '#2e7d32';
+        const manglerKort = `
+            <div onclick="BPKontrollMode.visManglerBestilling()"
+                 style="cursor:pointer;display:inline-flex;align-items:center;gap:12px;
+                        padding:10px 18px;border-radius:8px;border:2px solid ${manglerKortFarge};
+                        background:${antManglerBestilling > 0 ? '#ffebee' : '#f1f8e9'};
+                        margin-bottom:16px;">
+                <span style="font-size:26px;font-weight:700;color:${manglerKortFarge};">
+                    ${antManglerBestilling}
+                </span>
+                <span style="font-size:13px;font-weight:600;color:${manglerKortFarge};line-height:1.4;">
+                    artikler under BP<br>uten åpen ordre ↗
+                </span>
+            </div>
+        `;
+
         return `
             <div class="module-header">
                 <h2>BP-kontroll</h2>
             </div>
 
+            ${manglerKort}
             ${this.renderTabs(okBP.length, redserBP.length, alle.length)}
             ${negativSaldoInfo}
 
@@ -119,8 +148,14 @@ class BPKontrollMode {
             return `<div class="alert alert-info">Ingen artikler i denne kategorien.</div>`;
         }
 
-        // Sorter
+        // Sorter — "Mangler"-rader øverst hvis _sortManglerTop er aktiv (kun Øk BP-fanen)
+        const isOkBPTab = this._activeTab === 'ok-bp';
         const sortert = [...analyse].sort((a, b) => {
+            if (isOkBPTab && this._sortManglerTop) {
+                const ma = a.info.manglerBestilling ? 0 : 1;
+                const mb = b.info.manglerBestilling ? 0 : 1;
+                if (ma !== mb) return ma - mb;
+            }
             const va = a.info[this._sortField] ?? 0;
             const vb = b.info[this._sortField] ?? 0;
             return this._sortAsc ? va - vb : vb - va;
@@ -155,12 +190,18 @@ class BPKontrollMode {
                     <td style="text-align:right;font-weight:600;color:${bpFarge};">${info.bp}</td>
                     <td style="text-align:right;">${info.snittPerUke.toFixed(1)}</td>
                     <td style="text-align:right;">${Math.round(info.ledetidUker * 7)} dgr</td>
+                    <td style="font-size:11px;color:${item.enhet ? 'inherit' : '#bdbdbd'};">${this.esc(item.enhet || '')}</td>
+                    <td style="text-align:right;font-size:11px;color:${item.max > 0 ? 'inherit' : '#bdbdbd'};">${item.max > 0 ? item.max : ''}</td>
+                    <td style="font-size:11px;color:${item.lagerfort ? 'inherit' : '#bdbdbd'};">${this.esc(item.lagerfort || '')}</td>
                     <td style="text-align:right;font-weight:600;color:${dekFarge};">
                         ${info.dekningUker === 999 ? '∞' : info.dekningUker.toFixed(1)} uker
                     </td>
                     <td style="text-align:right;font-weight:600;color:#1a6b2c;">
                         ${info.foreslattBP !== null ? info.foreslattBP : '—'}
                     </td>
+                    ${isOkBPTab ? `<td style="font-weight:600;font-size:12px;white-space:nowrap;color:${info.manglerBestilling ? '#c62828' : '#2e7d32'};">
+                        ${info.manglerBestilling ? '⚠️ Mangler' : '✓ Åpen ordre'}
+                    </td>` : ''}
                 </tr>
             `;
         }).join('');
@@ -171,11 +212,21 @@ class BPKontrollMode {
                     <h3 style="margin:0 0 4px;font-size:15px;">${tittel}</h3>
                     <p style="margin:0;font-size:13px;color:#666;">${beskrivelse}</p>
                 </div>
-                <button onclick="BPKontrollMode.exportExcel()"
-                        style="padding:7px 14px;background:#1a6b2c;color:#fff;border:none;
-                               border-radius:4px;cursor:pointer;font-size:13px;">
-                    📥 Eksporter Excel
-                </button>
+                <div style="display:flex;gap:8px;">
+                    ${isOkBPTab ? `
+                    <button onclick="BPKontrollMode.exportBestillinglisteCSV()"
+                            style="padding:7px 14px;background:#1565c0;color:#fff;border:none;
+                                   border-radius:4px;cursor:pointer;font-size:13px;"
+                            title="Eksporter bestillingsliste som CSV (semikolonseparert for norsk Excel)">
+                        📋 Bestillingsliste CSV
+                    </button>
+                    ` : ''}
+                    <button onclick="BPKontrollMode.exportExcel()"
+                            style="padding:7px 14px;background:#1a6b2c;color:#fff;border:none;
+                                   border-radius:4px;cursor:pointer;font-size:13px;">
+                        📥 Eksporter Excel
+                    </button>
+                </div>
             </div>
 
             <div class="table-wrapper">
@@ -190,6 +241,9 @@ class BPKontrollMode {
                             <th style="text-align:right;" title="Nåværende bestillingspunkt">BP nå</th>
                             <th style="text-align:right;">Snitt/uke</th>
                             <th style="text-align:right;">Ledetid</th>
+                            <th title="Enhet per pakning (ST, M, PKT osv.)">Enhet</th>
+                            <th style="text-align:right;" title="Maxlagernivå fra Analyse_Lagerplan">Maxlager</th>
+                            <th title="Lagersted: Vestby / Ørebro / Begge / NEI">Lagerført</th>
                             <th style="text-align:right;cursor:pointer;" onclick="BPKontrollMode.sortBy('dekningUker')"
                                 title="Klikk for å sortere">
                                 Dekning ↕
@@ -197,6 +251,10 @@ class BPKontrollMode {
                             <th style="text-align:right;" title="Foreslått BP basert på forbruk × ledetid × 1.2">
                                 Foreslått BP
                             </th>
+                            ${isOkBPTab ? `<th style="cursor:pointer;" onclick="BPKontrollMode.visManglerBestilling()"
+                                title="Klikk for å sortere manglende bestillinger øverst">
+                                Ordre? ${this._sortManglerTop ? '↑' : '↕'}
+                            </th>` : ''}
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -213,6 +271,13 @@ class BPKontrollMode {
     static sortBy(field) {
         if (this._sortField === field) this._sortAsc = !this._sortAsc;
         else { this._sortField = field; this._sortAsc = true; }
+        this.refreshAll();
+    }
+
+    // Navigerer til Øk BP-fanen og sorterer "Mangler"-rader øverst
+    static visManglerBestilling() {
+        this._activeTab = 'ok-bp';
+        this._sortManglerTop = !this._sortManglerTop;
         this.refreshAll();
     }
 
@@ -255,6 +320,71 @@ class BPKontrollMode {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'BP-analyse');
         XLSX.writeFile(wb, `bp_kontroll_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    // CSV-eksport for bestillingsliste (kun Øk BP-fanen)
+    static exportBestillinglisteCSV() {
+        const store = window.app?.dataStore;
+        if (!store) return;
+
+        const items = store.getAllItems();
+        const analyse = items
+            .map(item => ({ item, info: this.beregnBPInfo(item) }))
+            .filter(a => a.info.vurdering === 'ok-bp');
+
+        // Datoformatering for nesteForventetLevering
+        const fmtDato = (d) => {
+            if (!d) return '';
+            try {
+                const dt = (d instanceof Date) ? d : new Date(d);
+                if (isNaN(dt.getTime())) return '';
+                return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+            } catch (e) { return ''; }
+        };
+
+        const kolonner = [
+            'SA-nummer', 'Tools artikkelnr', 'Beskrivelse', 'Leverandør',
+            'Saldo', 'BP', 'Foreslått BP', 'EOK', 'Enhet', 'Ledetid (dager)',
+            'Åpent bestilt', 'Neste levering', 'Ordre?'
+        ];
+
+        const rader = analyse.map(({ item, info }) => [
+            item.saNumber || '',
+            item.toolsArticleNumber || '',
+            item.description || '',
+            item.supplier || '',
+            info.saldo,
+            info.bp,
+            info.foreslattBP ?? '',
+            item.ordrekvantitet ?? '',
+            item.enhet || '',
+            Math.round(info.ledetidUker * 7),
+            item.aapentBestiltAntall ?? 0,
+            fmtDato(item.nesteForventetLevering),
+            info.manglerBestilling ? 'Mangler' : 'Åpen ordre'
+        ]);
+
+        // Bygg CSV med semikolon (norsk Excel-standard) og BOM for æøå
+        const csvLinjer = [kolonner, ...rader].map(rad =>
+            rad.map(v => {
+                const s = String(v ?? '');
+                // Sett i anførselstegn hvis verdien inneholder semikolon, linjeskift eller anførselstegn
+                return (s.includes(';') || s.includes('"') || s.includes('\n'))
+                    ? `"${s.replace(/"/g, '""')}"` : s;
+            }).join(';')
+        );
+
+        const bom = '\uFEFF';  // UTF-8 BOM for norsk Excel
+        const csv = bom + csvLinjer.join('\r\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        const dato = new Date().toISOString().slice(0, 10);
+        a.href     = url;
+        a.download = `bestillingsliste_${dato}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     static esc(str) {

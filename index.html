@@ -59,10 +59,19 @@
         <div class="summary-card clickable" onclick="navigateToModule('bp-kontroll')">
           <div class="card-value" id="incomingCount">-</div>
           <div class="card-label">På vei inn ↗</div>
+          <div class="card-sublabel" id="nesteLeveringLabel" style="font-size:11px;color:#888;margin-top:2px;"></div>
         </div>
         <div class="summary-card card-neutral clickable" onclick="navigateToModule('artikkeloppslag', { filter: 'mangler-lokasjon' })">
           <div class="card-value" id="manglerLokasjonCount">-</div>
           <div class="card-label">📍 Mangler lokasjon ↗</div>
+        </div>
+        <div class="summary-card clickable" id="underBPCard" onclick="navigateToModule('bp-kontroll')">
+          <div class="card-value" id="underBPUtenOrdreCount">-</div>
+          <div class="card-label">Under BP – ingen ordre ↗</div>
+        </div>
+        <div class="summary-card clickable" id="dagerTilTomtCard" onclick="navigateToModule('arbeid', { filter: 'kritiske' })">
+          <div class="card-value" id="dagerTilTomtCount">-</div>
+          <div class="card-label">Dager til tomt &lt; ledetid ↗</div>
         </div>
       </section>
 

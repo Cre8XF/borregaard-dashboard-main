@@ -882,6 +882,7 @@ class VartellingMode {
                             <th>Leverandørnr</th>
                             <th>SA-nummer</th>
                             <th style="text-align:right;">Beholdning</th>
+                            <th title="Dato for siste registrerte salg fra Ordrer_Jeeves">Sist solgt</th>
                             <th style="text-align:right;">Innkommende</th>
                             <th>Status</th>
                             <th style="text-align:right;width:90px;">Tellet antall</th>
@@ -903,6 +904,7 @@ class VartellingMode {
                                     <td style="font-size:11px;white-space:nowrap;color:${item.supplierId ? 'inherit' : '#aaa'};">${this.esc(item.supplierId || item.supplier || '') || '–'}</td>
                                     <td style="font-size:11px;white-space:nowrap;color:${item.saNumber ? 'inherit' : '#aaa'};">${this.esc(item.saNumber || '') || '–'}</td>
                                     <td style="text-align:right;font-weight:700;">${stock > 0 ? stock.toLocaleString('nb-NO') : '<span style="color:#aaa;">0</span>'}</td>
+                                    <td style="font-size:11px;color:${item.lastSaleDate ? '#555' : '#aaa'};">${(() => { try { const d = item.lastSaleDate; if (!d) return '–'; const dt = (d instanceof Date) ? d : new Date(d); if (isNaN(dt.getTime())) return '–'; return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`; } catch(e) { return '–'; } })()}</td>
                                     <td style="text-align:right;color:${bestAntLev > 0 ? 'inherit' : '#aaa'};">${bestAntLev > 0 ? bestAntLev.toLocaleString('nb-NO') : '–'}</td>
                                     <td>${this.statusBadge(status)}</td>
                                     <td style="padding:2px 4px;">
