@@ -293,7 +293,18 @@ def main():
         m = master_by_art.get(varenr, {})
         l = lagerplan_by_art.get(varenr, {})
 
-        lokasjon   = lokasjon_by_varenr.get(varenr, '')
+        # Prioritert lokasjonskilde:
+        # 1. Kundens artbeskr. fra data_7 (allerede i lokasjon_by_varenr)
+        # 2. Hylla 1 fra Master_Artikkelstatus
+        # 3. Lagerhylla fra Master_Artikkelstatus
+        # 4. Tom streng
+        lokasjon = lokasjon_by_varenr.get(varenr, '')
+        if not lokasjon:
+            lokasjon = str(m.get('Hylla 1', '') or '').strip()
+        if not lokasjon or lokasjon == 'nan':
+            lokasjon = str(val(m, 'Lagerhylla') or '').strip()
+        if lokasjon == 'nan':
+            lokasjon = ''
         varestatus = varestatus_by_art.get(varenr, '')
         erstatning = erstatning_by_art.get(varenr, '')
         kalkylpris = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
@@ -320,7 +331,7 @@ def main():
             'R12 Del Qty':     '',
             'Artikelstatus':   val(m, 'Artikelstatus'),
             'Supplier Name':   val(l, 'Leverantör'),
-            'Lagerhylla':      lokasjon_by_varenr.get(varenr, ''),
+            'Lagerhylla':      lokasjon,
             'VareStatus':      varestatus,
             'ErsattsAvArtNr':  erstatning,
             'LAGERFØRT':       val(row, 'LAGERFØRT'),
