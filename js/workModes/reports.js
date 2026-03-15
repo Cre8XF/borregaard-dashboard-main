@@ -102,6 +102,8 @@ class ReportsMode {
             </div>
 
             ${this.currentReportData ? this.renderReportPreview(this.currentReportData) : ''}
+
+            ${this._renderPrisavvikPanel()}
         `;
     }
 
@@ -363,6 +365,7 @@ class ReportsMode {
                 status: item._status || 'UKJENT',
                 replacementNr: replacementNr || '',
                 saMigrationRequired: !!saMigrationRequired,
+                iInPrisliste: !!item.iInPrisliste,   // FASE 9.0
                 _item: item
             });
         });
@@ -893,13 +896,13 @@ class ReportsMode {
         // ══════════════════════════════════════════════════════
         //  SHEET 4: Risiko
         // ══════════════════════════════════════════════════════
-        const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager (stk)', 'Eksponering (kr)', 'Salg 3m (kr)', 'SA-migrering påkrevd'];
+        const riskHeaders = ['Tools nr', 'Beskrivelse', 'Lager (stk)', 'Eksponering (kr)', 'Salg 3m (kr)', 'SA-migrering påkrevd', 'I prisliste'];
         const riskData = [riskHeaders];
         report.riskList.forEach(r => {
-            riskData.push([r.toolsNr, r.description, r.stock, r.exposure, r.salesLast3m, r.saMigrationRequired ? 'Ja' : 'Nei']);
+            riskData.push([r.toolsNr, r.description, r.stock, r.exposure, r.salesLast3m, r.saMigrationRequired ? 'Ja' : 'Nei', r.iInPrisliste ? 'Ja' : 'Nei']);
         });
         const ws4 = XLSX.utils.aoa_to_sheet(riskData);
-        ws4['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+        ws4['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
         const rRows = report.riskList.length;
         if (rRows > 0) {
             freezeAndFilter(ws4, riskHeaders.length, rRows + 1);
@@ -970,6 +973,65 @@ class ReportsMode {
             freezeAndFilter(ws7, supHeaders.length, sRows + 1);
             autoFmtByHeaders(ws7, supHeaders, sRows);
             XLSX.utils.book_append_sheet(wb, ws7, 'Leverandørfordeling');
+        }
+
+        // ══════════════════════════════════════════════════════
+        //  SHEET: Prisanalyse (FASE 9.0)
+        // ══════════════════════════════════════════════════════
+        if (this.dataStore && this.dataStore.prisMap && Object.keys(this.dataStore.prisMap).length > 0) {
+            const prisHeaders = [
+                'Tools nr', 'SA-nummer', 'Beskrivelse', 'Avtalepris (kr)',
+                'Listpris (kr)', 'Dekningsgrad (%)', 'Innkjøpspris (liste)',
+                'Kalkylpris (MV2)', 'Prisavvik (%)', 'Status', 'Anbefaling'
+            ];
+            const prisData = [prisHeaders];
+
+            const alleItems = this.dataStore.getAllItems()
+                .filter(item => item.iInPrisliste)
+                .sort((a, b) => (b.avtalepris || 0) - (a.avtalepris || 0));
+
+            alleItems.forEach(item => {
+                prisData.push([
+                    item.toolsArticleNumber,
+                    item.saNumber,
+                    item.description,
+                    item.avtalepris || 0,
+                    item.listpris || 0,
+                    item.nyDG > 0 ? item.nyDG : 0,
+                    item.prisKalkyl || 0,
+                    item.kalkylPris || 0,
+                    item.prisAvvik || 0,
+                    item.prisStatus || '',
+                    item.prisAnbefaling || '',
+                ]);
+            });
+
+            const wsPris = XLSX.utils.aoa_to_sheet(prisData);
+            wsPris['!cols'] = [
+                { wch: 16 }, { wch: 14 }, { wch: 40 }, { wch: 16 },
+                { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 16 },
+                { wch: 14 }, { wch: 12 }, { wch: 45 }
+            ];
+
+            // Formater tall-kolonner
+            const numCols = [3, 4, 6, 7]; // avtalepris, listpris, prisKalkyl, kalkylPris
+            const pctCols = [5, 8];        // nyDG, prisAvvik
+            for (let r = 1; r < prisData.length; r++) {
+                numCols.forEach(c => {
+                    const cellRef = XLSX.utils.encode_cell({ r, c });
+                    if (wsPris[cellRef]) wsPris[cellRef].z = '#,##0.00';
+                });
+                pctCols.forEach(c => {
+                    const cellRef = XLSX.utils.encode_cell({ r, c });
+                    if (wsPris[cellRef]) {
+                        if (c === 5) wsPris[cellRef].z = '0.0%';
+                        else wsPris[cellRef].z = '0.0"%"';
+                    }
+                });
+            }
+
+            freezeAndFilter(wsPris, prisHeaders.length, prisData.length);
+            XLSX.utils.book_append_sheet(wb, wsPris, 'Prisanalyse');
         }
 
         // Write file — derive filename from selected quarter key or current quarter
@@ -1297,6 +1359,91 @@ class ReportsMode {
         if (moduleContent && this.dataStore) {
             moduleContent.innerHTML = this.render(this.dataStore);
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  PRISAVVIK PANEL (FASE 9.0)
+    // ════════════════════════════════════════════════════
+
+    /**
+     * Render prisavvik-panel i Rapporter-modulen
+     * Viser artikler med stort avvik mellom prisliste og MV2-kalkylpris
+     * FASE 9.0
+     */
+    static _renderPrisavvikPanel() {
+        if (!this.dataStore || !this.dataStore.prisMap) {
+            return '';
+        }
+
+        const AVVIK_GRENSE = 10;
+        const items = this.dataStore.getAllItems()
+            .filter(item => item.iInPrisliste && Math.abs(item.prisAvvik) > AVVIK_GRENSE)
+            .sort((a, b) => Math.abs(b.prisAvvik) - Math.abs(a.prisAvvik))
+            .slice(0, 20);
+
+        const statusEndringer = window.app ? window.app.checkPrislisteStatusEndringer() : [];
+
+        const avvikHtml = items.length === 0
+            ? '<p style="color:#16a34a;font-size:13px;">✅ Ingen prisavvik over 10% funnet</p>'
+            : `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead><tr style="background:#f1f5f9;">
+                    <th style="padding:6px 10px;text-align:left;">Tools nr</th>
+                    <th style="padding:6px 10px;text-align:left;">Beskrivelse</th>
+                    <th style="padding:6px 10px;text-align:right;">Liste innkjøp</th>
+                    <th style="padding:6px 10px;text-align:right;">MV2 kalkyl</th>
+                    <th style="padding:6px 10px;text-align:right;">Avvik %</th>
+                </tr></thead>
+                <tbody>
+                    ${items.map((item, i) => {
+                        const farge = item.prisAvvik > 0 ? '#fef2f2' : '#f0fdf4';
+                        return `<tr style="background:${i%2===0?farge:'#ffffff'};">
+                            <td style="padding:5px 10px;font-family:monospace;">${this.escapeHtml(item.toolsArticleNumber)}</td>
+                            <td style="padding:5px 10px;">${this.escapeHtml((item.description||'').slice(0,35))}</td>
+                            <td style="padding:5px 10px;text-align:right;">${item.prisKalkyl.toFixed(2).replace('.',',')} kr</td>
+                            <td style="padding:5px 10px;text-align:right;">${item.kalkylPris.toFixed(2).replace('.',',')} kr</td>
+                            <td style="padding:5px 10px;text-align:right;font-weight:700;
+                                       color:${item.prisAvvik > 0 ? '#dc2626' : '#16a34a'};">
+                                ${item.prisAvvik > 0 ? '+' : ''}${item.prisAvvik.toFixed(1)}%
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+               </table>`;
+
+        const statusHtml = statusEndringer.length === 0
+            ? '<p style="color:#16a34a;font-size:13px;">✅ Ingen statusendringer siden prislisten ble satt opp</p>'
+            : `<p style="color:#dc2626;font-size:13px;font-weight:600;">
+                   ⚠️ ${statusEndringer.length} artikler har endret status til utgående siden prislisten ble laget
+               </p>
+               <ul style="font-size:12px;margin:6px 0 0 0;padding-left:18px;color:#374151;">
+                   ${statusEndringer.slice(0,10).map(e =>
+                       `<li>${this.escapeHtml(e.toolsNr)} — ${this.escapeHtml((e.beskrivelse||'').slice(0,35))}
+                        <span style="color:#dc2626;">(${this.escapeHtml(e.vareStatus)})</span></li>`
+                   ).join('')}
+                   ${statusEndringer.length > 10 ? `<li style="color:#6b7280;">...og ${statusEndringer.length - 10} til</li>` : ''}
+               </ul>`;
+
+        return `
+            <div style="margin-top:20px;background:#f8f9fa;border:1px solid #dee2e6;
+                        border-radius:6px;padding:16px;">
+                <h3 style="margin:0 0 12px 0;font-size:15px;color:#1e40af;">
+                    📋 Prisliste-kontroll (FASE 9.0)
+                </h3>
+
+                <div style="margin-bottom:16px;">
+                    <h4 style="font-size:13px;margin:0 0 8px 0;color:#374151;">
+                        Statusendringer siden prislisten ble laget
+                    </h4>
+                    ${statusHtml}
+                </div>
+
+                <div>
+                    <h4 style="font-size:13px;margin:0 0 8px 0;color:#374151;">
+                        Prisavvik &gt; ${AVVIK_GRENSE}% (liste vs MV2) — topp 20
+                    </h4>
+                    ${avvikHtml}
+                </div>
+            </div>`;
     }
 
     // ════════════════════════════════════════════════════

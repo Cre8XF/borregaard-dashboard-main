@@ -36,6 +36,9 @@ required = {
     "Analyse_Lagerplan.xlsx":     UKENTLIG,
 }
 
+# Prisliste er valgfri — dashbordet fungerer uten den
+PRISLISTE_PATH = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\01-Daglig\20260219_Borregaard_prisliste_orginal.xlsx"
+
 # data (7).xlsx sjekkes separat pga. rename
 data7_src = os.path.join(SJELDEN, "data (7).xlsx")
 
@@ -101,11 +104,40 @@ try:
         os.path.join(script_dir, "bestillinger.xlsx"), dtype=str
     ).fillna("")
 
+    # ── Prisliste (valgfri) ───────────────────────────────────────────────────
+    pris_records = []
+    try:
+        pris_df = pd.read_excel(PRISLISTE_PATH, header=4, dtype=str)
+        pris_df.columns = [str(c).strip() for c in pris_df.columns]
+
+        # Konverter priskolonner (komma → punktum)
+        for col in ['q_replacement_value', 'Ny pris', 'Ny DG']:
+            if col in pris_df.columns:
+                pris_df[col] = pd.to_numeric(
+                    pris_df[col].astype(str).str.replace(',', '.').str.replace(' ', ''),
+                    errors='coerce'
+                ).fillna(0)
+
+        if 'artlistpris' in pris_df.columns:
+            pris_df['artlistpris'] = pd.to_numeric(
+                pris_df['artlistpris'].astype(str).str.replace(',', '.').str.replace(' ', ''),
+                errors='coerce'
+            ).fillna(0)
+
+        pris_cols = ['artnr', 'SA-Nummer', 'q_replacement_value', 'artlistpris',
+                     'Ny pris', 'Ny DG', 'Status', 'Anbefaling']
+        pris_cols = [c for c in pris_cols if c in pris_df.columns]
+        pris_records = pris_df[pris_cols].fillna('').to_dict(orient="records")
+        print(f"✅ Prisliste lastet ({len(pris_records)} rader)")
+    except Exception as pris_err:
+        print(f"⚠️  Prisliste ikke tilgjengelig (fortsetter uten): {pris_err}")
+
     data = {
         "generert":     datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":       master.to_dict(orient="records"),
         "orders":       orders.to_dict(orient="records"),
-        "bestillinger": best.to_dict(orient="records")
+        "bestillinger": best.to_dict(orient="records"),
+        "prisliste":    pris_records,  # FASE 9.0
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)

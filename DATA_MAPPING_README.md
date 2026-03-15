@@ -1,6 +1,6 @@
 # DATA_MAPPING_README — Borregaard Dashboard
 
-**Sist oppdatert:** Mars 2026 (FASE 7.2)
+**Sist oppdatert:** Mars 2026 (FASE 9.0)
 
 > **Merk:** Dette dokumentet beskriver FASE 7.x-arkitekturen med MV2 som enkelt datakjerne.
 > Den gamle CSV-mapping-løsningen (mapping-filer i `data/mapping/`) er avviklet.
@@ -70,6 +70,30 @@ Brukes av `buildJeevesMap()` i `dataProcessor.js`. Inneholder kjøpshistorikk (a
 | Artikkelnummer | `Artikelnr`, `Item ID` |
 | Restantall | `RestAntLgrEnh`, `RestAnt` |
 | Beregnet leveringsdato | `BerLevDat`, `Beregnet levdato` |
+
+---
+
+### Prisliste (valgfri, FASE 9.0)
+
+`20260219_Borregaard_prisliste_orginal.xlsx` — header på rad 5 (header=4 i pandas).
+
+Leses av `oppdater_dashboard.py` og bakes inn som `prisliste`-array i `dashboard-data.json`.
+Prosesseres i `DataProcessor.buildPrisMap()` til `store.prisMap`.
+
+| Internt UnifiedItem-felt | Kilde-kolonne i prisliste | Merknad |
+|--------------------------|--------------------------|---------|
+| `avtalepris` | `Ny pris` | Avtalepris inkl. 3% økning |
+| `listpris` | `artlistpris` | Listpris (string med komma → float) |
+| `prisKalkyl` | `q_replacement_value` | Innkjøpspris/kalkylpris i prislisten |
+| `nyDG` | `Ny DG` | Dekningsgrad |
+| `prisStatus` | `Status` | "Utgår", "Utgått" eller tom |
+| `prisAnbefaling` | `Anbefaling` | Kommentarkolonne (kolonne Y) |
+| `iInPrisliste` | — | Avledet: `true` hvis artnr finnes i prisMap |
+| `prisAvvik` | — | `(prisKalkyl − kalkylPris) / kalkylPris × 100 %` |
+
+**Viktig:** `artlistpris` er en string med komma ("595,00"). Python-koden konverterer komma til punktum før lagring i JSON. Alle priskolonner med komma som desimalskilletegn håndteres i `oppdater_dashboard.py`.
+
+Join-nøkkel: `artnr` (Tools art.nr) matcher mot `item.toolsArticleNumber`.
 
 ---
 

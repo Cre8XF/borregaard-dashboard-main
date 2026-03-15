@@ -114,6 +114,16 @@ class UnifiedItem {
         this.sistTelt = null;        // 'YYYY-MM-DD' streng eller null (FASE 7.2)
         this.invDat = '';            // Siste inventardato fra Master.xlsx, format YYYYMMDD
 
+        // ── Prisliste-felt (FASE 9.0) ──
+        this.avtalepris     = 0;      // Ny pris fra prisliste (avtalepris inkl. 3%)
+        this.listpris       = 0;      // Listpris fra prisliste
+        this.prisKalkyl     = 0;      // q_replacement_value (innkjøpspris i prislisten)
+        this.nyDG           = 0;      // Dekningsgrad basert på avtalepris
+        this.prisStatus     = '';     // "Utgår", "Utgått" eller tom
+        this.prisAnbefaling = '';     // Anbefaling fra priskolonnen
+        this.iInPrisliste   = false;  // Om artikkelen finnes i prislisten
+        this.prisAvvik      = 0;      // Avvik % mellom prisKalkyl og kalkylPris (fra MV2)
+
         // ── Metadata ──
         this.hasIncomingOrders = false;
         this.hasOutgoingOrders = false;
@@ -260,6 +270,13 @@ class UnifiedItem {
             this.estimertVerdi = this.kalkylPris * this.stock;
         } else {
             this.estimertVerdi = 0;
+        }
+
+        // Prisavvik: sammenlign prislistens innkjøpspris mot MV2-kalkylpris (FASE 9.0)
+        if (this.prisKalkyl > 0 && this.kalkylPris > 0) {
+            this.prisAvvik = Math.round(((this.prisKalkyl - this.kalkylPris) / this.kalkylPris) * 100 * 10) / 10;
+        } else {
+            this.prisAvvik = 0;
         }
     }
 

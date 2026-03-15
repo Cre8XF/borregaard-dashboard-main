@@ -1,6 +1,6 @@
 # DATAFLOW — Borregaard Dashboard
 
-**Sist oppdatert:** Mars 2026 (FASE 7.2)
+**Sist oppdatert:** Mars 2026 (FASE 9.0)
 
 ---
 
@@ -16,10 +16,12 @@ generate_masterV2.py
                                                   │
                              Ordrer_Jeeves.xlsx ──┤ buildJeevesMap()
                              bestillinger.xlsx ───┤ processBestillingerData()  [valgfri]
+                             prisliste.xlsx ──────┤ buildPrisMap()             [valgfri, FASE 9.0]
                                                   │
                                                   ▼
                                         UnifiedDataStore
                                      (items keyed by saNumber)
+                                     store.prisMap (valgfri, FASE 9.0)
                                                   │
                          ┌────────────────────────┼────────────────────────┐
                          ▼                        ▼                        ▼
@@ -67,6 +69,27 @@ Filtrerer på CustomerID ∋ `'424186'` (Borregaard AS).
 - Slår opp via `toolsLookup` (toolsArtNr → saNumber)
 - Setter `item.bestillinger[]` med restantall og beregnet leveringsdato
 
+### Steg 4 — Prisliste (valgfri, FASE 9.0)
+
+`buildPrisMap(rows)` bygger et oppslagskart keyed på `artnr` (Tools art.nr):
+
+```javascript
+store.prisMap[artnr] = {
+    avtalepris,  // Ny pris inkl. 3% (fra prisliste-Excel)
+    listpris,    // artlistpris (fra prisliste-Excel)
+    kalkylpris,  // q_replacement_value (innkjøpspris i prislisten)
+    nyDG,        // Dekningsgrad
+    status,      // "Utgår", "Utgått" eller tom
+    anbefaling,  // Kommentarkolonne (Y)
+    saNummer     // SA-Nummer fra prislisten
+}
+```
+
+Prisliste bakes inn i `dashboard-data.json` av `oppdater_dashboard.py` fra:
+`C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\01-Daglig\20260219_Borregaard_prisliste_orginal.xlsx`
+
+Etter `buildPrisMap()` berikes alle `UnifiedItem`-objekter med prisdata. Om prislisten mangler, forblir alle `iInPrisliste`-flagg `false` og dashbordet fungerer uendret.
+
 ---
 
 ## MV2-feltdekning (29/40 UnifiedItem-felt)
@@ -96,6 +119,14 @@ Filtrerer på CustomerID ∋ `'424186'` (Borregaard AS).
 | `outgoingOrders[]` | — | Ordrer_Jeeves.xlsx (alltid separat) |
 | `jeevesMap` | — | Ordrer_Jeeves.xlsx (alltid separat) |
 | `bestillinger[]` | — | bestillinger.xlsx (valgfri) |
+| `avtalepris` | `Ny pris` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `listpris` | `artlistpris` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `prisKalkyl` | `q_replacement_value` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `nyDG` | `Ny DG` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `prisStatus` | `Status` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `prisAnbefaling` | `Anbefaling` | prisliste.xlsx (valgfri, FASE 9.0) |
+| `iInPrisliste` | — | Avledet: true hvis artnr finnes i prisMap |
+| `prisAvvik` | — | Avledet: (prisKalkyl − kalkylPris) / kalkylPris × 100 |
 
 **Felt som gjenstår (11/40):** Primært avanserte planleggingsfelt og felt med usikker kilde. Se `AUDIT_TOOLS_SA_ARTIKLER.md` for full liste.
 
