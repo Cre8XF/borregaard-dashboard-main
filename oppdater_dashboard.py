@@ -37,7 +37,7 @@ required = {
 }
 
 # Prisliste er valgfri — dashbordet fungerer uten den
-PRISLISTE_PATH = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\01-Daglig\20260219_Borregaard_prisliste_orginal.xlsx"
+PRISLISTE_PATH = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\prislister\20260319_Borregaard_prisliste.xlsx"
 
 # data (7).xlsx sjekkes separat pga. rename
 data7_src = os.path.join(SJELDEN, "data (7).xlsx")
