@@ -570,6 +570,66 @@ class DashboardApp {
             ).length;
             manglerLokasjonEl.textContent = manglerLokasjon.toLocaleString('nb-NO');
         }
+
+        // Nærmeste forventet levering (sublabel på "På vei inn"-kortet)
+        const nesteLeveringEl = document.getElementById('nesteLeveringLabel');
+        if (nesteLeveringEl) {
+            const datoer = items
+                .map(i => i.nesteForventetLevering)
+                .filter(Boolean)
+                .sort();
+            if (datoer.length > 0) {
+                const first = datoer[0];
+                let datoVist = first;
+                try {
+                    const dt = (first instanceof Date) ? first : new Date(first);
+                    if (!isNaN(dt.getTime())) {
+                        datoVist = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+                    }
+                } catch (e) { /* bruk rå verdi */ }
+                nesteLeveringEl.textContent = `Nærmeste: ${datoVist}`;
+            } else {
+                nesteLeveringEl.textContent = '';
+            }
+        }
+
+        // Under BP – ingen åpen ordre (ny card)
+        const underBPEl = document.getElementById('underBPUtenOrdreCount');
+        const underBPCard = document.getElementById('underBPCard');
+        if (underBPEl) {
+            const antall = items.filter(item => {
+                const bp = item.bestillingspunkt ?? 0;
+                const sales12m = item.sales12m ?? 0;
+                const aapent = item.aapentBestiltAntall ?? 0;
+                return bp > 0 && (item.stock ?? 0) < bp && aapent === 0 && sales12m > 0;
+            }).length;
+            underBPEl.textContent = antall.toLocaleString('nb-NO');
+            if (underBPCard) {
+                underBPCard.style.borderLeft = antall > 0 ? '4px solid #c62828' : '4px solid #2e7d32';
+                underBPCard.style.background = antall > 0 ? '#fff5f5' : '';
+            }
+            const underBPValEl = document.querySelector('#underBPCard .card-value');
+            if (underBPValEl) underBPValEl.style.color = antall > 0 ? '#c62828' : '#2e7d32';
+        }
+
+        // Dager til tomt < ledetid (ny card)
+        const dagerTilTomtEl = document.getElementById('dagerTilTomtCount');
+        const dagerTilTomtCard = document.getElementById('dagerTilTomtCard');
+        if (dagerTilTomtEl) {
+            const antall = items.filter(item => {
+                const days = item.daysToEmpty ?? 0;
+                const ledetid = (parseFloat(item.levLedTid) || 0) + (parseFloat(item.transportdagar) || 0) || (item.ledetidDager || 14);
+                const sales12m = item.sales12m ?? 0;
+                return days > 0 && days < 999999 && days < ledetid && sales12m > 0;
+            }).length;
+            dagerTilTomtEl.textContent = antall.toLocaleString('nb-NO');
+            if (dagerTilTomtCard) {
+                dagerTilTomtCard.style.borderLeft = antall > 0 ? '4px solid #c62828' : '4px solid #2e7d32';
+                dagerTilTomtCard.style.background = antall > 0 ? '#fff5f5' : '';
+            }
+            const dagerValEl = document.querySelector('#dagerTilTomtCard .card-value');
+            if (dagerValEl) dagerValEl.style.color = antall > 0 ? '#c62828' : '#2e7d32';
+        }
     }
 
     /**
@@ -1022,11 +1082,18 @@ class DashboardApp {
             if (dropStatus) dropStatus.innerHTML = '';
 
             // Nullstill sammendragskort
-            ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount']
+            ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount',
+             'manglerLokasjonCount', 'underBPUtenOrdreCount', 'dagerTilTomtCount']
                 .forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = '-';
                 });
+            const nesteLeveringEl = document.getElementById('nesteLeveringLabel');
+            if (nesteLeveringEl) nesteLeveringEl.textContent = '';
+            ['underBPCard', 'dagerTilTomtCard'].forEach(id => {
+                const card = document.getElementById(id);
+                if (card) { card.style.borderLeft = ''; card.style.background = ''; }
+            });
 
             // Nullstill innhold
             this.renderCurrentModule();
