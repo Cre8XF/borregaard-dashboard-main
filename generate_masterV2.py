@@ -15,12 +15,11 @@ Output:
 
 Endringer:
   - Selvpekende erstatninger filtreres ut (ErsattsAvArtNr == Tools_ArtNr)
-  - Ugyldige lokasjoner (artikkelbeskrivelser) filtreres bort via LOK_PATTERN
+  - Alle lokasjoner fra data_7 aksepteres (LOK_PATTERN fjernet — BORSKUFF, LAGER1 osv. er gyldige)
   - Ordrer_Jeeves.xlsx kobles inn for salgshistorikk
 """
 
 import os
-import re
 import openpyxl
 from openpyxl import Workbook
 
@@ -34,9 +33,6 @@ LEVERANDOR_FILE  = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
 SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
 ORDRER_FILE      = os.path.join(SCRIPT_DIR, 'Ordrer_Jeeves.xlsx')
 OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
-
-# Mønster for gyldige hylleadresser — f.eks. T-1-1, 19-6-C, OLJEBOD-12, BORSKUFF
-LOK_PATTERN = re.compile(r'^[A-Z0-9]+-', re.IGNORECASE)
 
 
 # ── Hjelpefunksjoner ──────────────────────────────────────────────────────────
@@ -97,14 +93,10 @@ def main():
     print('=' * 55)
 
     # ── 1. data_7.xlsx — primærkilde ──────────────────────────────────────────
-    # Inneholder: VareNr, Kundens artnr (SA-nr), Kundens artbeskr. (lokasjon),
-    #             VareStatus, ErsattsAvArtNr, og flere felt
     print('Leser data_7.xlsx (primærkilde)...')
     data7_rows = read_sheet(DATA7_FILE)
     print(f'  {len(data7_rows)} rader')
 
-    # Bygg oppslag keyed på VareNr (Tools-artikkelnummer)
-    # Hvert oppslag inneholder: sa_nr, lokasjon, varestatus, erstatning, og ekstra felt
     data7_by_varenr = {}
     for row in data7_rows:
         varenr = val(row, 'VareNr')
@@ -114,30 +106,32 @@ def main():
         if key not in data7_by_varenr:
             data7_by_varenr[key] = row
 
-    sa_nr_by_varenr    = {}   # VareNr → SA-nr
-    lokasjon_by_varenr = {}   # VareNr → Lokasjon
-    varestatus_by_art  = {}   # VareNr → VareStatus
-    erstatning_by_art  = {}   # VareNr → ErsattsAvArtNr
+    sa_nr_by_varenr    = {}
+    lokasjon_by_varenr = {}
+    varestatus_by_art  = {}
+    erstatning_by_art  = {}
 
     for varenr, row in data7_by_varenr.items():
-        sa_nr   = val(row, 'Kundens artnr')
+        sa_nr    = val(row, 'Kundens artnr')
         lokasjon = val(row, 'Kundens artbeskr.')
-        vs      = val(row, 'VareStatus', 'Varestatus')
-        erst    = val(row, 'ErsattsAvArtNr')
-        alt     = val(row, 'Alternativ(er)')
+        vs       = val(row, 'VareStatus', 'Varestatus')
+        erst     = val(row, 'ErsattsAvArtNr')
+        alt      = val(row, 'Alternativ(er)')
 
         if sa_nr:
             sa_nr_by_varenr[varenr] = str(sa_nr).strip()
-        # Bare lagre lokasjoner som matcher hylleadresse-mønsteret (f.eks. T-1-1, 19-6-C)
-        if lokasjon and LOK_PATTERN.match(str(lokasjon).strip()):
-            lokasjon_by_varenr[varenr] = str(lokasjon).strip()
+
+        # Aksepter ALLE ikke-tomme lokasjoner fra data_7 — inkl. BORSKUFF, LAGER1, tall osv.
+        lok_str = str(lokasjon).strip() if lokasjon else ''
+        if lok_str:
+            lokasjon_by_varenr[varenr] = lok_str
+
         if vs:
             varestatus_by_art[varenr] = str(vs).strip()
 
         best = str(erst).strip() if erst and str(erst).strip() not in ('0', '') else ''
         if not best:
             best = str(alt).strip() if alt and str(alt).strip() not in ('0', '') else ''
-        # Forhindre selvpekende erstatninger (ErsattsAvArtNr == Tools_ArtNr)
         if best and best != varenr:
             erstatning_by_art[varenr] = best
 
@@ -153,22 +147,16 @@ def main():
     sa_rows = read_sheet(SA_FILE)
     print(f'  {len(sa_rows)} rader')
 
-    fallback_sa_count  = 0
-    # Bygg varenr→SA-nr fra SA-Nummer (kun SA-nr fallback, IKKE lokasjon)
-    # Lokasjon hentes utelukkende fra data_7.xlsx (Kundens artbeskr.)
-    sa_nr_fallback   = {}   # VareNr → SA-nr  (kun for de ikke i data_7)
-
+    fallback_sa_count = 0
     for row in sa_rows:
         varenr = val(row, 'Artikelnr')
         sa_nr  = val(row, 'Kunds artikkelnummer', 'Kunds artikelnummer')
         if not varenr:
             continue
         key = str(varenr).strip()
-        if sa_nr:
-            sa_nr_str = str(sa_nr).strip()
-            if key not in sa_nr_by_varenr:
-                sa_nr_by_varenr[key] = sa_nr_str
-                fallback_sa_count += 1
+        if sa_nr and key not in sa_nr_by_varenr:
+            sa_nr_by_varenr[key] = str(sa_nr).strip()
+            fallback_sa_count += 1
 
     print(f'  Fallback SA-nr lagt til:   {fallback_sa_count}')
     print(f'  Totalt SA-nr-oppslag: {len(sa_nr_by_varenr)}')
@@ -237,7 +225,7 @@ def main():
     print(f'  Ledetid-oppslag: {len(lev_ledtid_map)} leverandører')
 
     # ── 7. Ordrer_Jeeves.xlsx — salgshistorikk ────────────────────────────────
-    ordre_by_art = {}  # Tools_ArtNr → {antall, verdi, siste, linjer}
+    ordre_by_art = {}
     if os.path.exists(ORDRER_FILE):
         print('Leser Ordrer_Jeeves.xlsx (salgshistorikk)...')
         orders_rows = read_sheet(ORDRER_FILE)
@@ -280,7 +268,7 @@ def main():
         'InvDat',
     ]
 
-    # ── Generer output-rader — looper over data_7 (primær) ────────────────────
+    # ── Generer output-rader ───────────────────────────────────────────────────
     output_rows = []
     skipped = 0
 
@@ -371,6 +359,7 @@ def main():
     varestatus_count = sum(1 for r in output_rows if r.get('VareStatus'))
     lagerfort_count  = sum(1 for r in output_rows if r.get('LAGERFØRT'))
     varemerke_count  = sum(1 for r in output_rows if r.get('VAREMERKE'))
+    lok_count        = sum(1 for r in output_rows if r.get('Lagerhylla'))
 
     print(f'\nFerdig!')
     print(f'  Fil:      {OUTPUT_FILE}')
@@ -379,6 +368,7 @@ def main():
     print(f'  Hoppet over (ingen SA-nr): {skipped}')
     print(f'  Kolonner: {len(output_columns)}')
     print(f'\n  ── Verifisering ──')
+    print(f'  Lagerhylla ikke-tomme:     {lok_count} av {len(output_rows)}')
     print(f'  ErsattsAvArtNr ikke-tomme: {erstatning_count} av {len(output_rows)}')
     print(f'  VareStatus ikke-tomme:     {varestatus_count} av {len(output_rows)}')
     print(f'  Artikler med ledetid:      {ledetid_count} av {len(output_rows)}')
