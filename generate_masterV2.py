@@ -32,6 +32,7 @@ LAGERPLAN_FILE   = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
 LEVERANDOR_FILE  = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
 SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
 ORDRER_FILE      = os.path.join(SCRIPT_DIR, 'Ordrer_Jeeves.xlsx')
+PRISLISTE_FILE   = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\prislister\20260319_Borregaard_prisliste.xlsx"
 OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
 
 
@@ -224,6 +225,46 @@ def main():
 
     print(f'  Ledetid-oppslag: {len(lev_ledtid_map)} leverandører')
 
+    # ── Prisliste — kalkylpris fallback ────────────────────────────────────────
+    prisliste_kalkyl = {}  # artnr -> q_replacement_value
+    if os.path.exists(PRISLISTE_FILE):
+        print('Leser prisliste (kalkylpris fallback)...')
+        try:
+            wb_pris = openpyxl.load_workbook(PRISLISTE_FILE, read_only=True, data_only=True)
+            ws_pris = wb_pris.active
+            header_row = None
+            headers_pris = {}
+            for i, row in enumerate(ws_pris.iter_rows(values_only=True)):
+                if row and any(str(v).strip().lower() == 'artnr' for v in row if v):
+                    header_row = i
+                    headers_pris = {str(v).strip(): j for j, v in enumerate(row) if v}
+                    break
+
+            if header_row is not None and 'artnr' in headers_pris and 'q_replacement_value' in headers_pris:
+                artnr_idx = headers_pris['artnr']
+                q_idx = headers_pris['q_replacement_value']
+                count = 0
+                for row in ws_pris.iter_rows(min_row=header_row+2, values_only=True):
+                    artnr = str(row[artnr_idx] or '').strip()
+                    q_val = row[q_idx]
+                    if not artnr or artnr in ('nan', 'None', ''):
+                        continue
+                    try:
+                        q_float = float(str(q_val).replace(',', '.').replace(' ', ''))
+                        if q_float > 0:
+                            prisliste_kalkyl[artnr] = q_float
+                            count += 1
+                    except (ValueError, TypeError):
+                        pass
+                print(f'  Kalkylpris-oppslag fra prisliste: {count} artikler')
+            else:
+                print(f'  ADVARSEL: Fant ikke artnr/q_replacement_value kolonner i prislisten')
+            wb_pris.close()
+        except Exception as e:
+            print(f'  ADVARSEL: Kunne ikke lese prisliste: {e}')
+    else:
+        print(f'  INFO: Prisliste ikke funnet — kalkylpris kun fra Master_Artikkelstatus')
+
     # ── 7. Ordrer_Jeeves.xlsx — salgshistorikk ────────────────────────────────
     ordre_by_art = {}
     if os.path.exists(ORDRER_FILE):
@@ -295,7 +336,18 @@ def main():
             lokasjon = ''
         varestatus = varestatus_by_art.get(varenr, '')
         erstatning = erstatning_by_art.get(varenr, '')
-        kalkylpris = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
+        kalkylpris_master = val(m, 'Kalkylpris bas_2', 'Kalkylpris bas')
+
+        # Fallback: bruk prisliste hvis Master-kalkylpris er 0 eller < 1 kr
+        try:
+            kp_float = float(str(kalkylpris_master).replace(',', '.')) if kalkylpris_master else 0
+        except (ValueError, TypeError):
+            kp_float = 0
+
+        if kp_float < 1.0 and varenr in prisliste_kalkyl:
+            kalkylpris = prisliste_kalkyl[varenr]
+        else:
+            kalkylpris = kalkylpris_master
         invdat     = invdat_by_art.get(varenr, '')
 
         supplier_nr  = val(l, 'Leverantör')
@@ -376,6 +428,12 @@ def main():
     print(f'  Telt i 2026:               {telt2026_count} av {len(output_rows)}')
     print(f'  LAGERFØRT ikke-tomme:      {lagerfort_count} av {len(output_rows)}')
     print(f'  VAREMERKE ikke-tomme:      {varemerke_count} av {len(output_rows)}')
+    pris_fallback_count = sum(
+        1 for r in output_rows
+        if r.get('Kalkylpris_bas') and str(r.get('Kalkylpris_bas')) not in ('', '0', 'nan')
+        and float(str(r.get('Kalkylpris_bas')).replace(',', '.') or 0) >= 1.0
+    )
+    print(f'  Kalkylpris >= 1 kr:            {pris_fallback_count} av {len(output_rows)}')
 
 
 if __name__ == '__main__':
