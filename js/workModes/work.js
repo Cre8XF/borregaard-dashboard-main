@@ -114,6 +114,8 @@ class WorkMode {
             <div style="border:2px solid #1565c0;border-top:none;border-radius:0 4px 4px 4px;padding:20px;">
                 ${tabContent}
             </div>
+
+            ${WorkMode._buildKalkulatorHTML()}
         `;
     }
 
@@ -2303,6 +2305,185 @@ class WorkMode {
         if (!hasAlt) return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#ffcdd2;color:#c62828;">Ingen alt.</span>';
         if (covered) return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#e8f5e9;color:#2e7d32;">Ja</span>';
         return '<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#fff9c4;color:#f57f17;">Nei</span>';
+    }
+
+    // ════════════════════════════════════════════════════
+    //  TILBUDSKALKULATOR (FASE 11)
+    // ════════════════════════════════════════════════════
+
+    static _buildKalkulatorHTML() {
+        return `
+    <div style="margin-top:24px;background:#f8f9fa;border:1px solid #dee2e6;
+                border-radius:8px;padding:20px;max-width:480px;">
+
+        <h3 style="margin:0 0 16px 0;font-size:15px;font-weight:700;
+                   color:#1a237e;display:flex;align-items:center;gap:8px;">
+            🧮 Tilbudskalkulator
+        </h3>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+
+            <div>
+                <label style="font-size:11px;font-weight:600;color:#555;
+                               text-transform:uppercase;letter-spacing:0.05em;
+                               display:block;margin-bottom:4px;">
+                    Innkjøpspris (kr)
+                </label>
+                <input id="kalk_innkjop" type="number" min="0" step="0.01"
+                       placeholder="0,00"
+                       oninput="WorkMode._kalkuler()"
+                       style="width:100%;padding:8px 10px;border:1px solid #d1d5db;
+                              border-radius:6px;font-size:14px;font-weight:600;
+                              box-sizing:border-box;">
+            </div>
+
+            <div>
+                <label style="font-size:11px;font-weight:600;color:#555;
+                               text-transform:uppercase;letter-spacing:0.05em;
+                               display:block;margin-bottom:4px;">
+                    Ønsket DG (%)
+                </label>
+                <input id="kalk_dg" type="number" min="0" max="99" step="0.1"
+                       value="32"
+                       oninput="WorkMode._kalkuler()"
+                       style="width:100%;padding:8px 10px;border:1px solid #d1d5db;
+                              border-radius:6px;font-size:14px;font-weight:600;
+                              box-sizing:border-box;">
+            </div>
+
+        </div>
+
+        <!-- Hurtigvalg DG -->
+        <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
+            <span style="font-size:11px;color:#888;align-self:center;">Hurtig DG:</span>
+            ${[25,28,30,32,35,38,40].map(dg => `
+                <button onclick="WorkMode._settDG(${dg})"
+                        style="padding:3px 10px;border-radius:4px;font-size:12px;
+                               font-weight:600;cursor:pointer;
+                               border:1px solid #1a237e;color:#1a237e;background:#fff;"
+                        onmouseover="this.style.background='#1a237e';this.style.color='#fff'"
+                        onmouseout="this.style.background='#fff';this.style.color='#1a237e'">
+                    ${dg}%
+                </button>`).join('')}
+        </div>
+
+        <!-- Resultat -->
+        <div id="kalk_resultat" style="display:none;background:#fff;border:1px solid #e2e8f0;
+              border-radius:8px;overflow:hidden;">
+
+            <div style="background:#1a237e;padding:10px 16px;">
+                <div style="font-size:11px;color:#90caf9;font-weight:600;
+                             text-transform:uppercase;letter-spacing:0.05em;">
+                    Salgspris eks. MVA
+                </div>
+                <div id="kalk_salgspris" style="font-size:28px;font-weight:800;
+                      color:#fff;line-height:1.2;">
+                    —
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;
+                         padding:12px 16px;gap:12px;">
+                <div>
+                    <div style="font-size:10px;color:#888;margin-bottom:2px;">
+                        Inkl. MVA (25%)
+                    </div>
+                    <div id="kalk_inkl_mva" style="font-size:15px;font-weight:700;
+                          color:#374151;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#888;margin-bottom:2px;">
+                        DB (kr)
+                    </div>
+                    <div id="kalk_db_kr" style="font-size:15px;font-weight:700;
+                          color:#16a34a;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#888;margin-bottom:2px;">
+                        DG (%)
+                    </div>
+                    <div id="kalk_dg_vis" style="font-size:15px;font-weight:700;
+                          color:#1a237e;">—</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Omvendt: fra salgspris -->
+        <details style="margin-top:12px;">
+            <summary style="font-size:12px;color:#555;cursor:pointer;
+                             font-weight:600;">
+                ↩ Beregn DG fra kjent salgspris
+            </summary>
+            <div style="margin-top:10px;display:grid;
+                         grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                    <label style="font-size:11px;font-weight:600;color:#555;
+                                   display:block;margin-bottom:4px;">
+                        Salgspris (kr)
+                    </label>
+                    <input id="kalk_salgs_inn" type="number" min="0" step="0.01"
+                           placeholder="0,00"
+                           oninput="WorkMode._kalkulerFraSalgspris()"
+                           style="width:100%;padding:8px 10px;border:1px solid #d1d5db;
+                                  border-radius:6px;font-size:14px;
+                                  box-sizing:border-box;">
+                </div>
+                <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+                    <div id="kalk_dg_resultat"
+                         style="font-size:14px;font-weight:700;color:#1a237e;">
+                    </div>
+                </div>
+            </div>
+        </details>
+
+    </div>`;
+    }
+
+    static _settDG(dg) {
+        const el = document.getElementById('kalk_dg');
+        if (el) { el.value = dg; this._kalkuler(); }
+    }
+
+    static _fmt(v) {
+        return v.toLocaleString('nb-NO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+    }
+
+    static _kalkuler() {
+        const innkjop = parseFloat(document.getElementById('kalk_innkjop')?.value || 0);
+        const dg      = parseFloat(document.getElementById('kalk_dg')?.value || 0);
+
+        if (!innkjop || innkjop <= 0 || dg <= 0 || dg >= 100) {
+            document.getElementById('kalk_resultat').style.display = 'none';
+            return;
+        }
+
+        const salgspris  = innkjop / (1 - dg / 100);
+        const inkl_mva   = salgspris * 1.25;
+        const db_kr      = salgspris - innkjop;
+        const dg_faktisk = (db_kr / salgspris) * 100;
+
+        document.getElementById('kalk_resultat').style.display = 'block';
+        document.getElementById('kalk_salgspris').textContent = this._fmt(salgspris);
+        document.getElementById('kalk_inkl_mva').textContent  = this._fmt(inkl_mva);
+        document.getElementById('kalk_db_kr').textContent     = this._fmt(db_kr);
+        document.getElementById('kalk_dg_vis').textContent    = dg_faktisk.toFixed(1) + '%';
+    }
+
+    static _kalkulerFraSalgspris() {
+        const innkjop = parseFloat(document.getElementById('kalk_innkjop')?.value || 0);
+        const salgs   = parseFloat(document.getElementById('kalk_salgs_inn')?.value || 0);
+        const el      = document.getElementById('kalk_dg_resultat');
+
+        if (!innkjop || !salgs || salgs <= innkjop) {
+            if (el) el.textContent = '';
+            return;
+        }
+
+        const dg = ((salgs - innkjop) / salgs) * 100;
+        const db = salgs - innkjop;
+        if (el) el.innerHTML = `DG: <span style="color:#1a237e">${dg.toFixed(1)}%</span>
+                             &nbsp;|&nbsp; DB: <span style="color:#16a34a">${this._fmt(db)}</span>`;
     }
 }
 
