@@ -155,6 +155,20 @@ class ArtikkelOppslagMode {
             </div>
 
             <div class="module-controls" style="flex-direction:column;gap:12px;align-items:stretch;">
+                ${this._selectedItems.size > 0 ? `
+                <div id="artikkelKurvIndicator" style="display:flex;align-items:center;gap:10px;
+                            padding:6px 12px;background:#e0f2fe;border-radius:6px;
+                            margin-bottom:8px;font-size:13px;">
+                    <span style="color:#0369a1;font-weight:600;">
+                        🛒 ${this._selectedItems.size} artikler i kurven
+                    </span>
+                    <button onclick="ArtikkelOppslagMode.nullstillValg()"
+                            style="font-size:11px;padding:2px 8px;border-radius:4px;
+                                   background:#fff;border:1px solid #7dd3fc;color:#0369a1;
+                                   cursor:pointer;">
+                        Tøm kurv
+                    </button>
+                </div>` : `<div id="artikkelKurvIndicator" style="display:none;"></div>`}
                 <div style="display:flex;align-items:center;">
                     <div style="position:relative;flex:1;">
                         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);
@@ -472,6 +486,10 @@ class ArtikkelOppslagMode {
             const levArt   = this.esc(item.supplierArticleNumber || '–');
             const toolsNrRaw = this.esc(item.toolsArticleNumber || '');
 
+            const erValgt = this._selectedItems.has(item.toolsArticleNumber);
+            const radBg     = erValgt ? '#e8eaf6' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc');
+            const radBorder = erValgt ? 'border-left: 3px solid #1a237e;' : '';
+
             const stockVal = item.stock || 0;
             const stockCell = stockVal > 0
                 ? `<span style="color:#16a34a;font-weight:700;">${stockVal.toLocaleString('nb-NO')}</span>`
@@ -483,7 +501,7 @@ class ArtikkelOppslagMode {
                 : `<span style="color:#aaa;">–</span>`;
 
             return `
-                <tr style="cursor:pointer;"
+                <tr style="cursor:pointer;background:${radBg};${radBorder}"
                     onclick="ArtikkelOppslagMode.openCard(${idx})"
                     title="Klikk for detaljer">
                     <td style="padding:6px 8px;" onclick="event.stopPropagation()">
@@ -755,8 +773,6 @@ class ArtikkelOppslagMode {
 
     static onInput(value) {
         this._searchTerm = value;
-        // Nullstill valg ved nytt søk
-        this._selectedItems.clear();
 
         if (value.length >= 2) {
             this._runSearch();
@@ -819,6 +835,34 @@ class ArtikkelOppslagMode {
         }
         const countEl = document.getElementById('artikkelValgCount');
         if (countEl) countEl.textContent = count > 0 ? `${count} valgt` : '';
+
+        // Oppdater kurv-indikator øverst
+        const kurvEl = document.getElementById('artikkelKurvIndicator');
+        if (kurvEl) {
+            if (count > 0) {
+                kurvEl.style.display = 'flex';
+                kurvEl.style.alignItems = 'center';
+                kurvEl.style.gap = '10px';
+                kurvEl.style.padding = '6px 12px';
+                kurvEl.style.background = '#e0f2fe';
+                kurvEl.style.borderRadius = '6px';
+                kurvEl.style.marginBottom = '8px';
+                kurvEl.style.fontSize = '13px';
+                kurvEl.innerHTML = `
+                    <span style="color:#0369a1;font-weight:600;">
+                        🛒 ${count} artikler i kurven
+                    </span>
+                    <button onclick="ArtikkelOppslagMode.nullstillValg()"
+                            style="font-size:11px;padding:2px 8px;border-radius:4px;
+                                   background:#fff;border:1px solid #7dd3fc;color:#0369a1;
+                                   cursor:pointer;">
+                        Tøm kurv
+                    </button>`;
+            } else {
+                kurvEl.style.display = 'none';
+                kurvEl.innerHTML = '';
+            }
+        }
     }
 
     static genererLageroversikt() {
