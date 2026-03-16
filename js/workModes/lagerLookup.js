@@ -1,3 +1,6 @@
+// DEPRECATED FASE 10 — Funksjonalitet er flyttet til artikkelOppslag.js
+// Denne filen kan slettes når FASE 10 er verifisert.
+
 // ===================================
 // MODUS: LAGEROPPSLAG
 // Fritekst-søk og lageroversikt for enkeltartikler
