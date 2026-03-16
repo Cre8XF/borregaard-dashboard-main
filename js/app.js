@@ -656,6 +656,15 @@ class DashboardApp {
             }
         });
 
+        // Nullstill artikkelOppslag-valg når brukeren navigerer bort fra modulen
+        if (this.currentModule === 'artikkelOppslag' && moduleName !== 'artikkelOppslag') {
+            if (typeof ArtikkelOppslagMode !== 'undefined') {
+                ArtikkelOppslagMode._selectedItems.clear();
+                ArtikkelOppslagMode._showLageroversikt = false;
+                ArtikkelOppslagMode._lageroversiktItems = [];
+            }
+        }
+
         this.currentModule = moduleName;
         this.renderCurrentModule();
     }
