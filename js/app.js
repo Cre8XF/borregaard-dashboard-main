@@ -762,12 +762,6 @@ class DashboardApp {
                 }
                 break;
 
-            case 'lagerLookup':
-                if (typeof LagerLookupMode !== 'undefined') {
-                    contentDiv.innerHTML = LagerLookupMode.render(this.dataStore);
-                }
-                break;
-
             default:
                 if (typeof WorkMode !== 'undefined') {
                     contentDiv.innerHTML = WorkMode.render(this.dataStore);

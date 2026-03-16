@@ -10,7 +10,10 @@ class ArtikkelOppslagMode {
     static _searchTerm   = '';
     static _activeFilters = new Set(); // tomt Set = vis alle; AND-kombinert
     static _lastResults  = [];
-    static _searchMode   = 'fuzzy'; // 'exact' | 'location' | 'fuzzy'
+    static _searchMode   = 'exact'; // 'exact' | 'fuzzy'
+    static _selectedItems = new Set(); // Set av toolsArticleNumber
+    static _showLageroversikt = false;
+    static _lageroversiktItems = [];
 
     // ════════════════════════════════════════════════════
     //  MAIN RENDER
@@ -152,22 +155,33 @@ class ArtikkelOppslagMode {
             </div>
 
             <div class="module-controls" style="flex-direction:column;gap:12px;align-items:stretch;">
-                <div style="position:relative;">
-                    <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);
-                                 font-size:18px;pointer-events:none;line-height:1;">🔎</span>
-                    <input
-                        type="text"
-                        id="artikkelOppslagSearch"
-                        placeholder="Søk etter artikkel..."
-                        value="${this.esc(term)}"
-                        oninput="ArtikkelOppslagMode.onInput(this.value)"
-                        autocomplete="off"
-                        style="width:100%;box-sizing:border-box;padding:12px 16px 12px 44px;
-                               font-size:16px;border:2px solid #cbd5e1;border-radius:8px;
-                               outline:none;transition:border-color 0.2s;"
-                        onfocus="this.style.borderColor='#3498db'"
-                        onblur="this.style.borderColor='#cbd5e1'"
-                    />
+                <div style="display:flex;align-items:center;">
+                    <div style="position:relative;flex:1;">
+                        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);
+                                     font-size:18px;pointer-events:none;line-height:1;">🔎</span>
+                        <input
+                            type="text"
+                            id="artikkelOppslagSearch"
+                            placeholder="Søk etter artikkel..."
+                            value="${this.esc(term)}"
+                            oninput="ArtikkelOppslagMode.onInput(this.value)"
+                            autocomplete="off"
+                            style="width:100%;box-sizing:border-box;padding:12px 16px 12px 44px;
+                                   font-size:16px;border:2px solid #cbd5e1;border-radius:8px;
+                                   outline:none;transition:border-color 0.2s;"
+                            onfocus="this.style.borderColor='#3498db'"
+                            onblur="this.style.borderColor='#cbd5e1'"
+                        />
+                    </div>
+                    <button onclick="ArtikkelOppslagMode.toggleFuzzy()"
+                            title="Bytt mellom eksakt og fuzzy søk"
+                            style="padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;
+                                   font-weight:600;white-space:nowrap;margin-left:6px;
+                                   border:2px solid ${this._searchMode === 'fuzzy' ? '#6b7280' : '#d1d5db'};
+                                   background:${this._searchMode === 'fuzzy' ? '#6b7280' : '#fff'};
+                                   color:${this._searchMode === 'fuzzy' ? '#fff' : '#6b7280'};">
+                        ≈ Fuzzy
+                    </button>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <span style="font-size:12px;color:#666;font-weight:600;">Filter:</span>
@@ -177,9 +191,78 @@ class ArtikkelOppslagMode {
                 </div>
             </div>
 
+            <div style="display:flex;align-items:center;gap:12px;padding:8px 0;flex-wrap:wrap;">
+                <span id="artikkelValgCount" style="font-size:13px;color:#555;min-width:80px;">
+                    ${this._selectedItems.size > 0 ? this._selectedItems.size + ' valgt' : ''}
+                </span>
+                <button id="artikkelGenererBtn"
+                        onclick="ArtikkelOppslagMode.genererLageroversikt()"
+                        ${this._selectedItems.size === 0 ? 'disabled' : ''}
+                        style="background:#1a237e;color:#fff;border:none;padding:7px 16px;
+                               border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;
+                               opacity:${this._selectedItems.size === 0 ? '0.5' : '1'};">
+                    Generer lageroversikt (${this._selectedItems.size} valgt)
+                </button>
+                ${this._selectedItems.size > 0 ? `
+                    <button onclick="ArtikkelOppslagMode.nullstillValg()"
+                            style="background:#fff;border:1px solid #ccc;padding:6px 12px;
+                                   border-radius:4px;cursor:pointer;font-size:12px;color:#555;">
+                        Nullstill valg
+                    </button>` : ''}
+            </div>
+
             <div id="artikkelOppslagResults">
                 ${this._buildResultsHTML()}
             </div>
+
+            ${this._showLageroversikt && this._lageroversiktItems && this._lageroversiktItems.length > 0 ? `
+            <div style="margin-top:24px;border-top:2px solid #e5e7eb;padding-top:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h3 style="margin:0;font-size:15px;font-weight:700;">
+                        Lageroversikt — ${this._lageroversiktItems.length} artikler
+                    </h3>
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="ArtikkelOppslagMode.kopierLageroversikt()"
+                                style="background:#fff;border:1px solid #ccc;padding:6px 14px;
+                                       border-radius:4px;cursor:pointer;font-size:13px;">
+                            Kopier til utklippstavle
+                        </button>
+                        <button onclick="ArtikkelOppslagMode.lukkLageroversikt()"
+                                style="background:#fff;border:1px solid #ccc;padding:6px 14px;
+                                       border-radius:4px;cursor:pointer;font-size:13px;color:#dc2626;">
+                            ✕ Lukk
+                        </button>
+                    </div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="background:#1a237e;color:#fff;">
+                            <th style="padding:8px 12px;text-align:left;">ART.NR</th>
+                            <th style="padding:8px 12px;text-align:left;">BESKRIVELSE</th>
+                            <th style="padding:8px 12px;text-align:right;">SALDO</th>
+                            <th style="padding:8px 12px;text-align:right;">I BESTILLING</th>
+                            <th style="padding:8px 12px;text-align:left;">LAGERPLASS</th>
+                            <th style="padding:8px 12px;text-align:left;">SA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${[...this._lageroversiktItems]
+                            .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+                            .map((item, i) => {
+                                const bg = i % 2 === 0 ? '#f0f4ff' : '#fff';
+                                const saldoFarge = (item.stock || 0) > 0 ? '#16a34a' : '#dc2626';
+                                return `<tr style="background:${bg};">
+                                    <td style="padding:6px 12px;font-family:monospace;">${item.toolsArticleNumber || ''}</td>
+                                    <td style="padding:6px 12px;">${item.description || ''}</td>
+                                    <td style="padding:6px 12px;text-align:right;font-weight:700;color:${saldoFarge};">${item.stock ?? 0}</td>
+                                    <td style="padding:6px 12px;text-align:right;">${item.bestAntLev || 0}</td>
+                                    <td style="padding:6px 12px;">${item.location || '–'}</td>
+                                    <td style="padding:6px 12px;font-family:monospace;">${item.saNumber || ''}</td>
+                                </tr>`;
+                            }).join('')}
+                    </tbody>
+                </table>
+            </div>` : ''}
         `;
     }
 
@@ -201,64 +284,45 @@ class ArtikkelOppslagMode {
     // ════════════════════════════════════════════════════
 
     static _runSearch() {
-        if (!this._store || !this._allItems) { this._lastResults = []; return; }
+        if (!this._allItems) { this._lastResults = []; return; }
+        const term = this._searchTerm.toLowerCase().trim();
+        if (!term) { this._lastResults = []; return; }
 
-        const term      = this._searchTerm.trim();
-        const termUpper = term.toUpperCase();
-        let candidates  = [];
-
-        // ── STEP 1: Exact match on article identifier fields (case-insensitive) ──
-        // Returns immediately if any of the unique ID fields match exactly.
-        candidates = this._allItems.filter(item =>
-            (item.toolsArticleNumber    || '').toUpperCase() === termUpper ||
-            (item.saNumber              || '').toUpperCase() === termUpper ||
-            (item.supplierArticleNumber || '').toUpperCase() === termUpper
-        );
-        if (candidates.length > 0) {
-            this._searchMode = 'exact';
+        if (this._searchMode === 'fuzzy' && this._fuse) {
+            // Fuzzy-modus: bruk Fuse.js
+            const fuseResults = this._fuse.search(term);
+            let results = fuseResults.map(r => r.item);
+            results = this._applyFilters(results);
+            results.sort((a, b) => {
+                const locCmp = this._cmpLocation(a.location || '', b.location || '');
+                if (locCmp !== 0) return locCmp;
+                return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
+            });
+            this._lastResults = results;
+            return;
         }
 
-        // ── STEP 2: Exact location match ──
-        // If no identifier hit, return all items at that exact location.
-        if (candidates.length === 0) {
-            candidates = this._allItems.filter(item =>
-                (item.location || '').toUpperCase() === termUpper
+        // Standard eksakt inneholder-søk (som Lageroppslag)
+        // Søker i: toolsArticleNumber, saNumber, description, location, supplier, supplierArticleNumber
+        const filtered = this._allItems.filter(item => {
+            return (
+                (item.toolsArticleNumber || '').toLowerCase().includes(term) ||
+                (item.saNumber || '').toLowerCase().includes(term) ||
+                (item.description || '').toLowerCase().includes(term) ||
+                (item.location || '').toLowerCase().includes(term) ||
+                (item.supplier || '').toLowerCase().includes(term) ||
+                (item.supplierArticleNumber || '').toLowerCase().includes(term)
             );
-            if (candidates.length > 0) {
-                this._searchMode = 'location';
-            }
-        }
+        });
 
-        // ── STEP 3: Fuzzy search — only when steps 1 and 2 both returned nothing ──
-        if (candidates.length === 0) {
-            this._searchMode = 'fuzzy';
-            if (this._fuse && term.length >= 2) {
-                candidates = this._fuse.search(term).map(r => r.item);
-            } else {
-                // Simple substring fallback (no Fuse.js)
-                const t = term.toLowerCase();
-                candidates = this._allItems.filter(item =>
-                    (item.toolsArticleNumber    || '').toLowerCase().includes(t) ||
-                    (item.saNumber              || '').toLowerCase().includes(t) ||
-                    (item.location              || '').toLowerCase().includes(t) ||
-                    (item.supplier              || '').toLowerCase().includes(t) ||
-                    (item.supplierId            || '').toLowerCase().includes(t) ||
-                    (item.supplierArticleNumber || '').toLowerCase().includes(t) ||
-                    (item.description           || '').toLowerCase().includes(t)
-                );
-            }
-        }
-
-        candidates = this._applyFilters(candidates);
-
-        // Sort: location ASC (natural), then toolsArticleNumber ASC
-        candidates.sort((a, b) => {
+        const withFilters = this._applyFilters(filtered);
+        withFilters.sort((a, b) => {
             const locCmp = this._cmpLocation(a.location || '', b.location || '');
             if (locCmp !== 0) return locCmp;
             return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
         });
-
-        this._lastResults = candidates;
+        this._lastResults = withFilters;
+        this._searchMode = 'exact';
     }
 
     static _applyFilters(items) {
@@ -406,6 +470,7 @@ class ArtikkelOppslagMode {
             const desc     = this.esc(this.trunc(item.description || '–', 45));
             const supplier = this.esc(this.trunc(item.supplier || '–', 30));
             const levArt   = this.esc(item.supplierArticleNumber || '–');
+            const toolsNrRaw = this.esc(item.toolsArticleNumber || '');
 
             const stockVal = item.stock || 0;
             const stockCell = stockVal > 0
@@ -421,6 +486,13 @@ class ArtikkelOppslagMode {
                 <tr style="cursor:pointer;"
                     onclick="ArtikkelOppslagMode.openCard(${idx})"
                     title="Klikk for detaljer">
+                    <td style="padding:6px 8px;" onclick="event.stopPropagation()">
+                        <input type="checkbox"
+                               class="artikkel-checkbox"
+                               value="${toolsNrRaw}"
+                               ${this._selectedItems.has(item.toolsArticleNumber) ? 'checked' : ''}
+                               onchange="ArtikkelOppslagMode.toggleSelectItem('${toolsNrRaw}', this.checked)">
+                    </td>
                     <td style="font-weight:600;white-space:nowrap;font-size:11px;">${loc}</td>
                     <td style="font-size:11px;font-family:monospace;white-space:nowrap;">${toolsNr}</td>
                     <td style="font-size:11px;white-space:nowrap;">${saNr}</td>
@@ -439,6 +511,11 @@ class ArtikkelOppslagMode {
                 <table class="data-table compact">
                     <thead>
                         <tr>
+                            <th style="width:36px;padding:8px;">
+                                <input type="checkbox" id="artikkelVelgAlle"
+                                       onchange="ArtikkelOppslagMode.toggleSelectAll(this.checked)"
+                                       title="Velg alle">
+                            </th>
                             <th>Lokasjon</th>
                             <th>Tools nr</th>
                             <th>SA-nummer</th>
@@ -678,6 +755,8 @@ class ArtikkelOppslagMode {
 
     static onInput(value) {
         this._searchTerm = value;
+        // Nullstill valg ved nytt søk
+        this._selectedItems.clear();
 
         if (value.length >= 2) {
             this._runSearch();
@@ -692,6 +771,97 @@ class ArtikkelOppslagMode {
         if (resultsDiv) {
             resultsDiv.innerHTML = this._buildResultsHTML();
         }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  FUZZY TOGGLE
+    // ════════════════════════════════════════════════════
+
+    static toggleFuzzy() {
+        this._searchMode = this._searchMode === 'fuzzy' ? 'exact' : 'fuzzy';
+        if (this._searchTerm.length >= 2) {
+            this._runSearch();
+        }
+        const contentDiv = document.getElementById('moduleContent');
+        if (contentDiv && this._store) {
+            contentDiv.innerHTML = this._buildHTML();
+            const input = document.getElementById('artikkelOppslagSearch');
+            if (input) { input.focus(); const len = input.value.length; input.setSelectionRange(len, len); }
+        }
+    }
+
+    // ════════════════════════════════════════════════════
+    //  CHECKBOX OG LAGEROVERSIKT
+    // ════════════════════════════════════════════════════
+
+    static toggleSelectItem(toolsNr, checked) {
+        if (checked) this._selectedItems.add(toolsNr);
+        else this._selectedItems.delete(toolsNr);
+        this._updateSelectionBar();
+    }
+
+    static toggleSelectAll(checked) {
+        this._lastResults.forEach(item => {
+            if (checked) this._selectedItems.add(item.toolsArticleNumber);
+            else this._selectedItems.delete(item.toolsArticleNumber);
+        });
+        document.querySelectorAll('.artikkel-checkbox').forEach(cb => { cb.checked = checked; });
+        this._updateSelectionBar();
+    }
+
+    static _updateSelectionBar() {
+        const count = this._selectedItems.size;
+        const btn = document.getElementById('artikkelGenererBtn');
+        if (btn) {
+            btn.textContent = `Generer lageroversikt (${count} valgt)`;
+            btn.disabled = count === 0;
+            btn.style.opacity = count === 0 ? '0.5' : '1';
+        }
+        const countEl = document.getElementById('artikkelValgCount');
+        if (countEl) countEl.textContent = count > 0 ? `${count} valgt` : '';
+    }
+
+    static genererLageroversikt() {
+        const valgte = this._allItems
+            ? this._allItems.filter(i => this._selectedItems.has(i.toolsArticleNumber))
+            : [];
+        if (valgte.length === 0) return;
+        this._showLageroversikt = true;
+        this._lageroversiktItems = valgte;
+
+        const contentDiv = document.getElementById('moduleContent');
+        if (contentDiv && this._store) {
+            contentDiv.innerHTML = this._buildHTML();
+        }
+    }
+
+    static lukkLageroversikt() {
+        this._showLageroversikt = false;
+        this._lageroversiktItems = [];
+        const contentDiv = document.getElementById('moduleContent');
+        if (contentDiv && this._store) {
+            contentDiv.innerHTML = this._buildHTML();
+        }
+    }
+
+    static nullstillValg() {
+        this._selectedItems.clear();
+        document.querySelectorAll('.artikkel-checkbox').forEach(cb => { cb.checked = false; });
+        const velgAlle = document.getElementById('artikkelVelgAlle');
+        if (velgAlle) velgAlle.checked = false;
+        this._updateSelectionBar();
+    }
+
+    static async kopierLageroversikt() {
+        if (!this._lageroversiktItems || this._lageroversiktItems.length === 0) return;
+        const lines = this._lageroversiktItems
+            .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+            .map(item =>
+                `${item.toolsArticleNumber || ''}\t${item.description || ''}\t${item.stock ?? 0}\t${item.bestAntLev || 0}\t${item.location || ''}\t${item.saNumber || ''}`
+            );
+        const header = 'ART.NR\tBESKRIVELSE\tSALDO\tI BESTILLING\tLAGERPLASS\tSA';
+        const text = [header, ...lines].join('\n');
+        await this._copy(text, document.querySelector('button[onclick*="kopierLageroversikt"]'));
     }
 
     // ════════════════════════════════════════════════════
