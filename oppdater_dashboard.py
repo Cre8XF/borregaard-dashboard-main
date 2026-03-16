@@ -132,6 +132,12 @@ try:
     except Exception as pris_err:
         print(f"⚠️  Prisliste ikke tilgjengelig (fortsetter uten): {pris_err}")
 
+    # Sjekk prisliste for kalkylpris-fallback
+    if os.path.exists(PRISLISTE_PATH):
+        print(f'✅ Prisliste funnet — kalkylpris fallback aktivert')
+    else:
+        print(f'⚠️  Prisliste ikke funnet — kalkylpris kun fra Master_Artikkelstatus')
+
     data = {
         "generert":     datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":       master.to_dict(orient="records"),
