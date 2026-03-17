@@ -771,6 +771,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'dgKontroll':
+                if (typeof DGKontrollMode !== 'undefined') {
+                    contentDiv.innerHTML = DGKontrollMode.render(this.dataStore);
+                }
+                break;
+
             default:
                 if (typeof WorkMode !== 'undefined') {
                     contentDiv.innerHTML = WorkMode.render(this.dataStore);
@@ -1025,6 +1031,7 @@ class DashboardApp {
                 orders:       payload.orders       || [],
                 bestillinger: payload.bestillinger || [],
                 prisliste:    payload.prisliste    || [],   // FASE 9.0
+                dgKontroll:   payload.dgKontroll   || {},   // FASE 9.x
             });
 
             const uploadSection = document.getElementById('uploadSection');
@@ -1046,7 +1053,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1090,6 +1097,12 @@ class DashboardApp {
             store.getAllItems().forEach(item => item.calculate());
 
             console.log(`[FASE 9.0] Prisdata beriket for ${Object.keys(store.prisMap).length} artikler`);
+        }
+
+        // FASE 9.x: DG-kontroll data
+        store.dashboardData = { dgKontroll: dgKontroll || {} };
+        if (dgKontroll && Object.keys(dgKontroll).length > 0) {
+            console.log(`[FASE 9.x] DG-kontroll lastet: ${Object.keys(dgKontroll).length} artikler`);
         }
 
         this.dataStore = store;
@@ -1197,6 +1210,7 @@ function navigateToModule(moduleId, options = {}) {
         'varetelling':     'varetelling',
         'bp-kontroll':     'bpKontroll',
         'artikkeloppslag': 'artikkelOppslag',
+        'dg-kontroll':     'dgKontroll',
     };
 
     const actualModule = moduleMap[moduleId] || moduleId;
