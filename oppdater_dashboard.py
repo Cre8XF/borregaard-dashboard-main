@@ -205,10 +205,20 @@ try:
             dg_siste = round(float(latest[col_dg]), 1)
             dg_avvik = round(dg_siste - dg_snitt_12mnd, 1)
 
+            # dg_trend_3: snitt DG% på de 3 siste ordrene (vedvarende trend-indikator)
+            if antall_12m >= 3:
+                siste3 = grp12.nlargest(3, '_dato')
+                dg_trend_3 = round(float(siste3[col_dg].mean()), 1)
+            elif antall_12m > 0:
+                dg_trend_3 = round(float(grp12[col_dg].mean()), 1)
+            else:
+                dg_trend_3 = dg_siste
+
             dg_kontroll[art_nr] = {
                 "beskrivelse":      str(latest[col_beskr]).strip(),
                 "dg_snitt_12mnd":   dg_snitt_12mnd,
                 "dg_siste":         dg_siste,
+                "dg_trend_3":       dg_trend_3,
                 "dg_avvik":         dg_avvik,
                 "siste_pris":       round(float(latest[col_pris]), 2),
                 "siste_ksv":        round(float(latest[col_ksv]), 2),
