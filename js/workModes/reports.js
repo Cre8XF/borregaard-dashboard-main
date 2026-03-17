@@ -307,6 +307,9 @@ class ReportsMode {
         // Build category lookup (safe if Kategori.xlsx not loaded)
         this.buildCategoryMap();
 
+        // DG-kontroll data (FASE 9.x / 10.x)
+        const dgKontroll = store.dashboardData?.dgKontroll || {};
+
         // Build enriched rows for all items that have sales in selected departments
         const rows = [];
         items.forEach(item => {
@@ -338,6 +341,12 @@ class ReportsMode {
             const catData = this.categoryMap ? this.categoryMap.get(item.toolsArticleNumber) : null;
             const catLevelKey = `category${this.selectedCategoryLevel}`;
 
+            // DG-data fra Orderingang (FASE 9.x / 10.x)
+            const dgEntry = dgKontroll[item.toolsArticleNumber];
+            const dgSnitt12m   = dgEntry != null ? (dgEntry.dg_snitt_12mnd  ?? null) : null;
+            const dgSiste      = dgEntry != null ? (dgEntry.dg_siste        ?? null) : null;
+            const dgAvvik      = dgEntry != null ? (dgEntry.dg_avvik        ?? null) : null;
+
             rows.push({
                 toolsNr: item.toolsArticleNumber,
                 saNumber: item.saNumber || '',
@@ -366,6 +375,9 @@ class ReportsMode {
                 replacementNr: replacementNr || '',
                 saMigrationRequired: !!saMigrationRequired,
                 iInPrisliste: !!item.iInPrisliste,   // FASE 9.0
+                dgSnitt12m,   // FASE 10.x
+                dgSiste,
+                dgAvvik,
                 _item: item
             });
         });
@@ -408,6 +420,21 @@ class ReportsMode {
             isQuarterFilter,
             selectedQuarter: qSel
         };
+
+        // DG-sammendrag: vektet snitt-DG (vektet etter salgsverdi) + antall med DG-fall > 5 pp
+        {
+            let wNum = 0, wDen = 0, dgFallCount = 0;
+            rows.forEach(r => {
+                const sv = getSalesMetric(r);
+                if (r.dgSnitt12m !== null && sv > 0) {
+                    wNum += r.dgSnitt12m * sv;
+                    wDen += sv;
+                }
+                if (r.dgAvvik !== null && r.dgAvvik < -5) dgFallCount++;
+            });
+            summary.weightedDG    = wDen > 0 ? Math.round(wNum / wDen * 10) / 10 : null;
+            summary.dgFallCount   = dgFallCount;
+        }
 
         // B) Top 20 by value (estimertVerdi for rolling, quarterlySales value for quarter)
         const top20Value = [...rows].sort((a, b) => getSalesMetric(b) - getSalesMetric(a)).slice(0, 20);
@@ -682,6 +709,75 @@ class ReportsMode {
         ];
         XLSX.utils.book_append_sheet(wb, ws, 'Arbeidsrapport');
 
+        // ── DG-oversikt ark (FASE 10.x) ───────────────────────────────────────
+        const dgKontrollArb = this.dataStore?.dashboardData?.dgKontroll || {};
+        const dgOversiktRows = rows
+            .filter(r => dgKontrollArb[r.toolsNr])
+            .map(r => {
+                const dg = dgKontrollArb[r.toolsNr];
+                return {
+                    toolsNr:      r.toolsNr,
+                    saNumber:     r.saNumber,
+                    description:  r.description,
+                    dgSnitt12m:   dg.dg_snitt_12mnd  ?? '',
+                    dgSiste:      dg.dg_siste         ?? '',
+                    dgAvvik:      dg.dg_avvik          ?? '',
+                    sistePris:    dg.siste_pris         ?? '',
+                    sisteKsv:     dg.siste_ksv          ?? '',
+                    sisteOrdre:   dg.siste_ordredato    ?? '',
+                    antallOrdrer: dg.antall_ordrer_12mnd ?? '',
+                };
+            })
+            .sort((a, b) => {
+                // Stigende på dg_avvik — størst negativt avvik øverst
+                const av = typeof a.dgAvvik === 'number' ? a.dgAvvik : Infinity;
+                const bv = typeof b.dgAvvik === 'number' ? b.dgAvvik : Infinity;
+                return av - bv;
+            });
+
+        if (dgOversiktRows.length > 0) {
+            const dgHeaders = [
+                'Tools art.nr', 'SA-nummer', 'Beskrivelse',
+                'Snitt DG% 12 mnd', 'Siste DG%', 'Avvik (pp)',
+                'Siste pris', 'Siste KSV', 'Siste ordre', 'Antall ordrer'
+            ];
+            const dgData = [dgHeaders];
+            dgOversiktRows.forEach(r => {
+                dgData.push([
+                    r.toolsNr, r.saNumber, r.description,
+                    typeof r.dgSnitt12m  === 'number' ? r.dgSnitt12m  / 100 : '',
+                    typeof r.dgSiste     === 'number' ? r.dgSiste     / 100 : '',
+                    typeof r.dgAvvik     === 'number' ? r.dgAvvik     / 100 : '',
+                    r.sistePris, r.sisteKsv, r.sisteOrdre, r.antallOrdrer
+                ]);
+            });
+            const wsDg = XLSX.utils.aoa_to_sheet(dgData);
+            wsDg['!cols'] = [
+                { wch: 16 }, { wch: 14 }, { wch: 40 },
+                { wch: 16 }, { wch: 12 }, { wch: 12 },
+                { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
+            ];
+            const dgRowCount = dgOversiktRows.length;
+            // Prosentformat for DG-kolonner (3, 4, 5) — 0.385 → 38.5%
+            const FMT_PCT_DG = '0.0%';
+            for (let row = 1; row <= dgRowCount; row++) {
+                [3, 4, 5].forEach(col => {
+                    const ref = XLSX.utils.encode_cell({ r: row, c: col });
+                    if (wsDg[ref] && typeof wsDg[ref].v === 'number') wsDg[ref].z = FMT_PCT_DG;
+                });
+                // Priskolonner med 2 desimaler
+                [6, 7].forEach(col => {
+                    const ref = XLSX.utils.encode_cell({ r: row, c: col });
+                    if (wsDg[ref] && typeof wsDg[ref].v === 'number') wsDg[ref].z = '#,##0.00';
+                });
+            }
+            // Frys headerrad + autofilter
+            const lastCol = XLSX.utils.encode_col(dgHeaders.length - 1);
+            wsDg['!autofilter'] = { ref: `A1:${lastCol}${dgRowCount + 1}` };
+            wsDg['!views'] = [{ state: 'frozen', ySplit: 1, xSplit: 0, topLeftCell: 'A2', activePane: 'bottomLeft' }];
+            XLSX.utils.book_append_sheet(wb, wsDg, 'DG-oversikt');
+        }
+
         const now = new Date();
         const year = now.getFullYear();
         const quarter = 'Q' + (Math.floor(now.getMonth() / 3) + 1);
@@ -866,16 +962,20 @@ class ReportsMode {
         // ══════════════════════════════════════════════════════
         //  SHEET 2: Topp20_Verdi
         // ══════════════════════════════════════════════════════
-        const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel + ' (kr)', 'Salg 3m (kr)', 'Salg innev. kvartal (kr)'];
+        const valueHeaders = ['#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør', salesColLabel + ' (kr)', 'Salg 3m (kr)', 'Salg innev. kvartal (kr)', 'Snitt DG% 12 mnd'];
         const top20vData = [valueHeaders];
         report.top20Value.forEach((r, i) => {
-            top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier, getSalesVal(r), r.salesLast3m, r.currentQuarterSales]);
+            top20vData.push([i + 1, r.toolsNr, r.saNumber, r.description, r.category, r.supplier,
+                getSalesVal(r), r.salesLast3m, r.currentQuarterSales,
+                r.dgSnitt12m !== null ? r.dgSnitt12m / 100 : '']);
         });
         const ws2 = XLSX.utils.aoa_to_sheet(top20vData);
-        ws2['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+        ws2['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
         const vRows = report.top20Value.length;
         freezeAndFilter(ws2, valueHeaders.length, vRows + 1);
         autoFmtByHeaders(ws2, valueHeaders, vRows);
+        // DG-kolonne (index 9) — FMT_PCT viser 38.5% for verdien 0.385
+        fmtCol(ws2, 9, 1, vRows, FMT_PCT);
         XLSX.utils.book_append_sheet(wb, ws2, 'Topp20_Verdi');
 
         // ══════════════════════════════════════════════════════
@@ -1111,6 +1211,14 @@ class ReportsMode {
                         <div class="stat-value">${this.formatCurrency(s.totalExposure)}</div>
                         <div class="stat-label">Total eksponering</div>
                     </div>
+                    <div class="stat-card ${s.weightedDG !== null && s.weightedDG < 20 ? 'critical' : s.weightedDG !== null && s.weightedDG < 35 ? 'warning' : ''}">
+                        <div class="stat-value" style="color:${this._dgColor(s.weightedDG)};">${s.weightedDG !== null ? s.weightedDG.toFixed(1) + '\u00a0%' : '\u2013'}</div>
+                        <div class="stat-label">Snitt DG% (vektet)</div>
+                    </div>
+                    <div class="stat-card ${s.dgFallCount > 0 ? 'critical' : ''}">
+                        <div class="stat-value">${s.dgFallCount}</div>
+                        <div class="stat-label">DG-fall &gt;&nbsp;5&nbsp;pp</div>
+                    </div>
                 </div>
                 <p style="margin:14px 0 0 0;font-size:13px;color:#444;line-height:1.5;background:#fff;border-radius:4px;padding:10px 12px;border-left:3px solid #4caf50;">
                     ${summaryText}
@@ -1232,6 +1340,21 @@ class ReportsMode {
         `;
     }
 
+    // DG% fargekode: grønn ≥35%, gul 20–35%, rød <20%, grå = mangler
+    static _dgColor(dg) {
+        if (dg === null || dg === undefined) return '#9e9e9e';
+        if (dg >= 35) return '#2e7d32';
+        if (dg >= 20) return '#e65100';
+        return '#c62828';
+    }
+
+    static _dgCell(dg) {
+        if (dg === null || dg === undefined) {
+            return '<span style="color:#bdbdbd;">\u2013</span>';
+        }
+        return `<span style="color:${this._dgColor(dg)};font-weight:600;">${dg.toFixed(1)}%</span>`;
+    }
+
     static renderOmsetningTable(rows, summary) {
         if (!rows || rows.length === 0) {
             return '<p style="color:#888;font-size:12px;">Ingen data.</p>';
@@ -1249,8 +1372,9 @@ class ReportsMode {
                     <thead>
                         <tr>
                             <th>#</th><th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
-                            <th>Varegruppe</th><th>Leverandør</th>
+                            <th>Varegruppe</th><th>Leverand\u00f8r</th>
                             <th>${this.escapeHtml(salesCol)} (kr)</th><th>Salg 3m (kr)</th><th>Salg innev. kvartal (kr)</th>
+                            <th>Snitt DG% (12 mnd)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1265,6 +1389,7 @@ class ReportsMode {
                                 <td class="qty-cell">${this.formatCurrency(getSalesVal(r))}</td>
                                 <td class="qty-cell">${this.formatCurrency(r.salesLast3m)}</td>
                                 <td class="qty-cell">${this.formatCurrency(r.currentQuarterSales)}</td>
+                                <td class="qty-cell">${this._dgCell(r.dgSnitt12m)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
