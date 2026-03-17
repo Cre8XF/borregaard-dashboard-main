@@ -32,7 +32,7 @@ LAGERPLAN_FILE   = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
 LEVERANDOR_FILE  = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
 SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
 ORDRER_FILE      = os.path.join(SCRIPT_DIR, 'Ordrer_Jeeves.xlsx')
-PRISLISTE_FILE   = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\prislister\20260319_Borregaard_prisliste.xlsx"
+PRISLISTE_FILE = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\20260319_Borregaard_Prisliste.xlsx"
 OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
 
 
