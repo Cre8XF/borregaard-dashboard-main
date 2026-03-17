@@ -138,12 +138,98 @@ try:
     else:
         print(f'⚠️  Prisliste ikke funnet — kalkylpris kun fra Master_Artikkelstatus')
 
+    # ── DG-kontroll: Orderingang.xlsx (FASE 9.x) ─────────────────────────────
+    print("\nLeser Orderingang.xlsx for DG-kontroll...")
+    ORDERINGANG_PATH = os.path.join(DAGLIG, "Orderingang.xlsx")
+    dg_kontroll = {}
+    try:
+        from datetime import timedelta
+        og_raw = pd.read_excel(ORDERINGANG_PATH, header=0, dtype=str)
+        og_raw.columns = [str(c).strip() for c in og_raw.columns]
+        cols = og_raw.columns.tolist()
+
+        # Hent kolonner via 0-basert indeks (rad 1 = header)
+        col_art_nr = cols[3]   # Artikelnr
+        col_beskr  = cols[10]  # Artikelbeskrivning
+        col_pris   = cols[22]  # PrisVal
+        col_ksv    = cols[7]   # KSV fakt.rad
+        col_dg     = cols[8]   # Täckningsgrad
+        col_dato   = cols[12]  # OrdDtm
+        col_dk     = cols[25]  # D/K
+
+        # Filtrer kun D-rader (debet/salg)
+        og = og_raw[og_raw[col_dk].astype(str).str.strip().str.upper() == 'D'].copy()
+
+        # Parse dato YYMMDD → datetime
+        def parse_yymmdd(val):
+            try:
+                s = str(int(float(str(val)))).zfill(6)
+                return datetime(2000 + int(s[0:2]), int(s[2:4]), int(s[4:6]))
+            except Exception:
+                return None
+
+        og['_dato'] = og[col_dato].apply(parse_yymmdd)
+        og = og.dropna(subset=['_dato'])
+
+        # Konverter numeriske kolonner (komma → punktum)
+        for c in [col_pris, col_ksv, col_dg]:
+            og[c] = pd.to_numeric(
+                og[c].astype(str).str.replace(',', '.').str.replace(' ', ''),
+                errors='coerce'
+            ).fillna(0.0)
+
+        # Filtrer siste 12 måneder (365 dager)
+        cutoff_12m = datetime.now() - timedelta(days=365)
+        og_12m = og[og['_dato'] >= cutoff_12m].copy()
+
+        # Grupper per Artikelnr — hent siste ordre og 12-mnd snitt
+        grp12_map = {
+            str(art_nr).strip(): grp
+            for art_nr, grp in og_12m.groupby(col_art_nr)
+            if str(art_nr).strip()
+        }
+
+        for art_nr, grp_all in og.groupby(col_art_nr):
+            art_nr = str(art_nr).strip()
+            if not art_nr:
+                continue
+
+            # Seneste ordre (høyest dato)
+            latest = grp_all.loc[grp_all['_dato'].idxmax()]
+
+            grp12 = grp12_map.get(art_nr, pd.DataFrame())
+            antall_12m = len(grp12)
+
+            dg_snitt_12mnd = round(float(grp12[col_dg].mean()), 1) if antall_12m > 0 \
+                             else round(float(latest[col_dg]), 1)
+            dg_siste = round(float(latest[col_dg]), 1)
+            dg_avvik = round(dg_siste - dg_snitt_12mnd, 1)
+
+            dg_kontroll[art_nr] = {
+                "beskrivelse":      str(latest[col_beskr]).strip(),
+                "dg_snitt_12mnd":   dg_snitt_12mnd,
+                "dg_siste":         dg_siste,
+                "dg_avvik":         dg_avvik,
+                "siste_pris":       round(float(latest[col_pris]), 2),
+                "siste_ksv":        round(float(latest[col_ksv]), 2),
+                "siste_ordredato":  latest['_dato'].strftime('%Y-%m-%d'),
+                "antall_ordrer_12mnd": antall_12m,
+            }
+
+        print(f"✅ DG-kontroll: {len(dg_kontroll)} artikler analysert")
+
+    except FileNotFoundError:
+        print(f"⚠️  Orderingang.xlsx ikke funnet — dgKontroll satt til tom dict")
+    except Exception as dg_err:
+        print(f"⚠️  DG-kontroll feil (fortsetter uten): {dg_err}")
+
     data = {
         "generert":     datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":       master.to_dict(orient="records"),
         "orders":       orders.to_dict(orient="records"),
         "bestillinger": best.to_dict(orient="records"),
         "prisliste":    pris_records,  # FASE 9.0
+        "dgKontroll":   dg_kontroll,   # FASE 9.x
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
