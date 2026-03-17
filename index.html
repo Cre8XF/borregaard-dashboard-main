@@ -18,25 +18,15 @@
         <p class="subtitle">Arbeidsrettet beslutningstøtte for lagerstyring</p>
       </header>
 
-      <!-- FILE UPLOAD SECTION -->
-      <section class="upload-section">
-        <h2>Last opp data</h2>
-
-        <!-- Multi-file drop zone -->
-        <div id="multiDropZone" class="multi-drop-zone">
-          <div class="drop-zone-content">
-            <div class="drop-zone-icon">📂</div>
-            <p class="drop-zone-text">Dra inn Excel-filer her</p>
-            <p class="drop-zone-hint">(Borregaard_SA_Master_v2.xlsx + Ordrer_Jeeves.xlsx)</p>
-          </div>
-        </div>
-        <div id="dropStatus" class="drop-status"></div>
-        <div class="upload-actions">
-          <button id="uploadBtn" class="btn-primary">Analyser data</button>
-          <button id="clearBtn" class="btn-secondary">Nullstill</button>
-        </div>
-        <div id="uploadStatus" class="status-message"></div>
-      </section>
+      <!-- DATA STATUS BAR -->
+      <div id="data-statusbar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;margin-bottom:8px;border-radius:0 0 6px 6px;">
+        <span id="data-status-text">⏳ Laster data...</span>
+        <button id="btn-nullstill"
+                onclick="app.nullstillData()"
+                style="padding:4px 12px;font-size:12px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;color:#64748b;">
+          Nullstill
+        </button>
+      </div>
 
       <!-- SUMMARY CARDS -->
       <section class="summary-cards">
@@ -158,16 +148,9 @@
       <!-- MODULE CONTENT AREA -->
       <main id="moduleContent" class="module-content">
         <div class="placeholder-content">
-          <div class="placeholder-icon">📊</div>
-          <h3>Last opp data for å starte</h3>
-          <p>Last opp de 3 påkrevde filene for å begynne analysen.</p>
-          <ul class="file-checklist">
-            <li><strong>SA-nummer.xlsx</strong> - Definerer det operative artikkeluniverset (påkrevd)</li>
-            <li><strong>Master.xlsx</strong> - Artikkelmasterdata (saldo, status, bestillinger, alternativer)</li>
-            <li><strong>Ordrer_Jeeves.xlsx</strong> - Salgsordrer ut (etterspørselsanalyse)</li>
-            <li><strong>Analyse_Lagerplan.xlsx</strong> - BP og EOK per artikkel (valgfri)</li>
-          </ul>
-          <p class="text-muted">Støttede formater: .xlsx, .csv</p>
+          <div class="placeholder-icon">⏳</div>
+          <h3>Laster data automatisk...</h3>
+          <p>Data lastes fra <code>data/dashboard-data.json</code>. Kjør <strong>oppdater_dashboard.bat</strong> for å oppdatere.</p>
         </div>
       </main>
 

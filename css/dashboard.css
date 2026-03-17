@@ -44,9 +44,9 @@ body {
 /* Header */
 header {
   background: var(--white);
-  padding: 30px;
-  margin-bottom: 30px;
-  border-radius: 8px;
+  padding: 12px 30px;
+  margin-bottom: 0;
+  border-radius: 8px 8px 0 0;
   box-shadow: 0 2px 4px var(--shadow);
 }
 
@@ -629,18 +629,21 @@ th.sortable:hover .sort-indicator {
 
 /* Summary Cards */
 .summary-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 15px;
-  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .summary-card {
   background: var(--white);
   border: 2px solid var(--light-gray);
   border-radius: 8px;
-  padding: 20px;
+  padding: 12px;
   text-align: center;
+  flex: 1;
+  min-width: 110px;
+  max-width: 160px;
 }
 
 .summary-card.card-critical {
@@ -678,7 +681,7 @@ th.sortable:hover .sort-indicator {
 }
 
 .card-value {
-  font-size: 32px;
+  font-size: 22px;
   font-weight: bold;
   color: var(--dark);
 }
@@ -1795,9 +1798,9 @@ select:focus-visible {
 .tab-navigation {
   display: flex;
   gap: 10px;
-  margin: 30px 0 0 0;
+  margin: 8px 0 0 0;
   background: #f8f9fa;
-  padding: 15px 15px 0 15px;
+  padding: 8px 8px 0 8px;
   border-radius: 12px 12px 0 0;
   border-bottom: 3px solid #ecf0f1;
 }
@@ -2126,10 +2129,10 @@ select:focus-visible {
 /* Tab Navigation - Enhanced with numbers */
 .tab-navigation {
   display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 6px;
+  margin-bottom: 8px;
   background: var(--white);
-  padding: 10px;
+  padding: 6px;
   border-radius: 8px;
   box-shadow: 0 2px 4px var(--shadow);
 }
@@ -2138,7 +2141,7 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 15px 25px;
+  padding: 8px 16px;
   background: var(--light-gray);
   border: 2px solid transparent;
   border-radius: 6px;

@@ -1011,9 +1011,8 @@ class DashboardApp {
      * Feiler → opplastingsfeltet forblir synlig som fallback.
      */
     async autoLoad() {
-        const statusEl = document.getElementById('dropStatus');
-        if (statusEl) statusEl.innerHTML =
-            '<span style="color:#666">⏳ Laster data...</span>';
+        const statusEl = document.getElementById('data-status-text');
+        if (statusEl) statusEl.textContent = '⏳ Laster data...';
 
         try {
             const res = await fetch('./data/dashboard-data.json');
@@ -1021,9 +1020,9 @@ class DashboardApp {
 
             const payload = await res.json();
 
-            if (payload.generert && statusEl) {
-                statusEl.innerHTML =
-                    `<span style="color:green">✅ Data fra ${payload.generert}</span>`;
+            if (statusEl) {
+                const ts = payload.generert || new Date().toLocaleString('nb-NO');
+                statusEl.textContent = `✅ Data fra ${ts}`;
             }
 
             await this.processJsonData({
@@ -1033,15 +1032,12 @@ class DashboardApp {
                 prisliste:           payload.prisliste           || [],   // FASE 9.0
                 dgKontroll:          payload.dgKontroll          || {},   // FASE 9.x
                 vedlikeholdsstopp:   payload.vedlikeholdsstopp   || { uke16: {}, uke42: {} },  // FASE 10.x
+                lavverdiListe:       payload.lavverdiListe        || [],   // FASE 11.0
             });
 
-            const uploadSection = document.getElementById('uploadSection');
-            if (uploadSection) uploadSection.style.display = 'none';
-
         } catch (err) {
-            console.warn('Auto-load feilet — manuell opplasting tilgjengelig:', err.message);
-            if (statusEl) statusEl.innerHTML =
-                '<span style="color:#e67e22">⚠️ Datafiler ikke funnet — last opp manuelt</span>';
+            console.warn('Auto-load feilet:', err.message);
+            if (statusEl) statusEl.textContent = '⚠️ Ingen data — kjør oppdater_dashboard.bat';
         }
     }
 
@@ -1054,7 +1050,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1106,6 +1102,7 @@ class DashboardApp {
         store.dashboardData = {
             dgKontroll:        dgKontroll || {},
             vedlikeholdsstopp: vs,
+            lavverdiListe:     lavverdiListe || [],
         };
         if (dgKontroll && Object.keys(dgKontroll).length > 0) {
             console.log(`[FASE 9.x] DG-kontroll lastet: ${Object.keys(dgKontroll).length} artikler`);
@@ -1156,6 +1153,13 @@ class DashboardApp {
     }
 
     /**
+     * Nullstill data — kalt fra statusbar-knappen (FASE 11.0)
+     */
+    nullstillData() {
+        this.clearAllData();
+    }
+
+    /**
      * Slett all data
      */
     clearAllData() {
@@ -1176,10 +1180,10 @@ class DashboardApp {
             localStorage.removeItem('borregaardDashboardV4');
             localStorage.removeItem('borregaardDashboardV3');
 
-            // Nullstill pending files og drop-status
+            // Nullstill pending files og statusbar
             this.pendingFiles = { masterV2: null, master: null, ordersOut: null, sa: null, lagerplan: null, artikkelstatus: null, agreement: null, replacement: null, bestillinger: null };
-            const dropStatus = document.getElementById('dropStatus');
-            if (dropStatus) dropStatus.innerHTML = '';
+            const statusText = document.getElementById('data-status-text');
+            if (statusText) statusText.textContent = '⚠️ Ingen data — kjør oppdater_dashboard.bat';
 
             // Nullstill sammendragskort
             ['totalItems', 'criticalCount', 'warningCount', 'saNumberCoverage', 'incomingCount',
