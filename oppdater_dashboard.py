@@ -233,13 +233,134 @@ try:
     except Exception as dg_err:
         print(f"⚠️  DG-kontroll feil (fortsetter uten): {dg_err}")
 
+    # ── Vedlikeholdsstopp: faktisk forbrukshistorikk (FASE 10.x) ─────────────
+    print("\nBeregner vedlikeholdsstopp-data fra Orderingang...")
+    FOCUS_UKER = [16, 42]
+    VINDU_UKER_MAP = {
+        16: [14, 15, 16, 17, 18],
+        42: [40, 41, 42, 43, 44],
+    }
+    vedlikeholdsstopp = {"uke16": {}, "uke42": {}}
+    try:
+        # Bygg oppslag: OrderNr -> Delivery location ID fra Ordrer_Jeeves
+        jeeves_map_vs = {}
+        for _, jrow in orders.iterrows():
+            order_nr = str(jrow.get('Order number', '')).strip()
+            delivery = str(jrow.get('Delivery location ID', '')).strip()
+            if order_nr and delivery:
+                jeeves_map_vs[order_nr] = delivery
+
+        # Les Orderingang (gjenbruk ORDERINGANG_PATH fra DG-kontroll)
+        og_vs = pd.read_excel(ORDERINGANG_PATH, header=0, dtype=str)
+        og_vs.columns = [str(c).strip() for c in og_vs.columns]
+        cols_vs = og_vs.columns.tolist()
+
+        col_ordernr_vs = cols_vs[0]   # OrderNr
+        col_artnr_vs   = cols_vs[3]   # Artikelnr
+        col_qty_vs     = cols_vs[4]   # OrdRadAnt
+        col_dato_vs    = cols_vs[12]  # OrdDtm
+        col_dk_vs      = cols_vs[25]  # D/K
+
+        # Filtrer kun D-rader (salg)
+        og_vs = og_vs[og_vs[col_dk_vs].astype(str).str.strip() == 'D'].copy()
+
+        # Parse dato YYMMDD → datetime
+        def parse_yymmdd_vs(val):
+            try:
+                s = str(int(float(str(val)))).zfill(6)
+                return datetime(2000 + int(s[0:2]), int(s[2:4]), int(s[4:6]))
+            except Exception:
+                return None
+
+        og_vs['_dato'] = og_vs[col_dato_vs].apply(parse_yymmdd_vs)
+        og_vs = og_vs.dropna(subset=['_dato'])
+
+        # Konverter qty
+        og_vs[col_qty_vs] = pd.to_numeric(
+            og_vs[col_qty_vs].astype(str).str.replace(',', '.').str.replace(' ', ''),
+            errors='coerce'
+        ).fillna(0.0)
+
+        # Berik med leveringssted og ISO-uke
+        og_vs['_delivery_id'] = og_vs[col_ordernr_vs].astype(str).str.strip().apply(
+            lambda x: jeeves_map_vs.get(x, '')
+        )
+        og_vs['_uke']   = og_vs['_dato'].apply(lambda d: d.isocalendar()[1])
+        og_vs['_ar']    = og_vs['_dato'].apply(lambda d: d.year)
+        og_vs['_artnr'] = og_vs[col_artnr_vs].astype(str).str.strip()
+
+        for focus_uke in FOCUS_UKER:
+            uke_key    = f"uke{focus_uke}"
+            vindu_uker = VINDU_UKER_MAP[focus_uke]
+
+            og_focus = og_vs[og_vs['_uke'] == focus_uke]
+            og_vindu = og_vs[og_vs['_uke'].isin(vindu_uker)]
+
+            artnrs_in_focus = [a for a in og_focus['_artnr'].unique() if a]
+
+            for artnr in artnrs_in_focus:
+                focus_rader = og_focus[og_focus['_artnr'] == artnr]
+                vindu_rader = og_vindu[og_vindu['_artnr'] == artnr]
+
+                # Historisk snitt i fokusuke (snitt over år)
+                focus_by_year = focus_rader.groupby('_ar')[col_qty_vs].sum()
+                antall_ar = len(focus_by_year)
+                historisk_snitt_focus = round(float(focus_by_year.mean()), 1) if antall_ar > 0 else 0.0
+
+                # Historisk snitt i vindu (snitt over år)
+                vindu_by_year = vindu_rader.groupby('_ar')[col_qty_vs].sum()
+                historisk_snitt_vindu = round(float(vindu_by_year.mean()), 1) if len(vindu_by_year) > 0 else 0.0
+
+                # Per leveringssted i fokusuke
+                per_leveringssted = {}
+                for _, row in focus_rader.iterrows():
+                    dlid = str(row['_delivery_id']).strip()
+                    if not dlid:
+                        continue
+                    per_leveringssted[dlid] = round(
+                        per_leveringssted.get(dlid, 0.0) + float(row[col_qty_vs]), 1
+                    )
+
+                # Sesongtype
+                if antall_ar == 1:
+                    sesong_type = "engang"
+                elif historisk_snitt_vindu > 0:
+                    avg_vindu_uke = historisk_snitt_vindu / len(vindu_uker)
+                    ratio = historisk_snitt_focus / avg_vindu_uke if avg_vindu_uke > 0 else 1.0
+                    sesong_type = "spike" if ratio > 1.5 else "jevn"
+                else:
+                    sesong_type = "jevn"
+
+                anbefalt_innkjop = round(historisk_snitt_focus * 1.2)
+                beskrivelse = dg_kontroll.get(artnr, {}).get('beskrivelse', '')
+
+                vedlikeholdsstopp[uke_key][artnr] = {
+                    "beskrivelse":           beskrivelse,
+                    "historisk_snitt_focus": historisk_snitt_focus,
+                    "historisk_snitt_vindu": historisk_snitt_vindu,
+                    "antall_ar_med_data":    antall_ar,
+                    "per_leveringssted":     per_leveringssted,
+                    "anbefalt_innkjop":      anbefalt_innkjop,
+                    "sesong_type":           sesong_type,
+                }
+
+        tot16 = len(vedlikeholdsstopp['uke16'])
+        tot42 = len(vedlikeholdsstopp['uke42'])
+        print(f"✅ Vedlikeholdsstopp: uke16={tot16} artikler, uke42={tot42} artikler")
+
+    except FileNotFoundError:
+        print(f"⚠️  Orderingang.xlsx ikke funnet — vedlikeholdsstopp satt til tom dict")
+    except Exception as vs_err:
+        print(f"⚠️  Vedlikeholdsstopp-feil (fortsetter uten): {vs_err}")
+
     data = {
-        "generert":     datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "master":       master.to_dict(orient="records"),
-        "orders":       orders.to_dict(orient="records"),
-        "bestillinger": best.to_dict(orient="records"),
-        "prisliste":    pris_records,  # FASE 9.0
-        "dgKontroll":   dg_kontroll,   # FASE 9.x
+        "generert":           datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "master":             master.to_dict(orient="records"),
+        "orders":             orders.to_dict(orient="records"),
+        "bestillinger":       best.to_dict(orient="records"),
+        "prisliste":          pris_records,       # FASE 9.0
+        "dgKontroll":         dg_kontroll,         # FASE 9.x
+        "vedlikeholdsstopp":  vedlikeholdsstopp,   # FASE 10.x
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
