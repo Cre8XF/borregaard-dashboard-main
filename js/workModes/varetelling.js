@@ -9,7 +9,7 @@ class VartellingMode {
     static locationFrom  = '';
     static locationTo    = '';
     static _lastFiltered = [];
-    static _activeTab    = 'lokasjonssok'; // 'lokasjonssok' | 'telleplan' | 'avvikslogg'
+    static _activeTab    = 'lokasjonssok'; // 'lokasjonssok' | 'telleplan' | 'avvikslogg' | 'lavverdi'
     static _pendingRader = null;           // Buffer for fullforTelling-data
     static _utestaaendeIdx = null;         // Hvilken sone som har utestående-panelet åpent
 
@@ -63,6 +63,7 @@ class VartellingMode {
             <div id="varetelling-tab-content">
                 ${this._activeTab === 'lokasjonssok' ? this.renderLokasjonssok(filtered)
                 : this._activeTab === 'telleplan'    ? this.renderTelleplan()
+                : this._activeTab === 'lavverdi'     ? this.renderLavverdi()
                 :                                      this.renderAvvikslogg()}
             </div>
         `;
@@ -72,7 +73,8 @@ class VartellingMode {
         const tabs = [
             { id: 'lokasjonssok', label: 'Lokasjonssøk' },
             { id: 'telleplan',    label: 'Telleplan' },
-            { id: 'avvikslogg',   label: 'Avvikslogg' }
+            { id: 'avvikslogg',   label: 'Avvikslogg' },
+            { id: 'lavverdi',     label: '💰 Lavverdi' }
         ];
         return `
             <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e0e0e0;">
@@ -923,6 +925,206 @@ class VartellingMode {
                 <p class="text-muted">Viser ${sorted.length} artikler${rangeLabel ? ` i intervall «${this.esc(rangeLabel)}»` : ''}</p>
             </div>
         `;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  FANE: LAVVERDI-TELLELISTE
+    // ════════════════════════════════════════════════════
+
+    static _lavverdiSearch = '';
+    static _lavverdiSort   = 'lokasjon';
+
+    static renderLavverdi() {
+        const store = this._store;
+        const liste = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
+
+        if (liste.length === 0) {
+            return `
+                <div style="padding:24px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;color:#856404;font-size:14px;">
+                    ⚠️ <strong>Lavverdi_Telleliste_2026.xlsx</strong> ikke funnet i pipeline. Generer filen på nytt.
+                </div>
+            `;
+        }
+
+        const søk    = this._lavverdiSearch.toLowerCase();
+        const sort   = this._lavverdiSort;
+
+        let rows = liste.filter(r => {
+            if (!søk) return true;
+            return (r.beskrivelse || '').toLowerCase().includes(søk)
+                || (r.tools_artnr || '').toLowerCase().includes(søk)
+                || (r.sa_nummer   || '').toLowerCase().includes(søk)
+                || (r.lokasjon    || '').toLowerCase().includes(søk);
+        });
+
+        if (sort === 'verdi') {
+            rows = rows.slice().sort((a, b) => (b.est_verdi || 0) - (a.est_verdi || 0));
+        } else if (sort === 'beskrivelse') {
+            rows = rows.slice().sort((a, b) => (a.beskrivelse || '').localeCompare(b.beskrivelse || '', 'nb-NO'));
+        } else {
+            rows = rows.slice().sort((a, b) => (a.lokasjon || '').localeCompare(b.lokasjon || '', 'nb-NO'));
+        }
+
+        const totalVerdi = rows.reduce((s, r) => s + (r.est_verdi || 0), 0);
+
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+        const verdiFarge = (v) => {
+            if (v < 100)  return '#2e7d32'; // grønn
+            if (v <= 300) return '#b45309'; // gul/amber
+            return '#b91c1c';              // oransje/rød
+        };
+
+        const fmtDato = (s) => {
+            if (!s || s === 'None' || s === 'nan') return '–';
+            return s;
+        };
+
+        const datoRød = (s) => {
+            if (!s || s === 'None' || s === 'nan') return false;
+            try {
+                const d = new Date(s);
+                return !isNaN(d.getTime()) && d < sixMonthsAgo;
+            } catch (e) { return false; }
+        };
+
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                <div style="font-size:13px;color:#555;">
+                    <strong>${liste.length.toLocaleString('nb-NO')}</strong> artikler &nbsp;·&nbsp;
+                    Est. total: <strong>${Math.round(liste.reduce((s,r)=>s+(r.est_verdi||0),0)).toLocaleString('nb-NO')} kr</strong>
+                </div>
+                <button onclick="VartellingMode.exportLavverdi()"
+                        style="padding:6px 14px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                    Eksporter til Excel
+                </button>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+                <input type="text"
+                       id="lavverdi-søk"
+                       placeholder="Søk beskrivelse, Tools nr, SA-nr, lokasjon..."
+                       value="${this.esc(this._lavverdiSearch)}"
+                       oninput="VartellingMode.lavverdiSøk(this.value)"
+                       style="flex:1;min-width:220px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                <select onchange="VartellingMode.lavverdiSort(this.value)"
+                        style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                    <option value="lokasjon"    ${sort==='lokasjon'?'selected':''}>Sorter: Lokasjon</option>
+                    <option value="verdi"       ${sort==='verdi'?'selected':''}>Sorter: Est. verdi (høyest)</option>
+                    <option value="beskrivelse" ${sort==='beskrivelse'?'selected':''}>Sorter: Beskrivelse A–Å</option>
+                </select>
+                <span style="font-size:12px;color:#888;">${rows.length.toLocaleString('nb-NO')} treff</span>
+            </div>
+
+            <div style="overflow-x:auto;">
+                <table class="data-table compact" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>Lokasjon</th>
+                            <th>Tools nr</th>
+                            <th>SA-nummer</th>
+                            <th>Beskrivelse</th>
+                            <th style="text-align:right;">Saldo</th>
+                            <th style="text-align:right;">Kalkylpris</th>
+                            <th style="text-align:right;">Est. verdi</th>
+                            <th>Sist telt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Ingen treff</td></tr>` :
+                        rows.map(r => {
+                            const verdi = r.est_verdi || 0;
+                            const fc    = verdiFarge(verdi);
+                            const dato  = fmtDato(r.sist_telt);
+                            const rød   = datoRød(r.sist_telt);
+                            return `
+                                <tr>
+                                    <td style="font-weight:700;white-space:nowrap;">${this.esc(r.lokasjon||'–')}</td>
+                                    <td style="font-size:11px;white-space:nowrap;">
+                                        <a href="#" onclick="VartellingMode.åpneArtikkelOppslag('${this.esc(r.tools_artnr||'')}');return false;"
+                                           style="color:#1a6b2c;text-decoration:underline;">${this.esc(r.tools_artnr||'–')}</a>
+                                    </td>
+                                    <td style="font-size:11px;white-space:nowrap;">${this.esc(r.sa_nummer||'–')}</td>
+                                    <td style="font-size:11px;" title="${this.esc(r.beskrivelse||'')}">${this.esc(this.trunc(r.beskrivelse||'', 50))}</td>
+                                    <td style="text-align:right;">${(r.saldo||0).toLocaleString('nb-NO')}</td>
+                                    <td style="text-align:right;">${(r.kalkylpris||0).toLocaleString('nb-NO', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                    <td style="text-align:right;font-weight:700;color:${fc};">${Math.round(verdi).toLocaleString('nb-NO')} kr</td>
+                                    <td style="font-size:11px;color:${rød?'#b91c1c':'inherit'};font-weight:${rød?'700':'400'};">${this.esc(dato)}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:#888;">
+                Viser ${rows.length} av ${liste.length} artikler &nbsp;·&nbsp;
+                Filtrert totalverdi: ${Math.round(totalVerdi).toLocaleString('nb-NO')} kr
+            </div>
+        `;
+    }
+
+    static lavverdiSøk(val) {
+        this._lavverdiSearch = val;
+        this.refreshAll();
+    }
+
+    static lavverdiSort(val) {
+        this._lavverdiSort = val;
+        this.refreshAll();
+    }
+
+    static åpneArtikkelOppslag(toolsNr) {
+        if (!toolsNr) return;
+        if (window.ArtikelOppslagMode && window.ArtikelOppslagMode.openModal) {
+            window.ArtikelOppslagMode.openModal(toolsNr);
+        } else if (window.app) {
+            window.app.switchModule('artikkelOppslag');
+        }
+    }
+
+    static exportLavverdi() {
+        const store = this._store;
+        const alle  = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
+        const søk   = this._lavverdiSearch.toLowerCase();
+
+        let rows = alle.filter(r => {
+            if (!søk) return true;
+            return (r.beskrivelse || '').toLowerCase().includes(søk)
+                || (r.tools_artnr || '').toLowerCase().includes(søk)
+                || (r.sa_nummer   || '').toLowerCase().includes(søk)
+                || (r.lokasjon    || '').toLowerCase().includes(søk);
+        });
+
+        if (this._lavverdiSort === 'verdi') {
+            rows = rows.slice().sort((a, b) => (b.est_verdi || 0) - (a.est_verdi || 0));
+        } else if (this._lavverdiSort === 'beskrivelse') {
+            rows = rows.slice().sort((a, b) => (a.beskrivelse || '').localeCompare(b.beskrivelse || '', 'nb-NO'));
+        } else {
+            rows = rows.slice().sort((a, b) => (a.lokasjon || '').localeCompare(b.lokasjon || '', 'nb-NO'));
+        }
+
+        const headers = ['Lokasjon', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Saldo', 'Kalkylpris', 'Est. verdi (kr)', 'Sist telt'];
+        const data = rows.map(r => [
+            r.lokasjon    || '',
+            r.tools_artnr || '',
+            r.sa_nummer   || '',
+            r.beskrivelse || '',
+            r.saldo       || 0,
+            r.kalkylpris  || 0,
+            r.est_verdi   || 0,
+            r.sist_telt   || ''
+        ]);
+
+        try {
+            const wb = XLSX.utils.book_new();
+            const wsData = [headers, ...data];
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            XLSX.utils.book_append_sheet(wb, ws, 'Lavverdi');
+            XLSX.writeFile(wb, `Lavverdi_Telleliste_eksport_${new Date().toISOString().slice(0,10)}.xlsx`);
+        } catch (e) {
+            alert('Eksport feilet: ' + e.message);
+        }
     }
 
     // ════════════════════════════════════════════════════
