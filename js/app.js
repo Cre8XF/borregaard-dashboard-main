@@ -1027,11 +1027,12 @@ class DashboardApp {
             }
 
             await this.processJsonData({
-                master:       payload.master       || [],
-                orders:       payload.orders       || [],
-                bestillinger: payload.bestillinger || [],
-                prisliste:    payload.prisliste    || [],   // FASE 9.0
-                dgKontroll:   payload.dgKontroll   || {},   // FASE 9.x
+                master:              payload.master              || [],
+                orders:              payload.orders              || [],
+                bestillinger:        payload.bestillinger        || [],
+                prisliste:           payload.prisliste           || [],   // FASE 9.0
+                dgKontroll:          payload.dgKontroll          || {},   // FASE 9.x
+                vedlikeholdsstopp:   payload.vedlikeholdsstopp   || { uke16: {}, uke42: {} },  // FASE 10.x
             });
 
             const uploadSection = document.getElementById('uploadSection');
@@ -1053,7 +1054,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1100,9 +1101,19 @@ class DashboardApp {
         }
 
         // FASE 9.x: DG-kontroll data
-        store.dashboardData = { dgKontroll: dgKontroll || {} };
+        // FASE 10.x: Vedlikeholdsstopp historikkdata
+        const vs = vedlikeholdsstopp || { uke16: {}, uke42: {} };
+        store.dashboardData = {
+            dgKontroll:        dgKontroll || {},
+            vedlikeholdsstopp: vs,
+        };
         if (dgKontroll && Object.keys(dgKontroll).length > 0) {
             console.log(`[FASE 9.x] DG-kontroll lastet: ${Object.keys(dgKontroll).length} artikler`);
+        }
+        const vs16 = Object.keys(vs.uke16 || {}).length;
+        const vs42 = Object.keys(vs.uke42 || {}).length;
+        if (vs16 > 0 || vs42 > 0) {
+            console.log(`[FASE 10.x] Vedlikeholdsstopp historikk: uke16=${vs16} artikler, uke42=${vs42} artikler`);
         }
 
         this.dataStore = store;
