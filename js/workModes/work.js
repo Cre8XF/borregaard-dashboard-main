@@ -2308,8 +2308,8 @@ class WorkMode {
         }
         return Object.entries(perLeveringssted)
             .sort((a, b) => b[1] - a[1])
-            .map(([id, qty]) => `${this.esc(id)}: ${this.fmt(qty)}`)
-            .join(' | ');
+            .map(([id, qty]) => `${this.fmt(qty)} stk \u2192 ${this.esc(id)}`)
+            .join('<br>');
     }
 
     // Sesongtype-badge
