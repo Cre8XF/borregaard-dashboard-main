@@ -382,6 +382,55 @@ try:
     except Exception as lv_err:
         print(f"⚠️  Lavverdi-telleliste feil (fortsetter uten): {lv_err}")
 
+    # ── Bevegelse: siste salg + siste innlevering (FASE 11.x) ────────────────
+    print("\nBeregner bevegelsesdata...")
+    bevegelse = {}
+    try:
+        siste_salg_map = {}
+        try:
+            # 'og' og 'col_art_nr' er definert i DG-kontroll-blokken ovenfor
+            for art_nr, grp in og.groupby(col_art_nr):
+                art_nr_str = str(art_nr).strip()
+                if not art_nr_str:
+                    continue
+                siste_dato = grp['_dato'].max()
+                siste_salg_map[art_nr_str] = siste_dato.strftime('%Y-%m-%d')
+        except NameError:
+            print("⚠️  Orderingang ikke tilgjengelig for bevegelse (DG-kontroll feilet) — siste_salg settes til null")
+
+        # Siste innlevering fra bestillinger.xlsx — kol [7]=Artikelnr, [115]=InlevDat (YYMMDD)
+        inlev_map = {}
+        if len(best.columns) > 115:
+            for _, row in best.iterrows():
+                artnr     = str(row.iloc[7]   or '').strip()
+                inlev_raw = str(row.iloc[115] or '').strip()
+                if artnr and len(inlev_raw) == 6:
+                    try:
+                        dato = datetime.strptime('20' + inlev_raw, '%Y%m%d')
+                        iso  = dato.strftime('%Y-%m-%d')
+                        if artnr not in inlev_map or iso > inlev_map[artnr]:
+                            inlev_map[artnr] = iso
+                    except Exception:
+                        pass
+        else:
+            print("⚠️  bestillinger.xlsx har færre enn 116 kolonner — InlevDat ikke tilgjengelig")
+
+        # Slå sammen til bevegelse-objekt
+        alle_artnr = set(siste_salg_map.keys()) | set(inlev_map.keys())
+        for artnr in alle_artnr:
+            salg  = siste_salg_map.get(artnr)
+            inlev = inlev_map.get(artnr)
+            kandidater = [d for d in [salg, inlev] if d]
+            siste = max(kandidater) if kandidater else None
+            bevegelse[artnr] = {
+                'siste_salg':      salg,
+                'siste_inlev':     inlev,
+                'siste_bevegelse': siste,
+            }
+        print(f"✅ Bevegelse: {len(bevegelse)} artikler ({len(siste_salg_map)} med salg, {len(inlev_map)} med innlev.)")
+    except Exception as bev_err:
+        print(f"⚠️  Bevegelse-beregning feil (fortsetter uten): {bev_err}")
+
     data = {
         "generert":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":             master.to_dict(orient="records"),
@@ -391,6 +440,7 @@ try:
         "dgKontroll":         dg_kontroll,         # FASE 9.x
         "vedlikeholdsstopp":  vedlikeholdsstopp,   # FASE 10.x
         "lavverdiListe":      lavverdi_rows,        # FASE 11.0
+        "bevegelse":          bevegelse,            # FASE 11.x
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)

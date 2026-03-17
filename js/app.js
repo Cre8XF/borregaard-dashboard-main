@@ -1033,6 +1033,7 @@ class DashboardApp {
                 dgKontroll:          payload.dgKontroll          || {},   // FASE 9.x
                 vedlikeholdsstopp:   payload.vedlikeholdsstopp   || { uke16: {}, uke42: {} },  // FASE 10.x
                 lavverdiListe:       payload.lavverdiListe        || [],   // FASE 11.0
+                bevegelse:           payload.bevegelse            || {},   // FASE 11.x
             });
 
         } catch (err) {
@@ -1050,7 +1051,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1103,6 +1104,7 @@ class DashboardApp {
             dgKontroll:        dgKontroll || {},
             vedlikeholdsstopp: vs,
             lavverdiListe:     lavverdiListe || [],
+            bevegelse:         bevegelse      || {},
         };
         if (dgKontroll && Object.keys(dgKontroll).length > 0) {
             console.log(`[FASE 9.x] DG-kontroll lastet: ${Object.keys(dgKontroll).length} artikler`);
