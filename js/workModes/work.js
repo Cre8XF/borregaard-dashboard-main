@@ -2001,10 +2001,23 @@ class WorkMode {
         const END = new Date(toDate);
         END.setHours(23, 59, 59, 999);
 
+        // Bestem vedlikeholdsstopp-uke fra fromDate
+        const isoWeek = this._getISOWeek(new Date(fromDate));
+        let vsUkeKey = null;
+        if (isoWeek >= 14 && isoWeek <= 18)  vsUkeKey = 'uke16';
+        else if (isoWeek >= 40 && isoWeek <= 44) vsUkeKey = 'uke42';
+        const vsData = vsUkeKey
+            ? (store.dashboardData?.vedlikeholdsstopp?.[vsUkeKey] || {})
+            : {};
+
         const items = store.getAllItems();
         const aggregated = new Map();
 
-        // Step 1: Aggregate orders within date range — ALL items, no filtering
+        // Hurtigoppslag for å finne item fra toolsNr
+        const itemByToolsNr = new Map();
+        items.forEach(item => itemByToolsNr.set(item.toolsArticleNumber, item));
+
+        // Step 1: Aggreger ordrer fra Ordrer_Jeeves innenfor datoperioden (R12-fallback-grunnlag)
         items.forEach(item => {
             if (!item.outgoingOrders || item.outgoingOrders.length === 0) return;
 
@@ -2025,34 +2038,68 @@ class WorkMode {
             });
         });
 
-        // Step 2: Build result rows — ALL items with period sales, no exclusions
+        // Step 2: Legg til artikler fra vedlikeholdsstopp-data som IKKE finnes i aggregert
+        // (disse har historisk forbruk i uke 16/42 men kanskje ikke i det valgte datovinduet)
+        if (vsUkeKey) {
+            Object.entries(vsData).forEach(([artnr, vsEntry]) => {
+                if (!aggregated.has(artnr) && vsEntry.historisk_snitt_focus > 0) {
+                    const item = itemByToolsNr.get(artnr);
+                    if (item) {
+                        aggregated.set(artnr, { item, totalQty: 0 });
+                    }
+                }
+            });
+        }
+
+        // Step 3: Bygg resultatrader
         const rows = [];
 
         aggregated.forEach(({ item, totalQty }, toolsNr) => {
-            const stock = item.stock || 0;
+            const vsEntry = vsData[toolsNr];
+
+            // Bruk historisk Orderingang-data hvis tilgjengelig, ellers R12-fallback
+            let periodQty;
+            let usedHistorisk = false;
+            let perLeveringssted = null;
+            let sesongType = null;
+            let antallArMedData = 0;
+
+            if (vsEntry && vsEntry.historisk_snitt_focus > 0) {
+                periodQty       = Math.round(vsEntry.historisk_snitt_focus);
+                usedHistorisk   = true;
+                perLeveringssted = vsEntry.per_leveringssted || {};
+                sesongType      = vsEntry.sesong_type || 'jevn';
+                antallArMedData = vsEntry.antall_ar_med_data || 0;
+            } else {
+                periodQty = Math.round(totalQty);
+            }
+
+            if (periodQty <= 0) return;
+
+            const stock      = item.stock || 0;
             const bestAntLev = item.bestAntLev || 0;
             const kalkylPris = item.kalkylPris || 0;
-            const disc = this.isDiscontinued(item);
+            const disc       = this.isDiscontinued(item);
 
             // Alternative cross-check via existing resolver
             let hasAlternative = false;
-            let altItemNo = '';
-            let altStock = 0;
-            let altBestAntLev = 0;
-            let altStatusText = '';
+            let altItemNo      = '';
+            let altStock       = 0;
+            let altBestAntLev  = 0;
+            let altStatusText  = '';
 
             if (typeof store.resolveAlternativeStatus === 'function') {
                 const altInfo = store.resolveAlternativeStatus(item);
                 if (altInfo.classification !== 'NO_ALTERNATIVE') {
                     hasAlternative = true;
-                    altItemNo = altInfo.altToolsArtNr || '';
-                    altStock = altInfo.altStock || 0;
-                    altBestAntLev = altInfo.altBestAntLev || 0;
-                    altStatusText = altInfo.altStatus || '';
+                    altItemNo      = altInfo.altToolsArtNr || '';
+                    altStock       = altInfo.altStock || 0;
+                    altBestAntLev  = altInfo.altBestAntLev || 0;
+                    altStatusText  = altInfo.altStatus || '';
                 }
             }
 
-            // Effective available: use alternative supply if discontinued with alternative
+            // Effektiv tilgjengelighet
             let effectiveAvailable;
             if (disc && hasAlternative) {
                 effectiveAvailable = altStock + altBestAntLev;
@@ -2061,12 +2108,12 @@ class WorkMode {
             }
 
             const coveredByAlternative = disc && hasAlternative &&
-                (altStock + altBestAntLev) >= totalQty;
+                (altStock + altBestAntLev) >= periodQty;
 
-            const stopForecast = Math.ceil(totalQty * 1.15);
+            const stopForecast      = Math.ceil(periodQty * 1.15);
             const suggestedPurchase = Math.max(0, stopForecast - effectiveAvailable);
 
-            // Status logic with alternative awareness
+            // Statuslogikk
             let statusLabel, statusClass;
             if (disc && coveredByAlternative) {
                 statusLabel = 'Dekket av alternativ';
@@ -2074,7 +2121,7 @@ class WorkMode {
             } else if (disc && !coveredByAlternative) {
                 statusLabel = 'Utg\u00E5ende \u2013 risiko';
                 statusClass = 'critical';
-            } else if (effectiveAvailable < totalQty) {
+            } else if (effectiveAvailable < periodQty) {
                 statusLabel = 'Kritisk';
                 statusClass = 'critical';
             } else if (effectiveAvailable < stopForecast) {
@@ -2088,57 +2135,73 @@ class WorkMode {
             rows.push({
                 toolsNr,
                 description: item.description || '',
-                periodQty: Math.round(totalQty),
+                periodQty,
                 stopForecast,
                 stock,
                 bestAntLev,
                 suggestedPurchase,
-                valueNok: Math.round(suggestedPurchase * kalkylPris),
+                valueNok:    Math.round(suggestedPurchase * kalkylPris),
                 kalkylPris,
                 statusLabel,
                 statusClass,
-                itemStatus: item._status || 'UKJENT',
+                itemStatus:  item._status || 'UKJENT',
                 disc,
                 hasAlternative,
                 altItemNo,
                 altStock,
                 altBestAntLev,
-                coveredByAlternative
+                coveredByAlternative,
+                // Nye felt fra Orderingang
+                usedHistorisk,
+                perLeveringssted,
+                sesongType,
+                antallArMedData,
             });
         });
 
-        // Step 3: Sort by periodQty DESC (total consumption)
+        // Step 4: Sorter på periodQty DESC
         rows.sort((a, b) => b.periodQty - a.periodQty);
 
-        // Step 4: Compute summary stats
-        const totalPeriodQty = rows.reduce((s, r) => s + r.periodQty, 0);
+        // Step 5: Sammendragsstatistikk
+        const totalPeriodQty    = rows.reduce((s, r) => s + r.periodQty, 0);
         const totalForecastValue = rows.reduce((s, r) => s + Math.round(r.stopForecast * r.kalkylPris), 0);
         const totalPurchaseValue = rows.reduce((s, r) => s + r.valueNok, 0);
-        const criticalCount = rows.filter(r => r.suggestedPurchase > 0).length;
-        const discCount = rows.filter(r => r.disc).length;
-        const coveredCount = rows.filter(r => r.coveredByAlternative).length;
+        const criticalCount     = rows.filter(r => r.suggestedPurchase > 0).length;
+        const discCount         = rows.filter(r => r.disc).length;
+        const coveredCount      = rows.filter(r => r.coveredByAlternative).length;
+        const historikkCount    = rows.filter(r => r.usedHistorisk).length;
 
-        return { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount, discCount, coveredCount };
+        return { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount, discCount, coveredCount, historikkCount };
     }
 
     static getStopDates() {
         const fromSaved = localStorage.getItem('stopFrom');
         const toSaved = localStorage.getItem('stopTo');
         return {
-            from: fromSaved || '2025-04-14',
-            to: toSaved || '2025-04-20'
+            from: fromSaved || '2026-04-13',   // Uke 16 2026: 13.04 – 19.04
+            to:   toSaved   || '2026-04-19'
         };
     }
 
+    // Beregn ISO-ukenummer for en dato
+    static _getISOWeek(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
     static renderStopContent(data, periodLabel) {
-        const { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue, criticalCount, discCount, coveredCount } = data;
+        const { rows, totalPeriodQty, totalForecastValue, totalPurchaseValue,
+                criticalCount, discCount, coveredCount, historikkCount = 0 } = data;
 
         const cardStyle = 'padding:14px;border-radius:8px;text-align:center;';
-        const valStyle = 'font-size:20px;font-weight:700;margin-bottom:4px;';
-        const lblStyle = 'font-size:11px;font-weight:600;';
+        const valStyle  = 'font-size:20px;font-weight:700;margin-bottom:4px;';
+        const lblStyle  = 'font-size:11px;font-weight:600;';
 
         const summaryHtml = `
-            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px;">
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:20px;">
                 <div style="${cardStyle}background:#e3f2fd;border:1px solid #bbdefb;">
                     <div style="${valStyle}color:#1565c0;">${this.fmt(totalPeriodQty)}</div>
                     <div style="${lblStyle}color:#1565c0;">Total periodeforbruk</div>
@@ -2162,12 +2225,17 @@ class WorkMode {
                 <div style="${cardStyle}background:${discCount > 0 ? '#fff3e0' : '#f5f5f5'};border:1px solid ${discCount > 0 ? '#ffe0b2' : '#e0e0e0'};">
                     <div style="${valStyle}color:${discCount > 0 ? '#e65100' : '#757575'};">${discCount}</div>
                     <div style="${lblStyle}color:${discCount > 0 ? '#e65100' : '#757575'};">Utg\u00E5ende i perioden</div>
-                    <div style="font-size:10px;color:${discCount > 0 ? '#ffa726' : '#9e9e9e'};margin-top:2px;">Utgående / utg\u00E5tt</div>
+                    <div style="font-size:10px;color:${discCount > 0 ? '#ffa726' : '#9e9e9e'};margin-top:2px;">Utg\u00E5ende / utg\u00E5tt</div>
                 </div>
                 <div style="${cardStyle}background:${coveredCount > 0 ? '#e8f5e9' : '#f5f5f5'};border:1px solid ${coveredCount > 0 ? '#c8e6c9' : '#e0e0e0'};">
                     <div style="${valStyle}color:${coveredCount > 0 ? '#2e7d32' : '#757575'};">${coveredCount}</div>
                     <div style="${lblStyle}color:${coveredCount > 0 ? '#2e7d32' : '#757575'};">Dekket av alternativ</div>
                     <div style="font-size:10px;color:${coveredCount > 0 ? '#66bb6a' : '#9e9e9e'};margin-top:2px;">Alt. lager \u2265 behov</div>
+                </div>
+                <div style="${cardStyle}background:${historikkCount > 0 ? '#f3e5f5' : '#f5f5f5'};border:1px solid ${historikkCount > 0 ? '#e1bee7' : '#e0e0e0'};">
+                    <div style="${valStyle}color:${historikkCount > 0 ? '#6a1b9a' : '#757575'};">${historikkCount}</div>
+                    <div style="${lblStyle}color:${historikkCount > 0 ? '#6a1b9a' : '#757575'};">Med historikk</div>
+                    <div style="font-size:10px;color:${historikkCount > 0 ? '#ab47bc' : '#9e9e9e'};margin-top:2px;">Orderingang-data</div>
                 </div>
             </div>
         `;
@@ -2190,6 +2258,8 @@ class WorkMode {
                                 <th>M\u00E5 kj\u00F8pes</th>
                                 <th>Verdi NOK</th>
                                 <th>Status n\u00E5</th>
+                                <th>Leveringssted</th>
+                                <th>Sesongtype</th>
                                 <th>Alternativ</th>
                                 <th>Alt. lager</th>
                                 <th>Dekket?</th>
@@ -2201,13 +2271,18 @@ class WorkMode {
                                 <tr class="${r.statusClass === 'critical' ? 'row-critical' : r.statusClass === 'warning' ? 'row-warning' : ''}">
                                     <td><strong>${this.esc(r.toolsNr)}</strong></td>
                                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(r.description)}</td>
-                                    <td class="qty-cell">${this.fmt(r.periodQty)}</td>
+                                    <td class="qty-cell">
+                                        ${this.fmt(r.periodQty)}
+                                        ${r.usedHistorisk ? '' : '<br><span style="font-size:10px;color:#9e9e9e;">(R12-estimat)</span>'}
+                                    </td>
                                     <td class="qty-cell">${this.fmt(r.stopForecast)}</td>
                                     <td class="qty-cell">${this.fmt(r.stock)}</td>
                                     <td class="qty-cell">${r.bestAntLev > 0 ? this.fmt(r.bestAntLev) : '-'}</td>
                                     <td class="qty-cell" style="font-weight:${r.suggestedPurchase > 0 ? '700' : '400'};color:${r.suggestedPurchase > 0 ? '#c62828' : '#757575'};">${r.suggestedPurchase > 0 ? this.fmt(r.suggestedPurchase) : '0'}</td>
                                     <td class="qty-cell">${r.valueNok > 0 ? this.fmtKr(r.valueNok) : '-'}</td>
                                     <td>${this.itemStatusBadge(r.itemStatus)}</td>
+                                    <td style="font-size:11px;color:#555;max-width:160px;word-break:break-word;">${this.formatLeveringssted(r.perLeveringssted)}</td>
+                                    <td>${this.sesongTypeBadge(r.sesongType)}</td>
                                     <td>${r.altItemNo ? this.esc(r.altItemNo) : '-'}</td>
                                     <td class="qty-cell">${r.hasAlternative ? this.fmt(r.altStock) : '-'}</td>
                                     <td>${this.coveredBadge(r.disc, r.hasAlternative, r.coveredByAlternative)}</td>
@@ -2218,12 +2293,38 @@ class WorkMode {
                     </table>
                 </div>
                 <div class="table-footer">
-                    <p class="text-muted">Viser ${rows.length} artikler | Periode: ${this.esc(periodLabel)} | Forecast = historikk \u00D7 1.15</p>
+                    <p class="text-muted">Viser ${rows.length} artikler | Periode: ${this.esc(periodLabel)} | Forecast = historikk \u00D7 1.15 | ${historikkCount} med Orderingang-historikk</p>
                 </div>
             `;
         }
 
         return summaryHtml + tableHtml;
+    }
+
+    // Formater leveringssted-objekt til lesbar streng
+    static formatLeveringssted(perLeveringssted) {
+        if (!perLeveringssted || Object.keys(perLeveringssted).length === 0) {
+            return '<span style="color:#bdbdbd;">–</span>';
+        }
+        return Object.entries(perLeveringssted)
+            .sort((a, b) => b[1] - a[1])
+            .map(([id, qty]) => `${this.esc(id)}: ${this.fmt(qty)}`)
+            .join(' | ');
+    }
+
+    // Sesongtype-badge
+    static sesongTypeBadge(sesongType) {
+        if (!sesongType) return '<span style="color:#bdbdbd;">–</span>';
+        if (sesongType === 'spike') {
+            return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:700;background:#ffcdd2;color:#c62828;">\uD83D\uDD34 Spike</span>';
+        }
+        if (sesongType === 'jevn') {
+            return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:#fff9c4;color:#f57f17;">\uD83D\uDFE1 Jevn</span>';
+        }
+        if (sesongType === 'engang') {
+            return '<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:#f5f5f5;color:#757575;">\u26AA Engang</span>';
+        }
+        return '<span style="color:#9e9e9e;font-size:11px;">' + this.esc(sesongType) + '</span>';
     }
 
     static renderMaintenanceStopSection(store) {
