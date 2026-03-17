@@ -39,6 +39,9 @@ required = {
 # Prisliste er valgfri — dashbordet fungerer uten den
 PRISLISTE_PATH = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\20260319_Borregaard_prisliste.xlsx"
 
+# Lavverdi-telleliste er valgfri
+LAVVERDI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Lavverdi_Telleliste_2026.xlsx")
+
 # data (7).xlsx sjekkes separat pga. rename
 data7_src = os.path.join(SJELDEN, "data (7).xlsx")
 
@@ -353,6 +356,32 @@ try:
     except Exception as vs_err:
         print(f"⚠️  Vedlikeholdsstopp-feil (fortsetter uten): {vs_err}")
 
+    # ── Lavverdi-telleliste (FASE 11.0) ──────────────────────────────────────
+    lavverdi_rows = []
+    try:
+        from openpyxl import load_workbook
+        lv_wb = load_workbook(LAVVERDI_PATH, read_only=True, data_only=True)
+        lv_ws = lv_wb.active
+        for row in lv_ws.iter_rows(min_row=5, values_only=True):
+            if not row[0]:
+                continue  # hopp over tomme rader
+            lavverdi_rows.append({
+                'lokasjon':    str(row[0] or '').strip(),
+                'tools_artnr': str(row[1] or '').strip(),
+                'sa_nummer':   str(row[2] or '').strip(),
+                'beskrivelse': str(row[3] or '').strip(),
+                'saldo':       row[4] or 0,
+                'kalkylpris':  row[5] or 0,
+                'est_verdi':   row[6] or 0,
+                'sist_telt':   str(row[7] or '').strip(),
+            })
+        lv_wb.close()
+        print(f"✅ Lavverdi-telleliste: {len(lavverdi_rows)} artikler")
+    except FileNotFoundError:
+        print(f"⚠️  Lavverdi_Telleliste_2026.xlsx ikke funnet — lavverdiListe satt til tom liste")
+    except Exception as lv_err:
+        print(f"⚠️  Lavverdi-telleliste feil (fortsetter uten): {lv_err}")
+
     data = {
         "generert":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":             master.to_dict(orient="records"),
@@ -361,6 +390,7 @@ try:
         "prisliste":          pris_records,       # FASE 9.0
         "dgKontroll":         dg_kontroll,         # FASE 9.x
         "vedlikeholdsstopp":  vedlikeholdsstopp,   # FASE 10.x
+        "lavverdiListe":      lavverdi_rows,        # FASE 11.0
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
