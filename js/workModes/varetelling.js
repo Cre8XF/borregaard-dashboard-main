@@ -308,6 +308,7 @@ class VartellingMode {
                                 <th>Fra lok</th>
                                 <th>Til lok</th>
                                 <th style="text-align:right;">Artikler</th>
+                                <th>Bevegelse</th>
                                 <th style="text-align:right;">Telt 2026</th>
                                 <th>Sist telt / Status</th>
                                 <th>Handling</th>
@@ -336,6 +337,11 @@ class VartellingMode {
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
                                         <td style="text-align:right;">${artCount}</td>
+                                        <td style="white-space:nowrap;font-size:12px;">
+                                            <span style="color:#2e7d32;" title="Trygge">✅ ${info.trygge}</span>
+                                            <span style="color:#b45309;margin-left:4px;" title="Sjekk">⚠️ ${info.sjekk}</span>
+                                            <span style="color:#b91c1c;margin-left:4px;" title="Aktive">🔴 ${info.aktive}</span>
+                                        </td>
                                         <td style="text-align:right;font-weight:600;color:${
                                             info.teltI2026 === 0 ? '#c62828'
                                             : info.teltI2026 < info.totalt ? '#e65100'
@@ -370,7 +376,7 @@ class VartellingMode {
                                         ? this.renderUtestaaendePanel(sone, items)
                                         : ''}
                                     <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
-                                        <td colspan="8" style="padding:10px 12px;">
+                                        <td colspan="9" style="padding:10px 12px;">
                                             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
                                                 <div style="display:flex;flex-direction:column;gap:3px;">
                                                     <label style="font-size:10px;font-weight:600;color:#555;">Sonenavn</label>
@@ -499,7 +505,18 @@ class VartellingMode {
         // Manuell overstyring fra localStorage overstyrer MV2-verdien
         const harManuell = !!(sone.sist_telt);
 
-        return { totalt, teltI2026, sisteTelledato, harManuell };
+        // Bevegelsesindikatorer per artikkel i sonen
+        const bevegelse = this._store?.dashboardData?.bevegelse || {};
+        const [cutoff3m, cutoff9m] = this._bevCutoffs();
+        let trygge = 0, sjekk = 0, aktive = 0;
+        sonArtikler.forEach(item => {
+            const bev = (bevegelse[item.toolsArticleNumber] || {}).siste_bevegelse || null;
+            if (!bev || bev < cutoff9m) trygge++;
+            else if (bev < cutoff3m)    sjekk++;
+            else                        aktive++;
+        });
+
+        return { totalt, teltI2026, sisteTelledato, harManuell, trygge, sjekk, aktive };
     }
 
     /**
@@ -562,7 +579,7 @@ class VartellingMode {
         if (utestaaende.length === 0) {
             return `
                 <tr class="utestaaende-panel-row">
-                    <td colspan="8" style="padding:0;">
+                    <td colspan="9" style="padding:0;">
                         <div style="background:#e8f5e9;border-left:4px solid #2e7d32;
                                     padding:12px 20px;font-size:13px;color:#2e7d32;font-weight:600;">
                             ✅ Alle artikler i denne sonen er telt i 2026!
@@ -579,17 +596,25 @@ class VartellingMode {
             return this.compareLocations(this.parseLocation(la), this.parseLocation(lb));
         });
 
+        const bevegelse        = this._store?.dashboardData?.bevegelse || {};
+        const [cutoff3m, cutoff9m] = this._bevCutoffs();
+
         const rader = sortert.map(item => {
-            const lok      = item.location || item.lagerplass || '—';
+            const lok       = item.location || item.lagerplass || '—';
             const invDatRaw = String(item.invDat || '').replace(/\D/g, '');
             const invDatVist = invDatRaw.length === 8
                 ? `${invDatRaw.slice(6)}.${invDatRaw.slice(4, 6)}.${invDatRaw.slice(0, 4)}`
                 : '–– aldri telt ––';
-            const erGammel = invDatRaw.length === 8 && invDatRaw < '20260101';
+            const erGammel  = invDatRaw.length === 8 && invDatRaw < '20260101';
             const datoFarge = erGammel ? '#e65100' : '#888';
+            const ind       = this._bevInd(item.toolsArticleNumber || '', bevegelse, cutoff3m, cutoff9m);
 
             return `
                 <tr style="background:#fffde7;">
+                    <td style="text-align:center;font-size:13px;padding:5px 8px;"
+                        title="${ind.label}${ind.bev ? ' — siste: ' + ind.bev : ''}">
+                        ${ind.ikon}
+                    </td>
                     <td style="font-family:monospace;font-size:12px;padding:5px 10px;">
                         ${this.esc(item.toolsArticleNumber || item.saNumber || '—')}
                     </td>
@@ -610,7 +635,7 @@ class VartellingMode {
 
         return `
             <tr class="utestaaende-panel-row">
-                <td colspan="8" style="padding:0;">
+                <td colspan="9" style="padding:0;">
                     <div style="background:#fffde7;border-left:4px solid #f9a825;padding:0;">
 
                         <div style="display:flex;justify-content:space-between;align-items:center;
@@ -631,6 +656,7 @@ class VartellingMode {
                             <table style="width:100%;border-collapse:collapse;">
                                 <thead>
                                     <tr style="background:#f5e6a0;font-size:11px;font-weight:600;color:#555;">
+                                        <th style="padding:5px 8px;text-align:center;">Trygg</th>
                                         <th style="padding:5px 10px;text-align:left;">Art.nr</th>
                                         <th style="padding:5px 10px;text-align:left;">Beskrivelse</th>
                                         <th style="padding:5px 10px;text-align:left;">Lokasjon</th>
@@ -931,12 +957,29 @@ class VartellingMode {
     //  FANE: LAVVERDI-TELLELISTE
     // ════════════════════════════════════════════════════
 
-    static _lavverdiSearch = '';
-    static _lavverdiSort   = 'lokasjon';
+    static _lavverdiSearch    = '';
+    static _lavverdiSort      = 'lokasjon';
+    static _lavverdiTryggOnly = false;
+
+    // Beregn bevegelsesindikator for en artnr: returnerer { ikon, label, bev }
+    static _bevInd(artnr, bevegelse, cutoff3m, cutoff9m) {
+        const bev = (bevegelse[artnr] || {}).siste_bevegelse || null;
+        if (!bev || bev < cutoff9m) return { ikon: '✅', label: 'Trygg', farge: '#2e7d32', bev };
+        if (bev < cutoff3m)         return { ikon: '⚠️', label: 'Sjekk', farge: '#b45309', bev };
+        return                              { ikon: '🔴', label: 'Aktiv', farge: '#b91c1c', bev };
+    }
+
+    // ISO-kuttpunkter — returnerer [cutoff3m, cutoff9m] som YYYY-MM-DD strenger
+    static _bevCutoffs() {
+        const d3 = new Date(); d3.setMonth(d3.getMonth() - 3);
+        const d9 = new Date(); d9.setMonth(d9.getMonth() - 9);
+        return [d3.toISOString().slice(0, 10), d9.toISOString().slice(0, 10)];
+    }
 
     static renderLavverdi() {
-        const store = this._store;
-        const liste = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
+        const store     = this._store;
+        const liste     = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
+        const bevegelse = (store && store.dashboardData && store.dashboardData.bevegelse) || {};
 
         if (liste.length === 0) {
             return `
@@ -946,16 +989,25 @@ class VartellingMode {
             `;
         }
 
-        const søk    = this._lavverdiSearch.toLowerCase();
-        const sort   = this._lavverdiSort;
+        const [cutoff3m, cutoff9m] = this._bevCutoffs();
+        const søk       = this._lavverdiSearch.toLowerCase();
+        const sort      = this._lavverdiSort;
+        const tryggOnly = this._lavverdiTryggOnly;
 
-        let rows = liste.filter(r => {
-            if (!søk) return true;
-            return (r.beskrivelse || '').toLowerCase().includes(søk)
-                || (r.tools_artnr || '').toLowerCase().includes(søk)
-                || (r.sa_nummer   || '').toLowerCase().includes(søk)
-                || (r.lokasjon    || '').toLowerCase().includes(søk);
-        });
+        // Filtrer + beregn indikator
+        let rows = liste
+            .map(r => ({
+                ...r,
+                _bev: this._bevInd(r.tools_artnr || '', bevegelse, cutoff3m, cutoff9m),
+            }))
+            .filter(r => {
+                if (tryggOnly && r._bev.label !== 'Trygg') return false;
+                if (!søk) return true;
+                return (r.beskrivelse || '').toLowerCase().includes(søk)
+                    || (r.tools_artnr || '').toLowerCase().includes(søk)
+                    || (r.sa_nummer   || '').toLowerCase().includes(søk)
+                    || (r.lokasjon    || '').toLowerCase().includes(søk);
+            });
 
         if (sort === 'verdi') {
             rows = rows.slice().sort((a, b) => (b.est_verdi || 0) - (a.est_verdi || 0));
@@ -965,15 +1017,19 @@ class VartellingMode {
             rows = rows.slice().sort((a, b) => (a.lokasjon || '').localeCompare(b.lokasjon || '', 'nb-NO'));
         }
 
-        const totalVerdi = rows.reduce((s, r) => s + (r.est_verdi || 0), 0);
+        const totalVerdi   = rows.reduce((s, r) => s + (r.est_verdi || 0), 0);
+        const nTrygge      = liste.filter(r => this._bevInd(r.tools_artnr||'', bevegelse, cutoff3m, cutoff9m).label === 'Trygg').length;
+        const nSjekk       = liste.filter(r => this._bevInd(r.tools_artnr||'', bevegelse, cutoff3m, cutoff9m).label === 'Sjekk').length;
+        const nAktive      = liste.filter(r => this._bevInd(r.tools_artnr||'', bevegelse, cutoff3m, cutoff9m).label === 'Aktiv').length;
+        const totalListeVerdi = liste.reduce((s, r) => s + (r.est_verdi || 0), 0);
 
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
         const verdiFarge = (v) => {
-            if (v < 100)  return '#2e7d32'; // grønn
-            if (v <= 300) return '#b45309'; // gul/amber
-            return '#b91c1c';              // oransje/rød
+            if (v < 100)  return '#2e7d32';
+            if (v <= 300) return '#b45309';
+            return '#b91c1c';
         };
 
         const fmtDato = (s) => {
@@ -983,17 +1039,25 @@ class VartellingMode {
 
         const datoRød = (s) => {
             if (!s || s === 'None' || s === 'nan') return false;
-            try {
-                const d = new Date(s);
-                return !isNaN(d.getTime()) && d < sixMonthsAgo;
-            } catch (e) { return false; }
+            try { const d = new Date(s); return !isNaN(d.getTime()) && d < sixMonthsAgo; }
+            catch (e) { return false; }
+        };
+
+        const fmtBevDato = (s) => {
+            if (!s) return '<span style="color:#bbb;">–</span>';
+            // YYYY-MM-DD → DD.MM.ÅÅÅÅ
+            const p = s.split('-');
+            return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : s;
         };
 
         return `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
                 <div style="font-size:13px;color:#555;">
                     <strong>${liste.length.toLocaleString('nb-NO')}</strong> artikler &nbsp;·&nbsp;
-                    Est. total: <strong>${Math.round(liste.reduce((s,r)=>s+(r.est_verdi||0),0)).toLocaleString('nb-NO')} kr</strong>
+                    Est. total: <strong>${Math.round(totalListeVerdi).toLocaleString('nb-NO')} kr</strong>
+                    &nbsp;·&nbsp; ✅ <strong>${nTrygge}</strong> trygge
+                    &nbsp;·&nbsp; ⚠️ <strong>${nSjekk}</strong> sjekk
+                    &nbsp;·&nbsp; 🔴 <strong>${nAktive}</strong> aktive
                 </div>
                 <button onclick="VartellingMode.exportLavverdi()"
                         style="padding:6px 14px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
@@ -1014,6 +1078,12 @@ class VartellingMode {
                     <option value="verdi"       ${sort==='verdi'?'selected':''}>Sorter: Est. verdi (høyest)</option>
                     <option value="beskrivelse" ${sort==='beskrivelse'?'selected':''}>Sorter: Beskrivelse A–Å</option>
                 </select>
+                <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+                    <input type="checkbox"
+                           ${tryggOnly ? 'checked' : ''}
+                           onchange="VartellingMode.lavverdiTryggOnly(this.checked)">
+                    Vis kun ✅ trygge
+                </label>
                 <span style="font-size:12px;color:#888;">${rows.length.toLocaleString('nb-NO')} treff</span>
             </div>
 
@@ -1021,6 +1091,7 @@ class VartellingMode {
                 <table class="data-table compact" style="width:100%;">
                     <thead>
                         <tr>
+                            <th title="Bevegelsesindikator">Trygg</th>
                             <th>Lokasjon</th>
                             <th>Tools nr</th>
                             <th>SA-nummer</th>
@@ -1029,17 +1100,25 @@ class VartellingMode {
                             <th style="text-align:right;">Kalkylpris</th>
                             <th style="text-align:right;">Est. verdi</th>
                             <th>Sist telt</th>
+                            <th>Siste salg</th>
+                            <th>Siste innlev.</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${rows.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Ingen treff</td></tr>` :
+                        ${rows.length === 0 ? `<tr><td colspan="11" style="text-align:center;color:#999;padding:20px;">Ingen treff</td></tr>` :
                         rows.map(r => {
                             const verdi = r.est_verdi || 0;
                             const fc    = verdiFarge(verdi);
                             const dato  = fmtDato(r.sist_telt);
                             const rød   = datoRød(r.sist_telt);
+                            const ind   = r._bev;
+                            const bevObj = bevegelse[r.tools_artnr || ''] || {};
                             return `
                                 <tr>
+                                    <td style="text-align:center;white-space:nowrap;font-size:13px;"
+                                        title="${ind.label}${ind.bev ? ' — siste: ' + ind.bev : ''}">
+                                        ${ind.ikon}
+                                    </td>
                                     <td style="font-weight:700;white-space:nowrap;">${this.esc(r.lokasjon||'–')}</td>
                                     <td style="font-size:11px;white-space:nowrap;">
                                         <a href="#" onclick="VartellingMode.åpneArtikkelOppslag('${this.esc(r.tools_artnr||'')}');return false;"
@@ -1051,6 +1130,8 @@ class VartellingMode {
                                     <td style="text-align:right;">${(r.kalkylpris||0).toLocaleString('nb-NO', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                                     <td style="text-align:right;font-weight:700;color:${fc};">${Math.round(verdi).toLocaleString('nb-NO')} kr</td>
                                     <td style="font-size:11px;color:${rød?'#b91c1c':'inherit'};font-weight:${rød?'700':'400'};">${this.esc(dato)}</td>
+                                    <td style="font-size:11px;color:#555;">${fmtBevDato(bevObj.siste_salg || null)}</td>
+                                    <td style="font-size:11px;color:#555;">${fmtBevDato(bevObj.siste_inlev || null)}</td>
                                 </tr>
                             `;
                         }).join('')}
@@ -1074,6 +1155,11 @@ class VartellingMode {
         this.refreshAll();
     }
 
+    static lavverdiTryggOnly(val) {
+        this._lavverdiTryggOnly = !!val;
+        this.refreshAll();
+    }
+
     static åpneArtikkelOppslag(toolsNr) {
         if (!toolsNr) return;
         if (window.ArtikelOppslagMode && window.ArtikelOppslagMode.openModal) {
@@ -1084,17 +1170,22 @@ class VartellingMode {
     }
 
     static exportLavverdi() {
-        const store = this._store;
-        const alle  = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
-        const søk   = this._lavverdiSearch.toLowerCase();
+        const store     = this._store;
+        const alle      = (store && store.dashboardData && store.dashboardData.lavverdiListe) || [];
+        const bevegelse = (store && store.dashboardData && store.dashboardData.bevegelse) || {};
+        const søk       = this._lavverdiSearch.toLowerCase();
+        const [cutoff3m, cutoff9m] = this._bevCutoffs();
 
-        let rows = alle.filter(r => {
-            if (!søk) return true;
-            return (r.beskrivelse || '').toLowerCase().includes(søk)
-                || (r.tools_artnr || '').toLowerCase().includes(søk)
-                || (r.sa_nummer   || '').toLowerCase().includes(søk)
-                || (r.lokasjon    || '').toLowerCase().includes(søk);
-        });
+        let rows = alle
+            .map(r => ({ ...r, _bev: this._bevInd(r.tools_artnr||'', bevegelse, cutoff3m, cutoff9m) }))
+            .filter(r => {
+                if (this._lavverdiTryggOnly && r._bev.label !== 'Trygg') return false;
+                if (!søk) return true;
+                return (r.beskrivelse || '').toLowerCase().includes(søk)
+                    || (r.tools_artnr || '').toLowerCase().includes(søk)
+                    || (r.sa_nummer   || '').toLowerCase().includes(søk)
+                    || (r.lokasjon    || '').toLowerCase().includes(søk);
+            });
 
         if (this._lavverdiSort === 'verdi') {
             rows = rows.slice().sort((a, b) => (b.est_verdi || 0) - (a.est_verdi || 0));
@@ -1104,17 +1195,23 @@ class VartellingMode {
             rows = rows.slice().sort((a, b) => (a.lokasjon || '').localeCompare(b.lokasjon || '', 'nb-NO'));
         }
 
-        const headers = ['Lokasjon', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Saldo', 'Kalkylpris', 'Est. verdi (kr)', 'Sist telt'];
-        const data = rows.map(r => [
-            r.lokasjon    || '',
-            r.tools_artnr || '',
-            r.sa_nummer   || '',
-            r.beskrivelse || '',
-            r.saldo       || 0,
-            r.kalkylpris  || 0,
-            r.est_verdi   || 0,
-            r.sist_telt   || ''
-        ]);
+        const headers = ['Trygg', 'Lokasjon', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Saldo', 'Kalkylpris', 'Est. verdi (kr)', 'Sist telt', 'Siste salg', 'Siste innlev.'];
+        const data = rows.map(r => {
+            const bevObj = bevegelse[r.tools_artnr || ''] || {};
+            return [
+                r._bev.label,
+                r.lokasjon    || '',
+                r.tools_artnr || '',
+                r.sa_nummer   || '',
+                r.beskrivelse || '',
+                r.saldo       || 0,
+                r.kalkylpris  || 0,
+                r.est_verdi   || 0,
+                r.sist_telt   || '',
+                bevObj.siste_salg  || '',
+                bevObj.siste_inlev || '',
+            ];
+        });
 
         try {
             const wb = XLSX.utils.book_new();
