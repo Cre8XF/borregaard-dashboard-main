@@ -1918,7 +1918,10 @@ class VartellingMode {
                             invAnt:      parseNum(row[3]),
                             lagersaldo:  parseNum(row[4]),
                             physDiff:    parseNum(row[24]),
-                            diffBelopp:  parseNum(row[23]),
+                            // "Inv diff belopp" finnes i to kolonner (idx 7 og idx 23).
+                            // Hvilken som er utfylt varierer mellom journaler.
+                            // Bruk den med høyest absoluttverdi — den er alltid korrekt.
+                            diffBelopp: (() => { const v7 = parseNum(row[7]), v23 = parseNum(row[23]); return Math.abs(v7) >= Math.abs(v23) ? v7 : v23; })(),
                             kalkylpris:  parseNum(row[27]),
                             _sign:       String(row[5] || '').trim(),
                             _creDt:      String(row[6] || '').trim()
