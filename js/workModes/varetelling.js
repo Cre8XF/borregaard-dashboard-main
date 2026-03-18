@@ -473,10 +473,16 @@ class VartellingMode {
             { id: 1026, uke: 37, navn: "45-, 46- og 49-sonen",                      fra: "45-1-A",    til: "49-2-C",     sist_telt: null, avvik: null },
             { id: 1027, uke: 38, navn: "11-, 13- og 14-sonen",                      fra: "11-1-A",    til: "14-9-C",     sist_telt: null, avvik: null },
             { id: 1028, uke: 39, navn: "146-, 147-, 148- og 149-sonen",             fra: "146-1-A",   til: "149-1-C",    sist_telt: null, avvik: null },
-            { id: 1029, uke: 40, navn: "OLJEBOD — alle hyller",                     fra: "OLJEBOD-7", til: "OLJEBOD-17",  sist_telt: null, avvik: null },
-            { id: 1030, uke: 41, navn: "BORSKUFF — alle skuffer",                   fra: "BORSKUFF",  til: "BORSKUFF",   sist_telt: null, avvik: null },
-            { id: 1031, uke: 43, navn: "SLANGEREOL · P-sonen · TORGET",             fra: "P-5-4",     til: "TORGET",     sist_telt: null, avvik: null },
-            { id: 1032, uke: 44, navn: "LAGER1 · LAGER2S1 · TRANSITT · NYARTBUT",  fra: "LAGER1",    til: "TRANSITT",   sist_telt: null, avvik: null },
+            // OLJEBOD: -12,-13,-14,-15,-16,-17,-7 sorterer leksikografisk som
+            // OLJEBOD-12 < OLJEBOD-13 < ... < OLJEBOD-17 < OLJEBOD-7
+            // → fra=OLJEBOD-12, til=OLJEBOD-7 dekker alle 7 subsoner
+            { id: 1029, uke: 40, navn: "OLJEBOD — alle hyller",                     fra: "OLJEBOD-12", til: "OLJEBOD-7",  sist_telt: null, avvik: null },
+            { id: 1030, uke: 41, navn: "BORSKUFF — alle skuffer",                   fra: "BORSKUFF",   til: "BORSKUFF",  sist_telt: null, avvik: null },
+            // SLANGEREOL og P-sonen: uten TORGET (TORGET er egen sesjon)
+            { id: 1031, uke: 43, navn: "SLANGEREOL og P-sonen",                     fra: "P-5-4",      til: "SLANGEREOL", sist_telt: null, avvik: null },
+            { id: 1033, uke: 43, navn: "TORGET",                                    fra: "TORGET",     til: "TORGET",    sist_telt: null, avvik: null },
+            // LAGER1/LAGER2S1/TRANSITT/NYARTBUT: B(ORSKUFF) < L, N < T → ingen overlap
+            { id: 1032, uke: 44, navn: "LAGER1 · LAGER2S1 · TRANSITT · NYARTBUT",  fra: "LAGER1",     til: "TRANSITT",  sist_telt: null, avvik: null },
         ];
 
         this.saveTelleplan(standardplan);
