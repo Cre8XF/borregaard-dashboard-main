@@ -259,6 +259,13 @@ class VartellingMode {
                             style="padding:7px 16px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;">
                         + Legg til sone
                     </button>
+                    <button onclick="VartellingMode.triggerTelleplanUpload()"
+                            style="padding:7px 14px;background:#5c6bc0;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                        📂 Last opp telleplan fra Excel
+                    </button>
+                    <input type="file" id="telleplan-file-input" accept=".xlsx"
+                           style="display:none;"
+                           onchange="VartellingMode.lastOppTelleplanFraExcel(event)">
                 </div>
             </div>
 
@@ -1259,6 +1266,99 @@ class VartellingMode {
     }
 
     // ── Telleplan-handlinger ──
+
+    static triggerTelleplanUpload() {
+        document.getElementById('telleplan-file-input')?.click();
+    }
+
+    static lastOppTelleplanFraExcel(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const wb   = XLSX.read(data, { type: 'array' });
+
+                // Finn riktig ark — prøv "Telleplan 2026" først, fall tilbake til første ark
+                const sheetName = wb.SheetNames.includes('Telleplan 2026')
+                    ? 'Telleplan 2026'
+                    : wb.SheetNames[0];
+                const ws = wb.Sheets[sheetName];
+
+                // Les fra rad 4 (header er rad 3, 0-indeksert = rad index 2)
+                // SheetJS: bruk sheet_to_json med header:1 for å få arrays per rad
+                const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+                // Finn header-rad (den som inneholder "UKE" i kolonne A)
+                let dataStartRow = 3; // default: rad 4 (0-indeksert: 3)
+                for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+                    const val = String(allRows[i][0] || '').trim().toUpperCase();
+                    if (val === 'UKE') { dataStartRow = i + 1; break; }
+                }
+
+                const SKIP_KEYWORDS = ['VEDLIKEHOLDSSTOPP', 'BUFFER', 'ÅRSAVSLUTNING'];
+
+                const nyPlan = [];
+                for (let i = dataStartRow; i < allRows.length; i++) {
+                    const row  = allRows[i];
+                    const ukeRaw  = row[0];
+                    const navn    = String(row[1] || '').trim();
+                    const fra     = String(row[2] || '').trim();
+                    const til     = String(row[3] || '').trim();
+
+                    // Hopp over tomme/buffer/stopp-rader
+                    if (!navn) continue;
+                    if (SKIP_KEYWORDS.some(kw => navn.toUpperCase().includes(kw))) continue;
+                    if (!fra || fra === '—' || fra === '-') continue;
+
+                    const uke = ukeRaw !== '' && !isNaN(Number(ukeRaw))
+                        ? parseInt(ukeRaw)
+                        : null;
+
+                    nyPlan.push({
+                        id:        Date.now() + i,
+                        uke:       uke,
+                        navn:      navn,
+                        fra:       fra,
+                        til:       til || fra,
+                        sist_telt: null,
+                        avvik:     null
+                    });
+                }
+
+                if (nyPlan.length === 0) {
+                    alert('Fant ingen gyldige soner i filen. Sjekk at filen har riktig format.');
+                    return;
+                }
+
+                const eksisterende = this.getTelleplan();
+                let bekreft = true;
+                if (eksisterende.length > 0) {
+                    bekreft = confirm(
+                        `Dette vil erstatte eksisterende telleplan (${eksisterende.length} soner) ` +
+                        `med ${nyPlan.length} soner fra "${file.name}".\n\nFortsett?`
+                    );
+                }
+
+                if (bekreft) {
+                    this.saveTelleplan(nyPlan);
+                    this.refreshAll();
+                    // Vis bekreftelse i konsoll
+                    console.log(`[Telleplan] Lastet inn ${nyPlan.length} soner fra ${file.name}`);
+                }
+
+            } catch (err) {
+                console.error('[Telleplan] Feil ved parsing av Excel:', err);
+                alert(`Kunne ikke lese filen: ${err.message}`);
+            }
+
+            // Reset file input slik at samme fil kan lastes inn igjen
+            event.target.value = '';
+        };
+        reader.readAsArrayBuffer(file);
+    }
 
     static toggleAddSoneForm() {
         const form = document.getElementById('add-sone-form');
