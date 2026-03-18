@@ -255,6 +255,13 @@ class VartellingMode {
                             style="padding:7px 14px;background:#78909c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
                         📋 Last inn 2026-telleplan
                     </button>
+                    <button onclick="VartellingMode.importerInventeringshistorikk()"
+                            style="padding:7px 14px;background:#2e7d32;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;"
+                            title="Importer Inventeringshistorikk.xlsx fra Jeeves for automatisk utfylling av telleplan og avvikslogg">
+                        📥 Importer Inventeringshistorikk
+                    </button>
+                    <input type="file" id="inv-hist-file-input" accept=".xlsx" style="display:none"
+                           onchange="VartellingMode._onInventeringshistorikkSelected(this.files[0])">
                     <button onclick="VartellingMode.toggleAddSoneForm()"
                             style="padding:7px 16px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;">
                         + Legg til sone
@@ -527,9 +534,16 @@ class VartellingMode {
 
         // Manuell overstyring vises alltid øverst
         if (harManuell) {
+            const erJeevesImport = !!sone.journal_nr;
+            const ikon  = erJeevesImport ? '📥' : '✏️';
+            const tekst = erJeevesImport ? 'Jeeves-import' : 'Manuelt satt';
+            const farge = erJeevesImport ? '#2e7d32' : '#1565c0';
+            const ekstra = erJeevesImport
+                ? `<br><span style="font-size:11px;color:#888;">Journal ${this.esc(sone.journal_nr)}${sone.utfort_av ? ' · ' + this.esc(sone.utfort_av) : ''}</span>`
+                : '';
             return `
-                <span style="color:#1565c0;font-weight:600;">✏️ Manuelt satt</span><br>
-                <span style="font-size:11px;color:#555;">${this.esc(sone.sist_telt)}</span>
+                <span style="color:${farge};font-weight:600;">${ikon} ${tekst}</span><br>
+                <span style="font-size:11px;color:#555;">${this.esc(sone.sist_telt)}</span>${ekstra}
             `;
         }
 
@@ -789,7 +803,7 @@ class VartellingMode {
                                 return `
                                     <tr>
                                         <td style="white-space:nowrap;">${this.esc(entry.dato)}</td>
-                                        <td>${this.esc(entry.sone || '—')}</td>
+                                        <td>${entry.kilde === 'jeeves_import' ? '<span title="Jeeves-import">📥 </span>' : ''}${this.esc(entry.sone || '—')}${entry.journal_nr ? `<br><span style="font-size:10px;color:#888;">Journal ${this.esc(entry.journal_nr)}${entry.utfort_av ? ' · ' + this.esc(entry.utfort_av) : ''}</span>` : ''}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(entry.fra_lok || '')}</td>
                                         <td style="font-family:monospace;font-size:12px;">${this.esc(entry.til_lok || '')}</td>
                                         <td style="text-align:right;">${entry.antall_artikler || 0}</td>
@@ -1534,6 +1548,13 @@ class VartellingMode {
                                 style="border:none;background:none;cursor:pointer;font-size:22px;color:#777;line-height:1;">×</button>
                     </div>
                     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+                        ${entry.kilde === 'jeeves_import' ? `
+                        <div style="padding:7px 12px;background:#e8f5e9;border-radius:4px;font-size:12px;border:1px solid #c8e6c9;">
+                            📥 <strong>Jeeves-import</strong>
+                            ${entry.journal_nr ? ` · Journal ${this.esc(entry.journal_nr)}` : ''}
+                            ${entry.utfort_av  ? ` · ${this.esc(entry.utfort_av)}` : ''}
+                        </div>
+                        ` : ''}
                         <div style="padding:7px 12px;background:#f5f5f5;border-radius:4px;font-size:12px;">
                             <strong>Intervall:</strong> ${this.esc(entry.fra_lok || '')} – ${this.esc(entry.til_lok || '')}
                         </div>
@@ -1593,7 +1614,10 @@ class VartellingMode {
             'Til':              entry.til_lok || '',
             'Artikler telt':    entry.antall_artikler || 0,
             'Avvik':            entry.antall_avvik || 0,
-            'Avviksverdi (kr)': Math.round(entry.avviksverdi_nok || 0)
+            'Avviksverdi (kr)': Math.round(entry.avviksverdi_nok || 0),
+            'Journal nr':       entry.journal_nr || '',
+            'Utført av':        entry.utfort_av || '',
+            'Kilde':            entry.kilde || 'manuell'
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oversiktRows), 'Avvikslogg');
 
@@ -1694,6 +1718,267 @@ class VartellingMode {
         if (status === 'UTGAATT')  return '<span class="badge badge-critical" style="font-size:10px;">Utgått</span>';
         if (!status)               return '<span style="color:#aaa;font-size:10px;">–</span>';
         return `<span class="badge badge-info" style="font-size:10px;">${this.esc(status)}</span>`;
+    }
+
+    // ════════════════════════════════════════════════════
+    //  JEEVES INVENTERINGSHISTORIKK IMPORT
+    // ════════════════════════════════════════════════════
+
+    static importerInventeringshistorikk() {
+        const input = document.getElementById('inv-hist-file-input');
+        if (input) {
+            input.value = '';
+            input.click();
+        }
+    }
+
+    static _onInventeringshistorikkSelected(file) {
+        if (!file) return;
+        this.parseInventeringshistorikk(file)
+            .then(journals => {
+                if (!journals || journals.length === 0) {
+                    alert('Ingen journaler funnet i filen. Sjekk at du har valgt riktig Inventeringshistorikk.xlsx.');
+                    return;
+                }
+                this._processImportedJournals(journals);
+            })
+            .catch(err => {
+                alert('Feil ved lesing av fil: ' + err.message);
+                console.error('Inventeringshistorikk parse error:', err);
+            });
+    }
+
+    /**
+     * Parser Inventeringshistorikk.xlsx fra Jeeves.
+     * Kolonner (0-indeksert):
+     *   0: InvJl, 2: Artikelnr, 3: InvAnt, 4: Lagersaldo,
+     *   5: Sign, 6: CreDt (YYMMDD), 14: Artikelbeskrivning,
+     *   23: Inv diff belopp (NOK), 24: Physical count diff, 27: Kalkylpris bas
+     */
+    static async parseInventeringshistorikk(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    if (typeof XLSX === 'undefined') {
+                        throw new Error('XLSX-biblioteket er ikke tilgjengelig.');
+                    }
+                    const wb      = XLSX.read(e.target.result, { type: 'binary' });
+                    const ws      = wb.Sheets[wb.SheetNames[0]];
+                    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+                    if (allRows.length < 2) { resolve([]); return; }
+
+                    const parseNum = (val) => {
+                        if (val === null || val === undefined || val === '') return 0;
+                        const n = parseFloat(String(val).replace(',', '.'));
+                        return isNaN(n) ? 0 : n;
+                    };
+
+                    // Grupper rader per journalnummer (kolonne 0)
+                    const journalMap = new Map();
+                    for (let i = 1; i < allRows.length; i++) {
+                        const row   = allRows[i];
+                        const invJl = String(row[0] || '').trim();
+                        if (!invJl) continue;
+                        if (!journalMap.has(invJl)) journalMap.set(invJl, []);
+                        journalMap.get(invJl).push({
+                            artikelnr:   String(row[2]  || '').toLowerCase().trim(),
+                            beskrivelse: String(row[14] || '').trim(),
+                            invAnt:      parseNum(row[3]),
+                            lagersaldo:  parseNum(row[4]),
+                            physDiff:    parseNum(row[24]),
+                            diffBelopp:  parseNum(row[23]),
+                            kalkylpris:  parseNum(row[27]),
+                            _sign:       String(row[5] || '').trim(),
+                            _creDt:      String(row[6] || '').trim()
+                        });
+                    }
+
+                    const journals = [];
+                    journalMap.forEach((rader, journalNr) => {
+                        const first = rader[0];
+                        const sign  = first._sign || '';
+                        const creDt = first._creDt || '';
+                        // YYMMDD → YYYY-MM-DD
+                        const dato  = creDt.length === 6
+                            ? `20${creDt.slice(0, 2)}-${creDt.slice(2, 4)}-${creDt.slice(4, 6)}`
+                            : creDt;
+
+                        const cleanRader = rader
+                            .map(r => ({
+                                artikelnr:   r.artikelnr,
+                                beskrivelse: r.beskrivelse,
+                                invAnt:      r.invAnt,
+                                lagersaldo:  r.lagersaldo,
+                                physDiff:    r.physDiff,
+                                diffBelopp:  r.diffBelopp,
+                                kalkylpris:  r.kalkylpris
+                            }))
+                            .filter(r => r.artikelnr);
+
+                        journals.push({ journalNr, dato, sign, rader: cleanRader });
+                    });
+
+                    resolve(journals);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error('Kunne ikke lese filen.'));
+            reader.readAsBinaryString(file);
+        });
+    }
+
+    /**
+     * Test om en lokasjon ligger innenfor et fra–til-intervall,
+     * konsistent med filterByLocationRange sin parseLocation-logikk.
+     */
+    static _lokInRange(lok, fra, til) {
+        if (!lok) return false;
+        return this.filterByLocationRange([{ location: lok }], fra, til).length > 0;
+    }
+
+    /**
+     * Match journalrader mot telleplan-sesjoner.
+     * Returnerer { sesjonIdx, treff, totalt } for sesjonen med flest artikkeltreff,
+     * eller null hvis ingen sesjon dekker journalen.
+     */
+    static _matchJournalToSession(journalRows, sessions, toolsToLok) {
+        const sessionHits = new Array(sessions.length).fill(0);
+
+        journalRows.forEach(row => {
+            const lok = toolsToLok.get(row.artikelnr);
+            if (!lok) return;
+            sessions.forEach((sesjon, idx) => {
+                if (this._lokInRange(lok, sesjon.fra, sesjon.til)) {
+                    sessionHits[idx]++;
+                }
+            });
+        });
+
+        const maxHits = Math.max(...sessionHits);
+        if (maxHits === 0) return null;
+
+        const bestIdx = sessionHits.indexOf(maxHits);
+        return { sesjonIdx: bestIdx, treff: maxHits, totalt: journalRows.length };
+    }
+
+    /**
+     * Prosesser importerte journaler:
+     *  1. Duplikat-sjekk per journal
+     *  2. Match journal → tellesone
+     *  3. Oppdater telleplan-sesjon
+     *  4. Legg til avvikslogg-entry
+     */
+    static _processImportedJournals(journals) {
+        const store = this._store;
+        if (!store) {
+            alert('Datastore ikke lastet. Last inn data først.');
+            return;
+        }
+
+        // Bygg oppslagskart: artikelnr (lowercase) → lokasjon
+        const toolsToLok = new Map();
+        store.getAllItems().forEach(item => {
+            if (item.toolsArticleNumber && item.location) {
+                toolsToLok.set(
+                    String(item.toolsArticleNumber).toLowerCase().trim(),
+                    item.location
+                );
+            }
+        });
+
+        const plan = this.getTelleplan();
+        const logg = this.getAvvikslogg();
+
+        let importert   = 0;
+        let hoppetOver  = 0;
+
+        for (const journal of journals) {
+            // Sjekk om journal allerede er importert
+            const eksIdx = logg.findIndex(e => e.journal_nr === journal.journalNr);
+            if (eksIdx !== -1) {
+                const eksisterende = logg[eksIdx];
+                const svar = confirm(
+                    `Journal ${journal.journalNr} er allerede importert (${eksisterende.dato}).\n\nOverskrive?`
+                );
+                if (!svar) { hoppetOver++; continue; }
+                logg.splice(eksIdx, 1);
+            }
+
+            // Match journal til sesjon
+            const match     = this._matchJournalToSession(journal.rader, plan, toolsToLok);
+            const sesjonIdx = match ? match.sesjonIdx : null;
+            const sesjon    = sesjonIdx !== null ? plan[sesjonIdx] : null;
+
+            // Sjekk om sesjon allerede er manuelt merket
+            if (sesjon && sesjon.sist_telt && !sesjon.journal_nr) {
+                const svar = confirm(
+                    `Sesjon uke ${sesjon.uke} (${sesjon.navn}) er allerede merket som telt manuelt (${sesjon.sist_telt}).\n\nOverskrive med Jeeves-import fra journal ${journal.journalNr}?`
+                );
+                if (!svar) { hoppetOver++; continue; }
+            }
+
+            // Oppdater telleplan-sesjon
+            if (sesjon !== null && sesjonIdx !== null) {
+                plan[sesjonIdx].sist_telt            = journal.dato;
+                plan[sesjonIdx].utfort_av            = journal.sign;
+                plan[sesjonIdx].journal_nr           = journal.journalNr;
+                plan[sesjonIdx].antall_artikler_telt = journal.rader.length;
+                plan[sesjonIdx].antall_avvik         = journal.rader.filter(r => r.physDiff !== 0).length;
+                plan[sesjonIdx].avviksverdi_nok      = journal.rader.reduce((sum, r) => sum + (r.diffBelopp || 0), 0);
+            }
+
+            // Bygg avvikslogg-entry
+            const avvikRader       = journal.rader.filter(r => r.physDiff !== 0);
+            const totalAvviksverdi = journal.rader.reduce((sum, r) => sum + (r.diffBelopp || 0), 0);
+
+            const mapRad = r => {
+                const item = store.getByToolsArticleNumber(r.artikelnr);
+                return {
+                    lokasjon:      item?.location || toolsToLok.get(r.artikelnr) || null,
+                    tools_nr:      r.artikelnr,
+                    sa_nummer:     item?.saNumber || null,
+                    beskrivelse:   r.beskrivelse,
+                    system_antall: r.lagersaldo,
+                    tellet_antall: r.invAnt,
+                    avvik:         r.physDiff,
+                    avviksverdi:   r.diffBelopp,
+                    kalkylpris:    r.kalkylpris
+                };
+            };
+
+            const entry = {
+                dato:            journal.dato,
+                sone:            sesjon ? sesjon.navn : 'Øvrig telling (utenfor telleplan)',
+                fra_lok:         sesjon ? sesjon.fra  : null,
+                til_lok:         sesjon ? sesjon.til  : null,
+                journal_nr:      journal.journalNr,
+                utfort_av:       journal.sign,
+                antall_artikler: journal.rader.length,
+                antall_avvik:    avvikRader.length,
+                avviksverdi_nok: totalAvviksverdi,
+                kilde:           'jeeves_import',
+                sesjon_treff:    match ? { treff: match.treff, totalt: match.totalt } : null,
+                rader:           avvikRader.map(mapRad),
+                alle_rader:      journal.rader.map(mapRad)
+            };
+
+            logg.push(entry);
+            importert++;
+        }
+
+        this.saveTelleplan(plan);
+        this.saveAvvikslogg(logg);
+
+        const msg = hoppetOver > 0
+            ? `Importert ${importert} journal(er). ${hoppetOver} hoppet over.`
+            : `Importert ${importert} journal(er) fra Jeeves.`;
+        alert(msg);
+
+        this._activeTab = 'avvikslogg';
+        this.refreshAll();
     }
 }
 
