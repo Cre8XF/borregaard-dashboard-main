@@ -480,16 +480,19 @@ class VartellingMode {
             { id: 1026, uke: 37, navn: "45-, 46- og 49-sonen",                      fra: "45-1-A",    til: "49-2-C",     sist_telt: null, avvik: null },
             { id: 1027, uke: 38, navn: "11-, 13- og 14-sonen",                      fra: "11-1-A",    til: "14-9-C",     sist_telt: null, avvik: null },
             { id: 1028, uke: 39, navn: "146-, 147-, 148- og 149-sonen",             fra: "146-1-A",   til: "149-1-C",    sist_telt: null, avvik: null },
-            // OLJEBOD: -12,-13,-14,-15,-16,-17,-7 sorterer leksikografisk som
-            // OLJEBOD-12 < OLJEBOD-13 < ... < OLJEBOD-17 < OLJEBOD-7
-            // → fra=OLJEBOD-12, til=OLJEBOD-7 dekker alle 7 subsoner
+            // OLJEBOD: med string-fallback sorterer subsoner leksikografisk:
+            // OLJEBOD-12 < OLJEBOD-13 < ... < OLJEBOD-17 < OLJEBOD-7 (fordi '1' < '7')
+            // → fra=OLJEBOD-12, til=OLJEBOD-7 dekker alle 7 subsoner korrekt
             { id: 1029, uke: 40, navn: "OLJEBOD — alle hyller",                     fra: "OLJEBOD-12", til: "OLJEBOD-7",  sist_telt: null, avvik: null },
             { id: 1030, uke: 41, navn: "BORSKUFF — alle skuffer",                   fra: "BORSKUFF",   til: "BORSKUFF",  sist_telt: null, avvik: null },
-            // SLANGEREOL og P-sonen: uten TORGET (TORGET er egen sesjon)
+            // SLANGEREOL og P-sonen: 'P-5-4' < 'SLANGEREOL' (P < S) — uten TORGET
             { id: 1031, uke: 43, navn: "SLANGEREOL og P-sonen",                     fra: "P-5-4",      til: "SLANGEREOL", sist_telt: null, avvik: null },
             { id: 1033, uke: 43, navn: "TORGET",                                    fra: "TORGET",     til: "TORGET",    sist_telt: null, avvik: null },
-            // LAGER1/LAGER2S1/TRANSITT/NYARTBUT: B(ORSKUFF) < L, N < T → ingen overlap
-            { id: 1032, uke: 44, navn: "LAGER1 · LAGER2S1 · TRANSITT · NYARTBUT",  fra: "LAGER1",     til: "TRANSITT",  sist_telt: null, avvik: null },
+            // LAGER1/LAGER2S1/NYARTBUT: 'LAGER1' < 'LAGER2S1' < 'NYARTBUT' (L < N < T)
+            // til=NYARTBUT (ikke TRANSITT) fordi 'TORGET' < 'TRANSITT' og TORGET er egen sesjon
+            { id: 1032, uke: 44, navn: "LAGER1 · LAGER2S1 · NYARTBUT",             fra: "LAGER1",     til: "NYARTBUT",  sist_telt: null, avvik: null },
+            // TRANSITT: egen sesjon for å unngå at TORGET faller innenfor LAGER–TRANSITT
+            { id: 1034, uke: 44, navn: "TRANSITT",                                  fra: "TRANSITT",   til: "TRANSITT",  sist_telt: null, avvik: null },
         ];
 
         this.saveTelleplan(standardplan);
@@ -843,19 +846,40 @@ class VartellingMode {
     // ════════════════════════════════════════════════════
 
     static parseLocation(loc) {
-        if (!loc) return null;
-        const parts = loc.trim().toUpperCase().split('-');
+        if (!loc) return { zone: 0, row: 0, section: '', raw: '' };
+        const s     = loc.trim().toUpperCase();
+        const parts = s.split('-');
+        const zone  = parseInt(parts[0], 10);
+
+        // Numerisk sone: "19-3-B", "12-1-A" osv.
+        if (!isNaN(zone)) {
+            return {
+                zone,
+                row:     parseInt(parts[1], 10) || 0,
+                section: parts[2] || '',
+                raw:     s
+            };
+        }
+
+        // Navngitt sone: "BORSKUFF", "TORGET", "OLJEBOD-12", "LAGER1", "SLANGEREOL", "T-1-1"
+        // zone=-1 signaliserer at raw string-sammenligning skal brukes
         return {
-            zone:    parseInt(parts[0], 10) || 0,
+            zone:    -1,
             row:     parseInt(parts[1], 10) || 0,
-            section: parts[2] || ''
+            section: parts[2] || '',
+            raw:     s
         };
     }
 
     static compareLocations(a, b) {
-        if (!a && !b) return 0;
-        if (!a) return 1;
-        if (!b) return -1;
+        // Begge er navngitte soner (zone === -1): bruk raw string-sammenligning
+        if (a.zone === -1 && b.zone === -1) {
+            return a.raw < b.raw ? -1 : a.raw > b.raw ? 1 : 0;
+        }
+        // En navngitt og en numerisk: hold dem separert (navngitte sorteres sist)
+        if (a.zone === -1) return 1;
+        if (b.zone === -1) return -1;
+        // Begge numeriske: eksisterende logikk
         if (a.zone !== b.zone) return a.zone - b.zone;
         if (a.row  !== b.row)  return a.row  - b.row;
         return a.section.localeCompare(b.section);
