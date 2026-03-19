@@ -852,11 +852,18 @@ class VartellingMode {
                 <p style="color:#555;font-size:13px;margin:0;">
                     Historikk over alle gjennomførte tellinger. Klikk <strong>Se</strong> for detaljer per telling.
                 </p>
-                <button onclick="VartellingMode.exportAvvikslogg()"
-                        ${logg.length === 0 ? 'disabled' : ''}
-                        style="padding:7px 14px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
-                    Eksporter logg
-                </button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button onclick="VartellingMode.exportAvviksrapport2026()"
+                            ${logg.length === 0 ? 'disabled' : ''}
+                            style="padding:7px 14px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                        📋 Avviksrapport 2026
+                    </button>
+                    <button onclick="VartellingMode.exportAvvikslogg()"
+                            ${logg.length === 0 ? 'disabled' : ''}
+                            style="padding:7px 14px;background:#1a6b2c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                        Eksporter logg
+                    </button>
+                </div>
             </div>
 
             ${reversed.length === 0 ? `
@@ -1905,6 +1912,125 @@ class VartellingMode {
 
         const fileDate = new Date().toISOString().slice(0, 10);
         XLSX.writeFile(wb, `avvikslogg_${fileDate}.xlsx`);
+    }
+
+    static exportAvviksrapport2026() {
+        const logg = this.getAvvikslogg();
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX-biblioteket er ikke tilgjengelig.');
+            return;
+        }
+
+        // Filtrer kun tellinger fra 2026
+        const logg2026 = logg.filter(entry =>
+            entry.dato && entry.dato >= '2026-01-01'
+        );
+
+        if (logg2026.length === 0) {
+            alert('Ingen tellinger fra 2026 funnet i avviksloggen.');
+            return;
+        }
+
+        // Flatten til artikkel-nivå — kun rader med avvik
+        // Hvis samme artikkel finnes i flere sesjoner: behold nyeste dato
+        const artikkelMap = new Map();
+
+        for (const entry of logg2026) {
+            for (const r of (entry.rader || [])) {
+                if (!r.avvik || r.avvik === 0) continue;
+
+                const key = (r.tools_nr || r.sa_nummer || '').toLowerCase().trim();
+                if (!key) continue;
+
+                const eksisterende = artikkelMap.get(key);
+
+                if (!eksisterende || entry.dato > eksisterende._dato) {
+                    artikkelMap.set(key, {
+                        _dato:       entry.dato,
+                        _sone:       entry.sone || '',
+                        _journal:    entry.journal_nr || '',
+                        lokasjon:    r.lokasjon       || '',
+                        tools_nr:    r.tools_nr        || '',
+                        sa_nummer:   r.sa_nummer       || '',
+                        beskrivelse: r.beskrivelse     || '',
+                        system:      r.system_antall   != null ? r.system_antall  : '',
+                        telt:        r.tellet_antall   != null ? r.tellet_antall  : '',
+                        avvik:       r.avvik           != null ? r.avvik          : '',
+                        avviksverdi: r.avvik           != null
+                                       ? Math.round(r.avviksverdi || 0)
+                                       : '',
+                        kalkylpris:  r.kalkylpris      != null ? r.kalkylpris     : '',
+                    });
+                }
+            }
+        }
+
+        if (artikkelMap.size === 0) {
+            alert('Ingen avvik funnet i 2026-tellinger.');
+            return;
+        }
+
+        // Sorter: negativt avvik (system > telt) øverst — disse er mest kritiske
+        const rader = [...artikkelMap.values()].sort((a, b) => {
+            const av = typeof a.avvik === 'number' ? a.avvik : 0;
+            const bv = typeof b.avvik === 'number' ? b.avvik : 0;
+            if (av < 0 && bv >= 0) return -1;
+            if (bv < 0 && av >= 0) return 1;
+            return Math.abs(bv) - Math.abs(av);
+        });
+
+        const wb = XLSX.utils.book_new();
+
+        // Ark 1: Avviksliste
+        const headers = [
+            'Dato telt', 'Sone', 'Journal nr',
+            'Lokasjon', 'Tools nr', 'SA-nummer', 'Beskrivelse',
+            'System antall', 'Telt antall', 'Avvik (stk)',
+            'Avviksverdi (kr)', 'Kalkylpris'
+        ];
+        const dataRader = rader.map(r => [
+            r._dato, r._sone, r._journal,
+            r.lokasjon, r.tools_nr, r.sa_nummer, r.beskrivelse,
+            r.system, r.telt, r.avvik,
+            r.avviksverdi, r.kalkylpris
+        ]);
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRader]);
+        ws['!cols'] = [
+            { wch: 12 }, { wch: 28 }, { wch: 12 },
+            { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 42 },
+            { wch: 12 }, { wch: 12 }, { wch: 12 },
+            { wch: 16 }, { wch: 12 },
+        ];
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        XLSX.utils.book_append_sheet(wb, ws, 'Avvik 2026');
+
+        // Ark 2: Sammendrag
+        const totalAvvikVerdi = rader.reduce((sum, r) =>
+            sum + (typeof r.avviksverdi === 'number' ? r.avviksverdi : 0), 0
+        );
+        const negativAvvik = rader.filter(r => typeof r.avvik === 'number' && r.avvik < 0);
+        const positivAvvik = rader.filter(r => typeof r.avvik === 'number' && r.avvik > 0);
+
+        const sammendrag = [
+            ['Avviksrapport 2026 — Borregaard Lager 3018', ''],
+            ['Generert', new Date().toLocaleDateString('nb-NO')],
+            ['', ''],
+            ['Tellinger inkludert (2026)', logg2026.length],
+            ['Unike artikler med avvik',   artikkelMap.size],
+            ['', ''],
+            ['Negativt avvik (system > telt)', negativAvvik.length],
+            ['  Mulig uregistrert uttak fra lager', ''],
+            ['Positivt avvik (telt > system)', positivAvvik.length],
+            ['  Mulig feilregistrering eller retur', ''],
+            ['', ''],
+            ['Total avviksverdi (kr)', totalAvvikVerdi],
+        ];
+        const ws2 = XLSX.utils.aoa_to_sheet(sammendrag);
+        ws2['!cols'] = [{ wch: 42 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Sammendrag');
+
+        const dato = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(wb, `Avviksrapport_2026_${dato}.xlsx`);
     }
 
     // ════════════════════════════════════════════════════
