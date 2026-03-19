@@ -2090,20 +2090,32 @@ class VartellingMode {
         const plan = this.getTelleplan();
         const logg = this.getAvvikslogg();
 
-        let importert   = 0;
-        let hoppetOver  = 0;
+        // Finn alle duplikater på forhånd
+        const eksisterendeJournaler = new Set(
+            logg
+                .filter(e => e.journal_nr)
+                .map(e => String(e.journal_nr))
+        );
+        const duplikater = journals.filter(j =>  eksisterendeJournaler.has(String(j.journalNr)));
+        const nye        = journals.filter(j => !eksisterendeJournaler.has(String(j.journalNr)));
 
-        for (const journal of journals) {
-            // Sjekk om journal allerede er importert
-            const eksIdx = logg.findIndex(e => e.journal_nr === journal.journalNr);
-            if (eksIdx !== -1) {
-                const eksisterende = logg[eksIdx];
-                const svar = confirm(
-                    `Journal ${journal.journalNr} er allerede importert (${eksisterende.dato}).\n\nOverskrive?`
-                );
-                if (!svar) { hoppetOver++; continue; }
-                logg.splice(eksIdx, 1);
-            }
+        let skalOverskrive = false;
+        if (duplikater.length > 0) {
+            const liste = duplikater.map(j => j.journalNr).join(', ');
+            skalOverskrive = confirm(
+                `${duplikater.length} journal${duplikater.length > 1 ? 'er' : ''} er allerede importert:\n${liste}\n\nOverskrive alle?`
+            );
+        }
+
+        const skalImporteres = skalOverskrive ? journals : nye;
+
+        let importert  = 0;
+        let hoppetOver = duplikater.length > 0 && !skalOverskrive ? duplikater.length : 0;
+
+        for (const journal of skalImporteres) {
+            // Fjern eksisterende logg-entry hvis vi overskriver
+            const eksIdx = logg.findIndex(e => String(e.journal_nr) === String(journal.journalNr));
+            if (eksIdx !== -1) logg.splice(eksIdx, 1);
 
             // Match journal til sesjon
             const match     = this._matchJournalToSession(journal.rader, plan, toolsToLok);
@@ -2120,9 +2132,15 @@ class VartellingMode {
 
             // Oppdater telleplan-sesjon
             if (sesjon !== null && sesjonIdx !== null) {
-                plan[sesjonIdx].sist_telt            = journal.dato;
-                plan[sesjonIdx].utfort_av            = journal.sign;
-                plan[sesjonIdx].journal_nr           = journal.journalNr;
+                // Kun oppdater sist_telt/journal_nr/utfort_av hvis ny dato er nyere
+                const nyDato        = journal.dato; // format 'YYYY-MM-DD'
+                const gjeldendeDato = plan[sesjonIdx].sist_telt || '';
+                if (nyDato > gjeldendeDato) {
+                    plan[sesjonIdx].sist_telt  = journal.dato;
+                    plan[sesjonIdx].utfort_av  = journal.sign;
+                    plan[sesjonIdx].journal_nr = journal.journalNr;
+                }
+                // Aggregerte verdier oppdateres alltid
                 plan[sesjonIdx].antall_artikler_telt = journal.rader.length;
                 plan[sesjonIdx].antall_avvik         = journal.rader.filter(r => r.physDiff !== 0).length;
                 plan[sesjonIdx].avviksverdi_nok      = journal.rader.reduce((sum, r) => sum + (r.diffBelopp || 0), 0);
