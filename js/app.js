@@ -80,6 +80,14 @@ class DashboardApp {
             });
         });
 
+        // Daglige verktøy-kort
+        document.querySelectorAll('.daily-card[data-module]').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const module = e.currentTarget.dataset.module;
+                if (module) this.switchModule(module);
+            });
+        });
+
         // Tastatursnarvei: Ctrl+S for å lagre
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 's') {
@@ -631,6 +639,51 @@ class DashboardApp {
             if (dagerValEl) dagerValEl.style.color = antall > 0 ? '#c62828' : '#2e7d32';
         }
 
+        // Status-pills og dagligkort-statistikk
+        const setPill = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        const manglerLokasjonCount = items.filter(item =>
+            !item.location || item.location.trim() === ''
+        ).length;
+
+        const underBpCount = items.filter(item => {
+            const bp = item.bestillingspunkt ?? 0;
+            const sales12m = item.sales12m ?? 0;
+            const aapent = item.aapentBestiltAntall ?? 0;
+            return bp > 0 && (item.stock ?? 0) < bp && aapent === 0 && sales12m > 0;
+        }).length;
+
+        setPill('pill-kritiske',  criticalCount.toLocaleString('nb-NO'));
+        setPill('pill-advarsler', warningCount.toLocaleString('nb-NO'));
+        setPill('pill-lokasjon',  manglerLokasjonCount.toLocaleString('nb-NO'));
+        setPill('pill-bp',        underBpCount.toLocaleString('nb-NO'));
+        setPill('pill-paavei',    quality.withIncoming.toLocaleString('nb-NO'));
+        setPill('pill-sadekning', quality.saNumberCoverage + '%');
+        setPill('pill-totalt',    quality.totalArticles.toLocaleString('nb-NO'));
+
+        // Dagligkort — Artikkel oppslag
+        setPill('stat-artikler', quality.totalArticles.toLocaleString('nb-NO'));
+
+        // Dagligkort — Varetelling (henter lagret varetellingsdata hvis tilgjengelig)
+        const telteData = (() => {
+            try {
+                const raw = localStorage.getItem('varetelling2026');
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) { return null; }
+        })();
+        const telt2026 = telteData ? Object.keys(telteData).length : 0;
+        const totaltArtikler = quality.totalArticles || 1;
+        const teltPst = Math.round((telt2026 / totaltArtikler) * 100);
+        setPill('stat-telt-pst', telt2026 > 0 ? teltPst + '%' : '—');
+        setPill('stat-telt-sub', telt2026 > 0
+            ? `telt · ${telt2026} / ${totaltArtikler} artikler`
+            : 'telt');
+        const bar = document.getElementById('stat-telt-bar');
+        if (bar) bar.style.width = telt2026 > 0 ? teltPst + '%' : '0%';
+
         // Prislisteavvik (FASE 9.0) — kun synlig hvis prisliste er lastet
         const prisEl = document.getElementById('prisStatusEndringerCount');
         const prisCard = document.getElementById('prislisteavvikCard');
@@ -654,6 +707,14 @@ class DashboardApp {
             if (tab.dataset.module === moduleName) {
                 tab.classList.add('active');
             }
+        });
+
+        // Oppdater aktiv-tilstand for daglige verktøy-kort og sekundære tabs
+        document.querySelectorAll('.daily-card').forEach(c => {
+            c.classList.toggle('active-module', c.dataset.module === moduleName);
+        });
+        document.querySelectorAll('.sec-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.module === moduleName);
         });
 
         // Nullstill artikkelOppslag-valg når brukeren navigerer bort fra modulen
