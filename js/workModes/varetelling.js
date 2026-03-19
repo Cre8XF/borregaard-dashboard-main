@@ -1720,7 +1720,7 @@ class VartellingMode {
                 <tr>
                     <td style="font-family:monospace;font-size:11px;">${this.esc(r.lokasjon || '')}</td>
                     <td style="font-size:11px;">${this.esc(r.tools_nr || '')}</td>
-                    <td style="font-size:11px;" title="${this.esc(r.beskrivelse || '')}">${this.esc(this.trunc(r.beskrivelse || '', 35))}</td>
+                    <td style="font-size:11px;" title="${this.esc(r.beskrivelse || '')}">${this.esc(this.trunc(r.beskrivelse || '', 60))}</td>
                     <td style="text-align:right;">${r.system_antall != null ? r.system_antall : '–'}</td>
                     <td style="text-align:right;">${r.tellet_antall != null ? r.tellet_antall : '–'}</td>
                     <td style="text-align:right;color:${harAvvik ? '#e53935' : 'inherit'};">${avvikTekst}</td>
@@ -1734,13 +1734,21 @@ class VartellingMode {
         const modalHtml = `
             <div id="detaljer-modal-overlay"
                  style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
-                <div style="background:#fff;border-radius:8px;padding:24px;max-width:820px;width:95%;max-height:82vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+                <div style="background:#fff;border-radius:8px;padding:24px;max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
                         <h3 style="margin:0;font-size:15px;">
                             Telledetaljer — ${this.esc(entry.dato)}${entry.sone ? ` — ${this.esc(entry.sone)}` : ''}
                         </h3>
-                        <button onclick="document.getElementById('detaljer-modal-overlay').remove()"
-                                style="border:none;background:none;cursor:pointer;font-size:22px;color:#777;line-height:1;">×</button>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <button onclick="VartellingMode.exportDetaljer(${idx})"
+                                    style="padding:6px 14px;background:#1a6b2c;color:#fff;
+                                           border:none;border-radius:4px;cursor:pointer;
+                                           font-size:12px;font-weight:600;">
+                                ⬇ Eksporter Excel
+                            </button>
+                            <button onclick="document.getElementById('detaljer-modal-overlay').remove()"
+                                    style="border:none;background:none;cursor:pointer;font-size:22px;color:#777;line-height:1;">×</button>
+                        </div>
                     </div>
                     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
                         ${entry.kilde === 'jeeves_import' ? `
@@ -1786,6 +1794,62 @@ class VartellingMode {
         `;
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    static exportDetaljer(idx) {
+        const logg  = this.getAvvikslogg();
+        const entry = logg[idx];
+        if (!entry || typeof XLSX === 'undefined') return;
+
+        const wb = XLSX.utils.book_new();
+
+        // Ark 1: Sammendrag
+        const sammendrag = [
+            ['Felt', 'Verdi'],
+            ['Dato',             entry.dato || ''],
+            ['Sone',             entry.sone || ''],
+            ['Fra lokasjon',     entry.fra_lok || ''],
+            ['Til lokasjon',     entry.til_lok || ''],
+            ['Journal nr',       entry.journal_nr || ''],
+            ['Utført av',        entry.utfort_av || ''],
+            ['Artikler telt',    entry.antall_artikler || 0],
+            ['Antall avvik',     entry.antall_avvik || 0],
+            ['Verdi avvik (kr)', Math.round(entry.avviksverdi_nok || 0)],
+            ['Kilde',            entry.kilde || ''],
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet(sammendrag);
+        ws1['!cols'] = [{ wch: 20 }, { wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, ws1, 'Sammendrag');
+
+        // Ark 2: Avviksdetaljer (alle rader med avvik)
+        const headers = [
+            'Lokasjon', 'Tools nr', 'SA-nummer', 'Beskrivelse',
+            'System antall', 'Telt antall', 'Avvik', 'Avviksverdi (kr)', 'Kalkylpris'
+        ];
+        const raderData = (entry.rader || []).map(r => [
+            r.lokasjon    || '',
+            r.tools_nr    || '',
+            r.sa_nummer   || '',
+            r.beskrivelse || '',
+            r.system_antall != null ? r.system_antall : '',
+            r.tellet_antall != null ? r.tellet_antall : '',
+            r.avvik       != null   ? r.avvik         : '',
+            r.avvik       != null   ? Math.round(r.avviksverdi || 0) : '',
+            r.kalkylpris  != null   ? r.kalkylpris    : '',
+        ]);
+        const ws2 = XLSX.utils.aoa_to_sheet([headers, ...raderData]);
+        ws2['!cols'] = [
+            { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 40 },
+            { wch: 12 }, { wch: 12 }, { wch: 8  }, { wch: 16 }, { wch: 12 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Avviksdetaljer');
+
+        const sonenavn = (entry.sone || 'telling')
+            .replace(/[^a-zA-Z0-9æøåÆØÅ\-_ ]/g, '')
+            .replace(/\s+/g, '_')
+            .slice(0, 40);
+        const filnavn = `telledetaljer_${sonenavn}_${entry.dato || 'ukjent'}.xlsx`;
+        XLSX.writeFile(wb, filnavn);
     }
 
     static exportAvvikslogg() {
