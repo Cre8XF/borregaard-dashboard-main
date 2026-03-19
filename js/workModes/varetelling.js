@@ -12,6 +12,7 @@ class VartellingMode {
     static _activeTab    = 'lokasjonssok'; // 'lokasjonssok' | 'telleplan' | 'avvikslogg' | 'lavverdi'
     static _pendingRader = null;           // Buffer for fullforTelling-data
     static _utestaaendeIdx = null;         // Hvilken sone som har utestående-panelet åpent
+    static _visFullforte  = false;
 
     static TELLEPLAN_KEY  = 'borregaard_telleplan_v1';
     static AVVIKSLOGG_KEY = 'borregaard_avvikslogg_v1';
@@ -201,6 +202,15 @@ class VartellingMode {
                        : pstTotalt >= 40 ? '#e65100'
                        : '#c62828';
 
+        // Beregn info for alle sesjoner og del i aktive/fullførte
+        const sesjonInfoList = plan.map((sone) => ({
+            sone,
+            rawIdx: rawPlan.indexOf(sone),
+            info: this.beregnSoneTelleinfo(sone, items)
+        }));
+        const aktive    = sesjonInfoList.filter(({ info }) => !(info.totalt > 0 && info.teltI2026 >= info.totalt));
+        const fullforte = sesjonInfoList.filter(({ info }) =>   info.totalt > 0 && info.teltI2026 >= info.totalt);
+
         return `
             <div style="background:#f5f9f5;border:1px solid #c8e6c9;border-radius:8px;
                         padding:16px 20px;margin-bottom:18px;
@@ -329,120 +339,175 @@ class VartellingMode {
                             </tr>
                         </thead>
                         <tbody>
-                            ${plan.map((sone) => {
-                                const rawIdx   = rawPlan.indexOf(sone);
-                                const info     = this.beregnSoneTelleinfo(sone, items);
-                                const artCount = info.totalt;
-                                const status   = this.renderTelleStatus(sone, info);
-                                const isCurrWk = sone.uke != null && sone.uke === currentWeek;
-                                const isFuture = sone.uke != null && !sone.sist_telt && sone.uke > currentWeek;
-                                const ukeStyle = isCurrWk
-                                    ? 'background:#1565c0;color:#fff;font-weight:700;border-radius:3px;padding:2px 6px;display:inline-block;'
-                                    : '';
-                                const planlagtTekst = isFuture
-                                    ? `<br><span style="color:#1565c0;font-size:11px;">📅 Planlagt uke ${sone.uke}</span>`
-                                    : '';
-                                return `
-                                    <tr>
-                                        <td style="text-align:center;white-space:nowrap;">
-                                            ${sone.uke != null ? `<span style="${ukeStyle}">${sone.uke}</span>` : '—'}
-                                        </td>
-                                        <td style="font-weight:600;">${this.esc(sone.navn)}</td>
-                                        <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
-                                        <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
-                                        <td style="text-align:right;">${artCount}</td>
-                                        <td style="white-space:nowrap;font-size:12px;">
-                                            <span style="color:#2e7d32;" title="Trygge">✅ ${info.trygge}</span>
-                                            <span style="color:#b45309;margin-left:4px;" title="Sjekk">⚠️ ${info.sjekk}</span>
-                                            <span style="color:#b91c1c;margin-left:4px;" title="Aktive">🔴 ${info.aktive}</span>
-                                        </td>
-                                        <td style="text-align:right;font-weight:600;color:${
-                                            info.teltI2026 === 0 ? '#c62828'
-                                            : info.teltI2026 < info.totalt ? '#e65100'
-                                            : '#2e7d32'
-                                        };">
-                                            ${info.teltI2026} / ${info.totalt}
-                                        </td>
-                                        <td>${status}${planlagtTekst}</td>
-                                        <td style="white-space:nowrap;">
-                                            <button onclick="VartellingMode.tellNa(${rawIdx})"
-                                                    style="padding:4px 10px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;">
-                                                Tell nå
-                                            </button>
-                                            <button onclick="VartellingMode.visUtestaaende(${rawIdx})"
-                                                    title="Vis artikler ikke telt i 2026"
-                                                    style="padding:4px 8px;background:${this._utestaaendeIdx === rawIdx ? '#f9a825' : '#fff8e1'};color:#e65100;border:1px solid #f9a825;border-radius:3px;cursor:pointer;font-size:13px;font-weight:600;margin-right:4px;">
-                                                ⏳
-                                            </button>
-                                            <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
-                                                    style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;"
-                                                    title="Rediger sone">
-                                                ✏️
-                                            </button>
-                                            <button onclick="VartellingMode.slettSone(${rawIdx})"
-                                                    style="padding:4px 8px;background:#e53935;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;"
-                                                    title="Slett sone">
-                                                ✕
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    ${this._utestaaendeIdx === rawIdx
-                                        ? this.renderUtestaaendePanel(sone, items)
-                                        : ''}
-                                    <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
-                                        <td colspan="9" style="padding:10px 12px;">
-                                            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-                                                <div style="display:flex;flex-direction:column;gap:3px;">
-                                                    <label style="font-size:10px;font-weight:600;color:#555;">Sonenavn</label>
-                                                    <input id="edit-navn-${rawIdx}" type="text" value="${this.esc(sone.navn)}"
-                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:150px;">
-                                                </div>
-                                                <div style="display:flex;flex-direction:column;gap:3px;">
-                                                    <label style="font-size:10px;font-weight:600;color:#555;">Fra lok</label>
-                                                    <input id="edit-fra-${rawIdx}" type="text" value="${this.esc(sone.fra)}"
-                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
-                                                </div>
-                                                <div style="display:flex;flex-direction:column;gap:3px;">
-                                                    <label style="font-size:10px;font-weight:600;color:#555;">Til lok</label>
-                                                    <input id="edit-til-${rawIdx}" type="text" value="${this.esc(sone.til)}"
-                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
-                                                </div>
-                                                <div style="display:flex;flex-direction:column;gap:3px;">
-                                                    <label style="font-size:10px;font-weight:600;color:#555;">Uke</label>
-                                                    <input id="edit-uke-${rawIdx}" type="number" min="1" max="52" value="${sone.uke != null ? sone.uke : ''}"
-                                                           style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:60px;">
-                                                </div>
-                                                <div style="display:flex;flex-direction:column;gap:4px;">
-                                                    <label style="font-size:11px;font-weight:600;color:#555;">
-                                                        Manuell sist telt-dato
-                                                        <span style="font-weight:400;color:#888;">(overstyrer MV2 — la stå tom for automatisk)</span>
-                                                    </label>
-                                                    <input id="edit-sone-sist-telt-${rawIdx}" type="date"
-                                                           value="${sone.sist_telt || ''}"
-                                                           style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
-                                                </div>
-                                                <button onclick="VartellingMode.lagreEditSone(${rawIdx})"
-                                                        style="padding:5px 12px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
-                                                    Lagre
-                                                </button>
-                                                <button onclick="VartellingMode.nullstillManuelDato(${rawIdx})"
-                                                        style="padding:5px 10px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:4px;cursor:pointer;font-size:12px;">
-                                                    🗑 Nullstill manuell dato
-                                                </button>
-                                                <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
-                                                        style="padding:5px 10px;background:#aaa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
-                                                    Avbryt
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                `;
-                            }).join('')}
+                            ${aktive.map(({ sone, rawIdx, info }) =>
+                                this.renderSesjonRad(sone, rawIdx, info, items, currentWeek)
+                            ).join('')}
                         </tbody>
                     </table>
                 </div>
+                ${fullforte.length > 0 ? `
+                    <div style="margin-top:16px;">
+                        <button
+                            onclick="VartellingMode.toggleVisFullforte()"
+                            style="
+                                width:100%;
+                                padding:10px 16px;
+                                background:#f1f8f1;
+                                border:1px solid #a5d6a7;
+                                border-radius:6px;
+                                cursor:pointer;
+                                font-size:13px;
+                                font-weight:600;
+                                color:#2e7d32;
+                                text-align:left;
+                                display:flex;
+                                justify-content:space-between;
+                                align-items:center;
+                            ">
+                            <span>✅ Fullførte sesjoner (${fullforte.length})</span>
+                            <span style="font-size:16px;">${this._visFullforte ? '▲' : '▼'}</span>
+                        </button>
+                        ${this._visFullforte ? `
+                            <div style="margin-top:4px;border:1px solid #c8e6c9;border-radius:0 0 6px 6px;overflow:hidden;">
+                                <table class="data-table compact" style="margin:0;opacity:0.75;">
+                                    <thead>
+                                        <tr>
+                                            <th>UKE</th>
+                                            <th>SONE</th>
+                                            <th>FRA LOK</th>
+                                            <th>TIL LOK</th>
+                                            <th>ARTIKLER</th>
+                                            <th>BEVEGELSE</th>
+                                            <th>TELT 2026</th>
+                                            <th>SIST TELT / STATUS</th>
+                                            <th>HANDLING</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${fullforte.map(({ sone, rawIdx, info }) =>
+                                            this.renderSesjonRad(sone, rawIdx, info, items, currentWeek)
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
             `}
         `;
+    }
+
+    static renderSesjonRad(sone, rawIdx, info, items, currentWeek) {
+        const artCount = info.totalt;
+        const status   = this.renderTelleStatus(sone, info);
+        const isCurrWk = sone.uke != null && sone.uke === currentWeek;
+        const isFuture = sone.uke != null && !sone.sist_telt && sone.uke > currentWeek;
+        const ukeStyle = isCurrWk
+            ? 'background:#1565c0;color:#fff;font-weight:700;border-radius:3px;padding:2px 6px;display:inline-block;'
+            : '';
+        const planlagtTekst = isFuture
+            ? `<br><span style="color:#1565c0;font-size:11px;">📅 Planlagt uke ${sone.uke}</span>`
+            : '';
+        return `
+            <tr>
+                <td style="text-align:center;white-space:nowrap;">
+                    ${sone.uke != null ? `<span style="${ukeStyle}">${sone.uke}</span>` : '—'}
+                </td>
+                <td style="font-weight:600;">${this.esc(sone.navn)}</td>
+                <td style="font-family:monospace;font-size:12px;">${this.esc(sone.fra)}</td>
+                <td style="font-family:monospace;font-size:12px;">${this.esc(sone.til)}</td>
+                <td style="text-align:right;">${artCount}</td>
+                <td style="white-space:nowrap;font-size:12px;">
+                    <span style="color:#2e7d32;" title="Trygge">✅ ${info.trygge}</span>
+                    <span style="color:#b45309;margin-left:4px;" title="Sjekk">⚠️ ${info.sjekk}</span>
+                    <span style="color:#b91c1c;margin-left:4px;" title="Aktive">🔴 ${info.aktive}</span>
+                </td>
+                <td style="text-align:right;font-weight:600;color:${
+                    info.teltI2026 === 0 ? '#c62828'
+                    : info.teltI2026 < info.totalt ? '#e65100'
+                    : '#2e7d32'
+                };">
+                    ${info.teltI2026} / ${info.totalt}
+                </td>
+                <td>${status}${planlagtTekst}</td>
+                <td style="white-space:nowrap;">
+                    <button onclick="VartellingMode.tellNa(${rawIdx})"
+                            style="padding:4px 10px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;">
+                        Tell nå
+                    </button>
+                    <button onclick="VartellingMode.visUtestaaende(${rawIdx})"
+                            title="Vis artikler ikke telt i 2026"
+                            style="padding:4px 8px;background:${this._utestaaendeIdx === rawIdx ? '#f9a825' : '#fff8e1'};color:#e65100;border:1px solid #f9a825;border-radius:3px;cursor:pointer;font-size:13px;font-weight:600;margin-right:4px;">
+                        ⏳
+                    </button>
+                    <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
+                            style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;margin-right:4px;"
+                            title="Rediger sone">
+                        ✏️
+                    </button>
+                    <button onclick="VartellingMode.slettSone(${rawIdx})"
+                            style="padding:4px 8px;background:#e53935;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;"
+                            title="Slett sone">
+                        ✕
+                    </button>
+                </td>
+            </tr>
+            ${this._utestaaendeIdx === rawIdx
+                ? this.renderUtestaaendePanel(sone, items)
+                : ''}
+            <tr id="edit-row-${rawIdx}" style="display:none;background:#f0f4ff;">
+                <td colspan="9" style="padding:10px 12px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <label style="font-size:10px;font-weight:600;color:#555;">Sonenavn</label>
+                            <input id="edit-navn-${rawIdx}" type="text" value="${this.esc(sone.navn)}"
+                                   style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:150px;">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <label style="font-size:10px;font-weight:600;color:#555;">Fra lok</label>
+                            <input id="edit-fra-${rawIdx}" type="text" value="${this.esc(sone.fra)}"
+                                   style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <label style="font-size:10px;font-weight:600;color:#555;">Til lok</label>
+                            <input id="edit-til-${rawIdx}" type="text" value="${this.esc(sone.til)}"
+                                   style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:100px;">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <label style="font-size:10px;font-weight:600;color:#555;">Uke</label>
+                            <input id="edit-uke-${rawIdx}" type="number" min="1" max="52" value="${sone.uke != null ? sone.uke : ''}"
+                                   style="padding:5px 8px;border:1px solid #90a4ae;border-radius:3px;font-size:12px;min-width:60px;">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            <label style="font-size:11px;font-weight:600;color:#555;">
+                                Manuell sist telt-dato
+                                <span style="font-weight:400;color:#888;">(overstyrer MV2 — la stå tom for automatisk)</span>
+                            </label>
+                            <input id="edit-sone-sist-telt-${rawIdx}" type="date"
+                                   value="${sone.sist_telt || ''}"
+                                   style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                        </div>
+                        <button onclick="VartellingMode.lagreEditSone(${rawIdx})"
+                                style="padding:5px 12px;background:#1a6b2c;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
+                            Lagre
+                        </button>
+                        <button onclick="VartellingMode.nullstillManuelDato(${rawIdx})"
+                                style="padding:5px 10px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:4px;cursor:pointer;font-size:12px;">
+                            🗑 Nullstill manuell dato
+                        </button>
+                        <button onclick="VartellingMode.toggleEditRow(${rawIdx})"
+                                style="padding:5px 10px;background:#aaa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;">
+                            Avbryt
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    static toggleVisFullforte() {
+        this._visFullforte = !this._visFullforte;
+        this.refreshAll();
     }
 
     static lastInnStandardplan() {
