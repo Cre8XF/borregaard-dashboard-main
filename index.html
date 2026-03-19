@@ -28,121 +28,113 @@
         </button>
       </div>
 
-      <!-- SUMMARY CARDS -->
-      <section class="summary-cards">
-        <div class="summary-card">
-          <div class="card-value" id="totalItems">-</div>
-          <div class="card-label">Totalt SA-artikler</div>
-        </div>
-        <div class="summary-card card-critical clickable" onclick="navigateToModule('arbeid', { filter: 'kritiske' })">
-          <div class="card-value" id="criticalCount">-</div>
-          <div class="card-label">Kritiske ↗</div>
-        </div>
-        <div class="summary-card card-warning clickable" onclick="navigateToModule('arbeid', { filter: 'advarsler' })">
-          <div class="card-value" id="warningCount">-</div>
-          <div class="card-label">Advarsler ↗</div>
-        </div>
-        <div class="summary-card card-ok">
-          <div class="card-value" id="saNumberCoverage">-</div>
-          <div class="card-label">SA-dekning</div>
-        </div>
-        <div class="summary-card clickable" onclick="navigateToModule('bp-kontroll')">
-          <div class="card-value" id="incomingCount">-</div>
-          <div class="card-label">På vei inn ↗</div>
-          <div class="card-sublabel" id="nesteLeveringLabel" style="font-size:11px;color:#888;margin-top:2px;"></div>
-        </div>
-        <div class="summary-card card-neutral clickable" onclick="navigateToModule('artikkeloppslag', { filter: 'mangler-lokasjon' })">
-          <div class="card-value" id="manglerLokasjonCount">-</div>
-          <div class="card-label">📍 Mangler lokasjon ↗</div>
-        </div>
-        <div class="summary-card clickable" id="underBPCard" onclick="navigateToModule('bp-kontroll')">
-          <div class="card-value" id="underBPUtenOrdreCount">-</div>
-          <div class="card-label">Under BP – ingen ordre ↗</div>
-        </div>
-        <div class="summary-card clickable" id="dagerTilTomtCard" onclick="navigateToModule('arbeid', { filter: 'kritiske' })">
-          <div class="card-value" id="dagerTilTomtCount">-</div>
-          <div class="card-label">Dager til tomt &lt; ledetid ↗</div>
-        </div>
-        <div class="summary-card clickable" onclick="navigateToModule('reports')" id="prislisteavvikCard" style="display:none;">
-          <div class="card-value" id="prisStatusEndringerCount">-</div>
-          <div class="card-label">📋 Prislisteavvik ↗</div>
-        </div>
-      </section>
+      <!-- Hidden legacy elements kept for JS compatibility -->
+      <div style="display:none;">
+        <div id="totalItems"></div>
+        <div id="criticalCount"></div>
+        <div id="warningCount"></div>
+        <div id="saNumberCoverage"></div>
+        <div id="incomingCount"></div>
+        <div id="nesteLeveringLabel"></div>
+        <div id="manglerLokasjonCount"></div>
+        <div id="underBPCard"><div class="card-value" id="underBPUtenOrdreCount"></div></div>
+        <div id="dagerTilTomtCard"><div class="card-value" id="dagerTilTomtCount"></div></div>
+        <div id="prislisteavvikCard"><div id="prisStatusEndringerCount"></div></div>
+      </div>
 
-      <!-- TAB NAVIGATION -->
-      <nav class="tab-navigation">
-        <button class="tab active" data-module="work">
-          <span class="tab-icon">1</span>
-          <span class="tab-label">Arbeid</span>
-          <span class="tab-desc">Operativ kontroll</span>
+      <!-- STATUS STRIP — kompakt rad med statuspiller -->
+      <div class="status-strip" id="statusStrip">
+        <div class="status-pill">
+          <span class="pill-dot dot-red"></span>
+          <span class="pill-num" id="pill-kritiske">—</span>
+          <span class="pill-lbl">kritiske</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-amber"></span>
+          <span class="pill-num" id="pill-advarsler">—</span>
+          <span class="pill-lbl">advarsler</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-gray"></span>
+          <span class="pill-num" id="pill-lokasjon">—</span>
+          <span class="pill-lbl">uten lokasjon</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-amber"></span>
+          <span class="pill-num" id="pill-bp">—</span>
+          <span class="pill-lbl">under BP</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-gray"></span>
+          <span class="pill-num" id="pill-paavei">—</span>
+          <span class="pill-lbl">på vei inn</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-green"></span>
+          <span class="pill-num" id="pill-sadekning">—</span>
+          <span class="pill-lbl">SA-dekning</span>
+        </div>
+        <div class="status-pill">
+          <span class="pill-dot dot-gray"></span>
+          <span class="pill-num" id="pill-totalt">—</span>
+          <span class="pill-lbl">SA-artikler</span>
+        </div>
+      </div>
+
+      <!-- DAGLIGE VERKTØY — to store klikkbare kort -->
+      <div class="daily-tools-grid">
+        <button class="daily-card" data-module="artikkelOppslag">
+          <div class="daily-card-tag tag-teal">Daglig bruk</div>
+          <div class="daily-card-title">Artikkel oppslag</div>
+          <div class="daily-card-sub">Søk på Tools nr, SA-nummer, lokasjon · eksport til Excel</div>
+          <div class="daily-card-stat">
+            <span class="daily-stat-num" id="stat-artikler">—</span>
+            <span class="daily-stat-sub">artikler tilgjengelig</span>
+          </div>
         </button>
-        <button class="tab" data-module="reports">
-          <span class="tab-icon">2</span>
-          <span class="tab-label">Rapporter</span>
-          <span class="tab-desc">Kvartalsrapport</span>
+
+        <button class="daily-card" data-module="varetelling">
+          <div class="daily-card-tag tag-blue">Daglig bruk</div>
+          <div class="daily-card-title">Varetelling 2026</div>
+          <div class="daily-card-sub">Tellelister · avvikslogg · Inventeringshistorikk</div>
+          <div class="daily-card-stat">
+            <span class="daily-stat-num" id="stat-telt-pst">—</span>
+            <span class="daily-stat-sub" id="stat-telt-sub">telt</span>
+          </div>
+          <div class="daily-progress-bar">
+            <div class="daily-progress-fill" id="stat-telt-bar" style="width:0%"></div>
+          </div>
         </button>
-        <button class="tab" data-module="varetelling">
-          <span class="tab-icon">3</span>
-          <span class="tab-label">Varetelling</span>
-          <span class="tab-desc">Tellelister</span>
+      </div>
+
+      <!-- SEKUNDÆRE VERKTØY -->
+      <div class="secondary-tools-label">Øvrige verktøy</div>
+      <nav class="secondary-tools-grid tab-navigation">
+        <button class="sec-tab tab" data-module="work">
+          <span class="sec-num">1</span>
+          <span class="sec-name">Arbeid</span>
+          <span class="sec-desc">Operativ kontroll</span>
         </button>
-        <button class="tab" data-module="bpKontroll">
-          <span class="tab-icon">4</span>
-          <span class="tab-label">BP-kontroll</span>
-          <span class="tab-desc">Bestillingspunkt</span>
+        <button class="sec-tab tab" data-module="reports">
+          <span class="sec-num">2</span>
+          <span class="sec-name">Rapporter</span>
+          <span class="sec-desc">Kvartalsrapport</span>
         </button>
-        <button class="tab" data-module="articleLookup">
-          <span class="tab-icon">5</span>
-          <span class="tab-label">Artikkeloppslag</span>
-          <span class="tab-desc">BP kontroll</span>
+        <button class="sec-tab tab" data-module="bpKontroll">
+          <span class="sec-num">4</span>
+          <span class="sec-name">BP-kontroll</span>
+          <span class="sec-desc">Bestillingspunkt</span>
         </button>
-        <button class="tab" data-module="artikkelOppslag">
-          <span class="tab-icon">6</span>
-          <span class="tab-label">Artikkel Oppslag</span>
-          <span class="tab-desc">Søk & eksport</span>
+        <button class="sec-tab tab" data-module="articleLookup">
+          <span class="sec-num">5</span>
+          <span class="sec-name">Artikkeloppslag</span>
+          <span class="sec-desc">BP kontroll</span>
         </button>
-        <button class="tab" data-module="dgKontroll">
-          <span class="tab-icon">7</span>
-          <span class="tab-label">DG-kontroll</span>
-          <span class="tab-desc">Prisavvik DG%</span>
+        <button class="sec-tab tab" data-module="dgKontroll">
+          <span class="sec-num">7</span>
+          <span class="sec-name">DG-kontroll</span>
+          <span class="sec-desc">Prisavvik DG%</span>
         </button>
-        <!-- Temporarily disabled tabs (logic preserved, UI hidden)
-        <button class="tab" data-module="overview">
-          <span class="tab-icon">1</span>
-          <span class="tab-label">Oversikt</span>
-          <span class="tab-desc">Daglig kontroll</span>
-        </button>
-        <button class="tab" data-module="demand">
-          <span class="tab-icon">2</span>
-          <span class="tab-label">Etterspørsel</span>
-          <span class="tab-desc">Salg & mønstre</span>
-        </button>
-        <button class="tab" data-module="assortment">
-          <span class="tab-icon">3</span>
-          <span class="tab-label">Sortiment</span>
-          <span class="tab-desc">Rydding</span>
-        </button>
-        <button class="tab" data-module="planning">
-          <span class="tab-icon">4</span>
-          <span class="tab-label">Planlegging</span>
-          <span class="tab-desc">Forberedelser</span>
-        </button>
-        <button class="tab" data-module="alternatives">
-          <span class="tab-icon">5</span>
-          <span class="tab-label">Alternativer</span>
-          <span class="tab-desc">Utgående analyse</span>
-        </button>
-        <button class="tab" data-module="noSaArticles">
-          <span class="tab-icon">6</span>
-          <span class="tab-label">Uten SA</span>
-          <span class="tab-desc">Artikler uten SA-nr</span>
-        </button>
-        <button class="tab" data-module="saMigration">
-          <span class="tab-icon">7</span>
-          <span class="tab-label">SA-migrering</span>
-          <span class="tab-desc">Utgående + erstatning</span>
-        </button>
-        -->
       </nav>
 
       <!-- MODULE CONTENT AREA -->
