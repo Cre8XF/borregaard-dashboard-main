@@ -667,22 +667,17 @@ class DashboardApp {
         // Dagligkort — Artikkel oppslag
         setPill('stat-artikler', quality.totalArticles.toLocaleString('nb-NO'));
 
-        // Dagligkort — Varetelling (henter lagret varetellingsdata hvis tilgjengelig)
-        const telteData = (() => {
-            try {
-                const raw = localStorage.getItem('varetelling2026');
-                return raw ? JSON.parse(raw) : null;
-            } catch (e) { return null; }
-        })();
-        const telt2026 = telteData ? Object.keys(telteData).length : 0;
-        const totaltArtikler = quality.totalArticles || 1;
+        // Dagligkort — Varetelling (beregn fra invDat på items)
+        const telt2026 = items.filter(item => {
+            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+            return d.length === 8 && d >= '20260101';
+        }).length;
+        const totaltArtikler = items.length || 1;
         const teltPst = Math.round((telt2026 / totaltArtikler) * 100);
-        setPill('stat-telt-pst', telt2026 > 0 ? teltPst + '%' : '—');
-        setPill('stat-telt-sub', telt2026 > 0
-            ? `telt · ${telt2026} / ${totaltArtikler} artikler`
-            : 'telt');
+        setPill('stat-telt-pst', teltPst + '%');
+        setPill('stat-telt-sub', `telt · ${telt2026} / ${totaltArtikler} artikler`);
         const bar = document.getElementById('stat-telt-bar');
-        if (bar) bar.style.width = telt2026 > 0 ? teltPst + '%' : '0%';
+        if (bar) bar.style.width = teltPst + '%';
 
         // Prislisteavvik (FASE 9.0) — kun synlig hvis prisliste er lastet
         const prisEl = document.getElementById('prisStatusEndringerCount');
