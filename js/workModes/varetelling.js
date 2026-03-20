@@ -814,6 +814,21 @@ class VartellingMode {
 
         const wb  = XLSX.utils.book_new();
         const ws  = XLSX.utils.json_to_sheet(rows);
+
+        // ── Kolonnebredder ──
+        ws['!cols'] = [
+            { wch: 14 },  // Art.nr
+            { wch: 14 },  // SA-nummer
+            { wch: 42 },  // Beskrivelse
+            { wch: 12 },  // Lokasjon
+            { wch: 12 },  // Sist telt
+            { wch: 11 },  // Saldo
+            { wch: 16 },  // Tellet antall
+            { wch: 12 },  // Avvik
+        ];
+        ws['!freeze']     = { xSplit: 0, ySplit: 1 };
+        ws['!autofilter'] = { ref: `A1:H${rows.length + 1}` };
+
         XLSX.utils.book_append_sheet(wb, ws, 'Utestående');
 
         const dato    = new Date().toISOString().slice(0, 10);
@@ -2057,25 +2072,83 @@ class VartellingMode {
                 this.parseLocation(b.location || b.lagerplass || '')
             );
             if (cmp !== 0) return cmp;
-            return (a.toolsArticleNumber || '').localeCompare(b.toolsArticleNumber || '', 'nb-NO');
+            return (a.toolsArticleNumber || '').localeCompare(
+                b.toolsArticleNumber || '', 'nb-NO'
+            );
         });
 
-        const rows = sorted.map(item => ({
-            'Lokasjon':      item.location || item.lagerplass || '',
-            'Tools nr':      item.toolsArticleNumber || '',
-            'Beskrivelse':   item.description || '',
-            'Leverandørnr':  item.supplierId || item.supplier || '',
-            'SA-nummer':     item.saNumber || '',
-            'Beholdning':    item.stock || 0,
-            'Innkommende':   item.bestAntLev || 0,
-            'Status':        item._status || '',
-            'Tellet antall': ''
-        }));
+        // Bygg data som array-of-arrays for full kontroll over formatering
+        const headers = [
+            'Lokasjon', 'Tools nr', 'Beskrivelse',
+            'SA-nummer', 'Beholdning', 'Innkommende',
+            'Status', 'Sist solgt', 'Tellet antall'
+        ];
 
-        const ws = XLSX.utils.json_to_sheet(rows);
+        const dataRows = sorted.map(item => {
+            // Formater sist-solgt dato
+            let sistSolgt = '';
+            if (item.lastSaleDate) {
+                const d = String(item.lastSaleDate).replace(/\D/g, '');
+                if (d.length === 8) {
+                    sistSolgt = `${d.slice(6)}.${d.slice(4,6)}.${d.slice(0,4)}`;
+                } else {
+                    sistSolgt = item.lastSaleDate;
+                }
+            }
+
+            return [
+                item.location     || item.lagerplass || '',
+                item.toolsArticleNumber || '',
+                item.description  || '',
+                item.saNumber     || '',
+                item.stock        ?? 0,
+                item.bestAntLev   || 0,
+                item._status      || '',
+                sistSolgt,
+                ''   // Tom kolonne for håndskriving på lageret
+            ];
+        });
+
         const wb = XLSX.utils.book_new();
-        const sheetName = `${from}_${to}`.slice(0, 31);
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+
+        // ── Kolonnebredder ──
+        ws['!cols'] = [
+            { wch: 12 },  // Lokasjon
+            { wch: 14 },  // Tools nr
+            { wch: 42 },  // Beskrivelse
+            { wch: 14 },  // SA-nummer
+            { wch: 11 },  // Beholdning
+            { wch: 12 },  // Innkommende
+            { wch: 12 },  // Status
+            { wch: 12 },  // Sist solgt
+            { wch: 16 },  // Tellet antall
+        ];
+
+        // ── Frys header-rad ──
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+        // ── Autofilter på alle kolonner ──
+        const lastCol = XLSX.utils.encode_col(headers.length - 1);
+        ws['!autofilter'] = { ref: `A1:${lastCol}${dataRows.length + 1}` };
+
+        // ── Legg til sammendragsark ──
+        const infoData = [
+            ['Telleliste', `${from} — ${to}`],
+            ['Dato eksportert', fileDate],
+            ['Antall artikler', sorted.length],
+            ['Estimert verdi (kr)', Math.round(
+                sorted.reduce((s, i) => s + (i.estimertVerdi || 0), 0)
+            )],
+        ];
+        const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
+        wsInfo['!cols'] = [{ wch: 20 }, { wch: 30 }];
+
+        // Ark 1: Telleliste, Ark 2: Info
+        const sheetName = `${from}–${to}`.slice(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.utils.book_append_sheet(wb, wsInfo, 'Info');
+
         XLSX.writeFile(wb, `telleliste_${from}_${to}_${fileDate}.xlsx`);
     }
 
