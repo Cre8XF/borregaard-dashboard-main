@@ -175,16 +175,18 @@ class VartellingMode {
             return ua - ub;
         });
 
-        // ── Totaltelling 2026 — bruker InvDat fra MV2 ──
-        const totaltArtikler  = items.length;
-        const teltI2026Totalt = items.filter(item => {
+        // ── Totaltelling 2026 — FASE 8.1: bruk varetelling_meta hvis tilgjengelig ──
+        const meta = window.app && window.app.vartellingMeta;
+        const totaltArtikler  = meta ? meta.omfang      : items.length;
+        const teltI2026Totalt = meta ? meta.antall_telt  : items.filter(item => {
             const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
             return d.length === 8 && d >= '20260101';
         }).length;
-        const pstTotalt = totaltArtikler > 0
-            ? Math.round((teltI2026Totalt / totaltArtikler) * 100)
-            : 0;
+        const pstTotalt = meta
+            ? meta.prosent_telt
+            : (totaltArtikler > 0 ? Math.round((teltI2026Totalt / totaltArtikler) * 100) : 0);
 
+        // sisteTeltTotalt beholdes fra InvDat (kun brukt til «Sist: dato»)
         const alleDatoer2026 = items
             .map(i => String(i.invDat || '').replace(/\D/g, ''))
             .filter(d => d.length === 8 && d >= '20260101')
@@ -256,8 +258,8 @@ class VartellingMode {
                         Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
                     </p>
                     <p style="font-size:11px;color:#888;margin:0;">
-                        ℹ️ «Telt 2026» og «Sist telt» hentes fra InvDat i MV2 (Master.xlsx).
-                        Oppdater MV2 ukentlig for å holde telledatoene ferske.
+                        ℹ️ Tellingsomfang: Sellable (alle) + Planned Discontinued/Discontinued med saldo.
+                        Telt-teller: Inventeringshistorikk.xlsx matchet mot Borregaard-katalogen.
                     </p>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">

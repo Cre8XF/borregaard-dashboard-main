@@ -27,13 +27,14 @@ UKENTLIG = os.path.join(BASE, "02_Ukentlig")
 SJELDEN  = os.path.join(BASE, "03-Sjelden")
 
 required = {
-    "Master_Artikkelstatus.xlsx": DAGLIG,
-    "Master.xlsx":                DAGLIG,
-    "Ordrer_Jeeves.xlsx":         DAGLIG,
-    "bestillinger.xlsx":          DAGLIG,
-    "SA-Nummer.xlsx":             SJELDEN,
-    "leverandører.xlsx":          SJELDEN,
-    "Analyse_Lagerplan.xlsx":     UKENTLIG,
+    "Master_Artikkelstatus.xlsx":   DAGLIG,
+    "Master.xlsx":                  DAGLIG,
+    "Ordrer_Jeeves.xlsx":           DAGLIG,
+    "bestillinger.xlsx":            DAGLIG,
+    "Inventeringshistorikk.xlsx":   DAGLIG,      # NY
+    "SA-Nummer.xlsx":               SJELDEN,
+    "leverandører.xlsx":            SJELDEN,
+    "Analyse_Lagerplan.xlsx":       UKENTLIG,
 }
 
 # Prisliste er valgfri — dashbordet fungerer uten den
@@ -431,6 +432,76 @@ try:
     except Exception as bev_err:
         print(f"⚠️  Bevegelse-beregning feil (fortsetter uten): {bev_err}")
 
+    # ── Varetelling 2026: beregn tellingsomfang og telt ──────────────────────────
+    print("\n[Varetelling] Beregner tellingsomfang og telt i 2026...")
+
+    try:
+        # Les Inventeringshistorikk
+        inv_path = os.path.join(DAGLIG, "Inventeringshistorikk.xlsx")
+        inv_df = pd.read_excel(inv_path, dtype=str)
+        inv_df.columns = inv_df.columns.str.strip()
+
+        # Finn CreDt-kolonnen (YYMMDD som streng)
+        credt_col = next((c for c in inv_df.columns if c.strip() == 'CreDt'), None)
+        artnr_col = next((c for c in inv_df.columns if c.strip() == 'Artikelnr'), None)
+
+        if credt_col and artnr_col:
+            inv_2026 = inv_df[inv_df[credt_col].astype(str).str.startswith('26')]
+            inv_arts_2026 = set(inv_2026[artnr_col].astype(str).str.strip())
+        else:
+            print("  ⚠️ Fant ikke CreDt/Artikelnr i Inventeringshistorikk — bruker tom mengde")
+            inv_arts_2026 = set()
+
+        # Les data_7 for omfang-beregning
+        data7_path = os.path.join(SJELDEN, "data (7).xlsx")
+        d7 = pd.read_excel(data7_path, dtype=str)
+        d7.columns = d7.columns.str.strip()
+
+        # Hent saldo fra master DataFrame (allerede lastet)
+        # master har kolonnen 'Tools_ArtNr' som matcher d7 'VareNr'
+        saldo_map = {}
+        if 'Tools_ArtNr' in master.columns and 'Lagersaldo' in master.columns:
+            for _, row in master[['Tools_ArtNr', 'Lagersaldo']].iterrows():
+                art = str(row['Tools_ArtNr']).strip()
+                try:
+                    saldo_map[art] = float(row['Lagersaldo']) if row['Lagersaldo'] != '' else 0.0
+                except (ValueError, TypeError):
+                    saldo_map[art] = 0.0
+
+        # Beregn omfang fra d7
+        omfang_arts = set()
+        for _, row in d7.iterrows():
+            varenr = str(row.get('VareNr', '')).strip()
+            status = str(row.get('VareStatus', '')).strip()
+            saldo  = saldo_map.get(varenr, 0.0)
+
+            if status == 'Sellable':
+                omfang_arts.add(varenr)
+            elif status in ('Planned Discontinued', 'Discontinued') and saldo > 0:
+                omfang_arts.add(varenr)
+
+        # Telt = Inv 2026 artikler som finnes i omfang
+        telt_arts = inv_arts_2026 & omfang_arts
+
+        varetelling_meta = {
+            "omfang":         len(omfang_arts),
+            "antall_telt":    len(telt_arts),
+            "prosent_telt":   round(len(telt_arts) / len(omfang_arts) * 100, 1) if omfang_arts else 0,
+            "sist_oppdatert": datetime.now().strftime("%Y-%m-%d")
+        }
+        print(f"  Omfang:      {varetelling_meta['omfang']}")
+        print(f"  Telt i 2026: {varetelling_meta['antall_telt']}")
+        print(f"  Prosent:     {varetelling_meta['prosent_telt']}%")
+
+    except Exception as vt_err:
+        print(f"  ⚠️ Varetelling-beregning feilet (fortsetter uten): {vt_err}")
+        varetelling_meta = {
+            "omfang": 0,
+            "antall_telt": 0,
+            "prosent_telt": 0,
+            "sist_oppdatert": ""
+        }
+
     data = {
         "generert":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":             master.to_dict(orient="records"),
@@ -441,6 +512,7 @@ try:
         "vedlikeholdsstopp":  vedlikeholdsstopp,   # FASE 10.x
         "lavverdiListe":      lavverdi_rows,        # FASE 11.0
         "bevegelse":          bevegelse,            # FASE 11.x
+        "varetelling_meta":   varetelling_meta,     # FASE 8.1
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)

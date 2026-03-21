@@ -36,6 +36,9 @@ class DashboardApp {
         // Samlet datastruktur
         this.dataStore = null;
 
+        // FASE 8.1: varetelling-metadata fra JSON
+        this.vartellingMeta = null;
+
         // Nåværende arbeidsmodus
         this.currentModule = 'work';
 
@@ -667,13 +670,21 @@ class DashboardApp {
         // Dagligkort — Artikkel oppslag
         setPill('stat-artikler', quality.totalArticles.toLocaleString('nb-NO'));
 
-        // Dagligkort — Varetelling (beregn fra invDat på items)
-        const telt2026 = items.filter(item => {
-            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
-            return d.length === 8 && d >= '20260101';
-        }).length;
-        const totaltArtikler = items.length || 1;
-        const teltPst = Math.round((telt2026 / totaltArtikler) * 100);
+        // Dagligkort — Varetelling (FASE 8.1: bruk varetelling_meta hvis tilgjengelig)
+        const vtMeta = this.vartellingMeta;
+        let telt2026, totaltArtikler, teltPst;
+        if (vtMeta && vtMeta.omfang > 0) {
+            telt2026       = vtMeta.antall_telt;
+            totaltArtikler = vtMeta.omfang;
+            teltPst        = vtMeta.prosent_telt;
+        } else {
+            telt2026 = items.filter(item => {
+                const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+                return d.length === 8 && d >= '20260101';
+            }).length;
+            totaltArtikler = items.length || 1;
+            teltPst        = Math.round((telt2026 / totaltArtikler) * 100);
+        }
         setPill('stat-telt-pst', teltPst + '%');
         setPill('stat-telt-sub', `telt · ${telt2026} / ${totaltArtikler} artikler`);
         const bar = document.getElementById('stat-telt-bar');
@@ -1090,6 +1101,7 @@ class DashboardApp {
                 vedlikeholdsstopp:   payload.vedlikeholdsstopp   || { uke16: {}, uke42: {} },  // FASE 10.x
                 lavverdiListe:       payload.lavverdiListe        || [],   // FASE 11.0
                 bevegelse:           payload.bevegelse            || {},   // FASE 11.x
+                varetelling_meta:    payload.varetelling_meta     || null, // FASE 8.1
             });
 
         } catch (err) {
@@ -1107,7 +1119,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1172,6 +1184,12 @@ class DashboardApp {
         }
 
         this.dataStore = store;
+
+        // FASE 8.1: lagre varetelling-metadata for bruk i varetelling.js
+        if (varetelling_meta) {
+            this.vartellingMeta = varetelling_meta;
+        }
+
         this.updateSummaryCards();
         this.renderCurrentModule();
         this.saveData();
