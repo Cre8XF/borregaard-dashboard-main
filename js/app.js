@@ -1102,6 +1102,7 @@ class DashboardApp {
                 lavverdiListe:       payload.lavverdiListe        || [],   // FASE 11.0
                 bevegelse:           payload.bevegelse            || {},   // FASE 11.x
                 varetelling_meta:    payload.varetelling_meta     || null, // FASE 8.1
+                ordrestockanalys:    payload.ordrestockanalys     || [],   // FASE 9.1
             });
 
         } catch (err) {
@@ -1119,7 +1120,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1163,6 +1164,26 @@ class DashboardApp {
             store.getAllItems().forEach(item => item.calculate());
 
             console.log(`[FASE 9.0] Prisdata beriket for ${Object.keys(store.prisMap).length} artikler`);
+        }
+
+        // FASE 9.1: Bygg stocksMap fra Ordrestockanalys
+        if (ordrestockanalys && ordrestockanalys.length > 0) {
+            store.stocksMap = DataProcessor.buildStocksMap(ordrestockanalys);
+
+            // Berik items med DG% og åpne ordrer
+            store.getAllItems().forEach(item => {
+                const stocks = store.stocksMap.get(item.toolsArticleNumber);
+                if (stocks) {
+                    item.dgPctAvg       = stocks.dgPctAvg;
+                    item.dgValueTotal   = stocks.dgValueTotal;
+                    item.openOrderCount = stocks.openOrders.length;
+                    item.openOrderValue = Math.round(stocks.openOrders.reduce((s, o) => s + (o.value || 0), 0));
+                }
+            });
+
+            console.log(`[FASE 9.1] Ordrestockanalys beriket ${store.stocksMap.size} artikler med DG% og åpne ordrer`);
+        } else {
+            store.stocksMap = new Map();
         }
 
         // FASE 9.x: DG-kontroll data
