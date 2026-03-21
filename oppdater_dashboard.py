@@ -157,7 +157,7 @@ try:
             if 'Företagsnr' in os_df.columns:
                 os_df = os_df[os_df['Företagsnr'].isin(['424186', '449930'])]
             if 'LstK' in os_df.columns:
-                os_df = os_df[os_df['LstK'].astype(str).str.strip() == '3018']
+                os_df = os_df[os_df['LstK'].astype(str).str.strip() == '3018','Borregaard - TOOLS']
 
             def clean_num(s):
                 """Rens komma-desimal og mellomrom-tusenskille til float."""
