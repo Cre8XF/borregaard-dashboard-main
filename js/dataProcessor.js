@@ -1071,6 +1071,88 @@ class DataProcessor {
         return prisMap;
     }
 
+    /**
+     * Bygg oppslagskart fra Ordrestockanalys-data (FASE 9.1)
+     *
+     * Returnerer et Map keyed på Tools art.nr med aggregerte verdier:
+     * {
+     *   dgPctAvg,        // Vektet snitt-DG% (vektet på salgsverdi)
+     *   dgValueTotal,    // Total DG-beløp
+     *   salesTotal,      // Total salgsverdi
+     *   inköpsnittPris,  // Snitt innkjøpspris (vektet på antall)
+     *   openOrders: [    // Åpne ordrer (FaktDat tom)
+     *     { orderDate, quantity, value, saNumber }
+     *   ],
+     *   orderLines: [    // Alle ordrelinjer (for DG-analyse per linje)
+     *     { orderDate, quantity, value, dgPct, faktDat, deliveryLocation }
+     *   ]
+     * }
+     */
+    static buildStocksMap(rows) {
+        if (!rows || rows.length === 0) return new Map();
+
+        const map = new Map();
+
+        rows.forEach(row => {
+            const artNr = (row['Artikelnr'] || '').toString().trim();
+            if (!artNr) return;
+
+            // Parse dato fra YYMMDD
+            const ordDtmRaw = (row['OrdDtm'] || '').toString().trim();
+            let orderDate = null;
+            if (ordDtmRaw.length === 6 && /^\d{6}$/.test(ordDtmRaw)) {
+                orderDate = `20${ordDtmRaw.slice(0,2)}-${ordDtmRaw.slice(2,4)}-${ordDtmRaw.slice(4,6)}`;
+            }
+
+            const qty      = parseFloat(row['OrdRadAnt'] || '0') || 0;
+            const value    = parseFloat(row['Radvärde i basvaluta'] || '0') || 0;
+            const dgPct    = parseFloat(row['Radbidrag i %'] || '0') || 0;
+            const dgVal    = parseFloat(row['Radbidr i basvaluta'] || '0') || 0;
+            const ikp      = parseFloat(row['Inköpspris'] || '0') || 0;
+            const faktDat  = (row['FaktDat'] || '').toString().trim();
+            const saNumber = (row['Kunds artikelnummer'] || '').toString().trim();
+            const delivLoc = (row['LevPlFtgKod'] || row['Företagsnr'] || '').toString().trim();
+
+            if (!map.has(artNr)) {
+                map.set(artNr, {
+                    dgValueTotal: 0,
+                    salesTotal: 0,
+                    ikpValueWeighted: 0,
+                    qtyTotal: 0,
+                    openOrders: [],
+                    orderLines: []
+                });
+            }
+
+            const entry = map.get(artNr);
+            entry.dgValueTotal     += dgVal;
+            entry.salesTotal       += value;
+            entry.ikpValueWeighted += ikp * qty;
+            entry.qtyTotal         += qty;
+
+            entry.orderLines.push({ orderDate, quantity: qty, value, dgPct, faktDat, deliveryLocation: delivLoc });
+
+            if (faktDat === '') {
+                entry.openOrders.push({ orderDate, quantity: qty, value, saNumber });
+            }
+        });
+
+        // Beregn avledede felt
+        map.forEach((entry) => {
+            entry.dgPctAvg      = entry.salesTotal > 0
+                ? Math.round((entry.dgValueTotal / entry.salesTotal) * 1000) / 10
+                : 0;
+            entry.inköpsnittPris = entry.qtyTotal > 0
+                ? Math.round((entry.ikpValueWeighted / entry.qtyTotal) * 100) / 100
+                : 0;
+        });
+
+        // Ordrestockanalys.xlsx bruker råkolonnenavn direkte i buildStocksMap()
+        // og trenger ikke variants-mapping.
+        console.log(`[FASE 9.1] StocksMap bygget for ${map.size} artikler`);
+        return map;
+    }
+
     /** Hent verdi fra Jeeves-rad med eksakt eller case-insensitive kolonne-match */
     static _getJeevesVal(row, names) {
         for (const name of names) {

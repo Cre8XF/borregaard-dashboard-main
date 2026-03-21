@@ -35,6 +35,22 @@ class ReportsMode {
                 <p class="module-description">Velg avdelinger, generer forhåndsvisning, og eksporter til Excel.</p>
             </div>
 
+            ${(() => {
+                const store = ReportsMode.dataStore;
+                const hasStocks = store && store.stocksMap && store.stocksMap.size > 0;
+                return `
+                    <div style="font-size:12px;color:${hasStocks ? '#2e7d32' : '#888'};
+                                margin-bottom:12px;padding:6px 12px;
+                                background:${hasStocks ? '#f1f8f1' : '#f5f5f5'};
+                                border-radius:4px;border:1px solid ${hasStocks ? '#c8e6c9' : '#e0e0e0'};">
+                        ${hasStocks
+                            ? `✅ Ordrestockanalys lastet — DG% og åpne ordrer tilgjengelig (${store.stocksMap.size} artikler)`
+                            : `ℹ️ Ordrestockanalys ikke lastet — DG% og åpne ordrer vises ikke. Legg filen i 03-Sjelden og kjør pipeline.`
+                        }
+                    </div>
+                `;
+            })()}
+
             <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:16px;margin-bottom:16px;">
                 <h3 style="margin:0 0 12px 0;font-size:15px;">Velg kunder / avdelinger</h3>
                 ${departments.length === 0
@@ -374,10 +390,13 @@ class ReportsMode {
                 status: item._status || 'UKJENT',
                 replacementNr: replacementNr || '',
                 saMigrationRequired: !!saMigrationRequired,
-                iInPrisliste: !!item.iInPrisliste,   // FASE 9.0
+                iInPrisliste:    !!item.iInPrisliste,   // FASE 9.0
                 dgSnitt12m,   // FASE 10.x
                 dgSiste,
                 dgAvvik,
+                dgPctAvg:        item.dgPctAvg        ?? null,   // FASE 9.1 — fra stocksMap
+                openOrderCount:  item.openOrderCount  || 0,       // FASE 9.1 — fra stocksMap
+                openOrderValue:  item.openOrderValue  || 0,       // FASE 9.1 — fra stocksMap
                 _item: item
             });
         });
@@ -1134,6 +1153,60 @@ class ReportsMode {
             XLSX.utils.book_append_sheet(wb, wsPris, 'Prisanalyse');
         }
 
+        // ══════════════════════════════════════════════════════
+        //  SHEET: Omsetning (alle artikler — FASE 9.1)
+        // ══════════════════════════════════════════════════════
+        {
+            const omsetningHeaders = [
+                '#', 'Tools nr', 'SA-nummer', 'Beskrivelse', 'Varegruppe', 'Leverandør',
+                salesColLabel + ' (kr)', 'Salg 3m (kr)', 'Salg innev. kv. (kr)',
+                'Antall ordrelinjer 12m (stk)', 'Saldo (stk)', 'Innkommende (stk)', 'Eksponering (stk)',
+                'Lagerverdi (kr)', 'DG% snitt', 'Åpne ordre (stk)', 'Åpne ordre (kr)',
+                'Status', 'Erstatning', 'SA-migrering påkrevd'
+            ];
+            const omsetningData = [omsetningHeaders];
+            report.rows.forEach((r, i) => {
+                omsetningData.push([
+                    i + 1,
+                    r.toolsNr,
+                    r.saNumber,
+                    r.description,
+                    r.category,
+                    r.supplier,
+                    getSalesVal(r),
+                    r.salesLast3m,
+                    r.currentQuarterSales,
+                    r.orderCount12m || 0,
+                    r.stock,
+                    r.bestAntLev,
+                    r.exposure,
+                    r.estimertVerdi || 0,
+                    r.dgPctAvg !== null && r.dgPctAvg !== undefined ? r.dgPctAvg : '',
+                    r.openOrderCount || '',
+                    r.openOrderValue || '',
+                    r.status,
+                    r.replacementNr || '',
+                    r.saMigrationRequired ? 'Ja' : 'Nei'
+                ]);
+            });
+            const wsOmsetning = XLSX.utils.aoa_to_sheet(omsetningData);
+            wsOmsetning['!cols'] = [
+                { wch: 4 }, { wch: 12 }, { wch: 14 }, { wch: 35 }, { wch: 18 }, { wch: 20 },
+                { wch: 14 }, { wch: 14 }, { wch: 16 },
+                { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
+                { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
+                { wch: 10 }, { wch: 14 }, { wch: 18 }
+            ];
+            const omRows = report.rows.length;
+            if (omRows > 0) {
+                freezeAndFilter(wsOmsetning, omsetningHeaders.length, omRows + 1);
+                autoFmtByHeaders(wsOmsetning, omsetningHeaders, omRows);
+                // DG% snitt — kolonne 14 (0-indeksert)
+                fmtCol(wsOmsetning, 14, 1, omRows, '0.0"%"');
+            }
+            XLSX.utils.book_append_sheet(wb, wsOmsetning, 'Omsetning');
+        }
+
         // Write file — derive filename from selected quarter key or current quarter
         const now = new Date();
         let fileYear, fileQ;
@@ -1219,6 +1292,25 @@ class ReportsMode {
                         <div class="stat-value">${s.dgFallCount}</div>
                         <div class="stat-label">DG-fall &gt;&nbsp;5&nbsp;pp</div>
                     </div>
+                    ${(() => {
+                        const store = ReportsMode.dataStore;
+                        if (!store || !store.stocksMap || store.stocksMap.size === 0) return '';
+                        const _getSM = s.isQuarterFilter
+                            ? (r) => r.quarterlySales[s.selectedQuarter] || 0
+                            : (r) => r.salesLast12m;
+                        const dgRows = report.rows.filter(r => r.dgPctAvg !== null && r.dgPctAvg !== undefined);
+                        if (dgRows.length === 0) return '';
+                        const totalSales = dgRows.reduce((acc, r) => acc + _getSM(r), 0);
+                        const weightedDg = totalSales > 0
+                            ? dgRows.reduce((acc, r) => acc + (r.dgPctAvg || 0) * _getSM(r), 0) / totalSales
+                            : dgRows.reduce((acc, r) => acc + (r.dgPctAvg || 0), 0) / dgRows.length;
+                        return `
+                        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:12px 16px;">
+                            <div style="font-size:11px;color:#888;margin-bottom:4px;">Snitt DG% (Ordrestock)</div>
+                            <div style="font-size:20px;font-weight:700;color:#1565c0;">${weightedDg.toFixed(1)}%</div>
+                            <div style="font-size:11px;color:#aaa;">vektet på salgsverdi</div>
+                        </div>`;
+                    })()}
                 </div>
                 <p style="margin:14px 0 0 0;font-size:13px;color:#444;line-height:1.5;background:#fff;border-radius:4px;padding:10px 12px;border-left:3px solid #4caf50;">
                     ${summaryText}
@@ -1335,6 +1427,45 @@ class ReportsMode {
                     </div>
                 ` : ''}
             </div>
+
+            ${(() => {
+                const store = ReportsMode.dataStore;
+                if (!store || !store.stocksMap || store.stocksMap.size === 0) return '';
+                const openRows = report.rows.filter(r => r.openOrderCount > 0)
+                    .sort((a, b) => (b.openOrderValue || 0) - (a.openOrderValue || 0))
+                    .slice(0, 10);
+                if (openRows.length === 0) return '';
+                return `
+                    <div style="${sectionStyle}background:#fffde7;border:1px solid #fff176;">
+                        <h3 style="${sectionHeaderStyle}border-color:#f9a825;color:#f57f17;">Åpne ordrer</h3>
+                        <h4 style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#333;">
+                            Åpne ordrer (topp 10 etter verdi)
+                        </h4>
+                        <div class="table-wrapper">
+                            <table class="data-table compact" style="font-size:12px;">
+                                <thead>
+                                    <tr>
+                                        <th>Tools nr</th><th>SA-nummer</th><th>Beskrivelse</th>
+                                        <th style="text-align:right;">Åpne (stk)</th>
+                                        <th style="text-align:right;">Åpne (kr)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${openRows.map(r => `
+                                        <tr>
+                                            <td>${ReportsMode.escapeHtml(r.toolsNr)}</td>
+                                            <td>${ReportsMode.escapeHtml(r.saNumber)}</td>
+                                            <td>${ReportsMode.escapeHtml(r.description)}</td>
+                                            <td style="text-align:right;">${r.openOrderCount}</td>
+                                            <td style="text-align:right;">${ReportsMode.formatCurrency(r.openOrderValue)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            })()}
 
             </div>
         `;

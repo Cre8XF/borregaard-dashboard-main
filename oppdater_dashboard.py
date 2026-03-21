@@ -40,6 +40,9 @@ required = {
 # Prisliste er valgfri — dashbordet fungerer uten den
 PRISLISTE_PATH = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\20260319_Borregaard_prisliste.xlsx"
 
+# Ordrestockanalys er valgfri — periodisk fil, legg i 03-Sjelden ved rapportbehov
+ORDRESTOCKANALYS_PATH = os.path.join(SJELDEN, "Ordrestockanalys.xlsx")
+
 # Lavverdi-telleliste er valgfri
 LAVVERDI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Lavverdi_Telleliste_2026.xlsx")
 
@@ -141,6 +144,50 @@ try:
         print(f'✅ Prisliste funnet — kalkylpris fallback aktivert')
     else:
         print(f'⚠️  Prisliste ikke funnet — kalkylpris kun fra Master_Artikkelstatus')
+
+    # ── Ordrestockanalys (valgfri, periodisk) ──────────────────────────────────
+    ordrestock_records = []
+    try:
+        if os.path.exists(ORDRESTOCKANALYS_PATH):
+            print("Leser Ordrestockanalys.xlsx...")
+            os_df = pd.read_excel(ORDRESTOCKANALYS_PATH, dtype=str)
+            os_df.columns = [str(c).strip() for c in os_df.columns]
+
+            # Filtrer kun Borregaard (424186 + 449930) og lager 3018
+            if 'Företagsnr' in os_df.columns:
+                os_df = os_df[os_df['Företagsnr'].isin(['424186', '449930'])]
+            if 'LstK' in os_df.columns:
+                os_df = os_df[os_df['LstK'].astype(str).str.strip() == '3018']
+
+            def clean_num(s):
+                """Rens komma-desimal og mellomrom-tusenskille til float."""
+                if pd.isna(s) or str(s).strip() == '':
+                    return ''
+                return str(s).replace('\xa0', '').replace(' ', '').replace(',', '.')
+
+            # Rens tallkolonner
+            for col in ['OrdRadAnt', 'Radvärde i basvaluta', 'Radbidrag i %',
+                        'Radbidr i basvaluta', 'Inköpspris']:
+                if col in os_df.columns:
+                    os_df[col] = os_df[col].apply(clean_num)
+
+            # Behold kun relevante kolonner
+            keep_cols = [
+                'Artikelnr', 'OrdDtm', 'OrdRadAnt', 'Radvärde i basvaluta',
+                'Radbidrag i %', 'Radbidr i basvaluta', 'Inköpspris',
+                'Företagsnr', 'LstK', 'FaktDat', 'Kunds artikelnummer',
+                'LevPlFtgKod', 'Artikelbeskrivning'
+            ]
+            keep_cols = [c for c in keep_cols if c in os_df.columns]
+            os_df = os_df[keep_cols].fillna('')
+
+            ordrestock_records = os_df.to_dict(orient='records')
+            aapne = os_df[os_df['FaktDat'] == ''].shape[0] if 'FaktDat' in os_df.columns else '?'
+            print(f"✅ Ordrestockanalys lastet ({len(ordrestock_records)} rader, {aapne} åpne ordrer)")
+        else:
+            print("⚠️  Ordrestockanalys.xlsx ikke funnet i 03-Sjelden (fortsetter uten)")
+    except Exception as os_err:
+        print(f"⚠️  Ordrestockanalys ikke tilgjengelig (fortsetter uten): {os_err}")
 
     # ── DG-kontroll: Orderingang.xlsx (FASE 9.x) ─────────────────────────────
     print("\nLeser Orderingang.xlsx for DG-kontroll...")
@@ -507,12 +554,13 @@ try:
         "master":             master.to_dict(orient="records"),
         "orders":             orders.to_dict(orient="records"),
         "bestillinger":       best.to_dict(orient="records"),
-        "prisliste":          pris_records,       # FASE 9.0
-        "dgKontroll":         dg_kontroll,         # FASE 9.x
-        "vedlikeholdsstopp":  vedlikeholdsstopp,   # FASE 10.x
-        "lavverdiListe":      lavverdi_rows,        # FASE 11.0
-        "bevegelse":          bevegelse,            # FASE 11.x
-        "varetelling_meta":   varetelling_meta,     # FASE 8.1
+        "prisliste":          pris_records,         # FASE 9.0
+        "dgKontroll":         dg_kontroll,           # FASE 9.x
+        "vedlikeholdsstopp":  vedlikeholdsstopp,     # FASE 10.x
+        "lavverdiListe":      lavverdi_rows,          # FASE 11.0
+        "bevegelse":          bevegelse,              # FASE 11.x
+        "varetelling_meta":   varetelling_meta,       # FASE 8.1
+        "ordrestockanalys":   ordrestock_records,     # FASE 9.1 — valgfri, periodisk
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
