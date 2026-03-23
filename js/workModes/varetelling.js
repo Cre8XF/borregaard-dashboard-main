@@ -337,8 +337,7 @@ class VartellingMode {
                         Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
                     </p>
                     <p style="font-size:11px;color:#888;margin:0;">
-                        ℹ️ Tellingsomfang: Sellable (alle) + Planned Discontinued/Discontinued med saldo.
-                        Telt-teller: Inventeringshistorikk.xlsx matchet mot Borregaard-katalogen.
+                        ℹ️ Tellingsomfang følger Butler-logikk: artikler med saldo, solgt i 2026, eller mottatt i 2026. Kilde: Master.xlsx + Ordrer_Jeeves + bestillinger + Inventeringshistorikk.
                     </p>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">

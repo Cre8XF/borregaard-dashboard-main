@@ -479,16 +479,39 @@ try:
     except Exception as bev_err:
         print(f"⚠️  Bevegelse-beregning feil (fortsetter uten): {bev_err}")
 
-    # ── Varetelling 2026: beregn tellingsomfang og telt ──────────────────────────
-    print("\n[Varetelling] Beregner tellingsomfang og telt i 2026...")
+    # ── Varetelling 2026: beregn tellingsomfang og telt (FASE 8.1b — Butler-logikk) ──
+    print("\n[Varetelling] Beregner tellingsomfang og telt i 2026 (Butler-logikk)...")
 
     try:
-        # Les Inventeringshistorikk
+        # ── Krit 1: artikler med saldo nå ────────────────────────────────────────
+        master_full = pd.read_excel(os.path.join(script_dir, "Master.xlsx"), dtype=str)
+        master_full.columns = master_full.columns.str.strip()
+        master_3018 = master_full[master_full['LstK'].astype(str).str.strip() == '3018.0'].copy()
+        master_3018['_saldo'] = pd.to_numeric(master_3018['Lagersaldo (hylla)'], errors='coerce').fillna(0)
+        master_3018['_artnr'] = master_3018['Artikelnr'].astype(str).str.strip()
+
+        arts_krit1 = set(master_3018[master_3018['_saldo'] > 0]['_artnr'])
+
+        # ── Krit 2: solgt i 2026 (Ordrer_Jeeves) ─────────────────────────────────
+        ordrer_df = pd.read_excel(os.path.join(script_dir, "Ordrer_Jeeves.xlsx"), dtype=str)
+        ordrer_df.columns = ordrer_df.columns.str.strip()
+        ordrer_2026 = ordrer_df[ordrer_df['Date'].astype(str).str.startswith('2026')]
+        arts_krit2 = set(ordrer_2026['Item ID'].astype(str).str.strip())
+
+        # ── Krit 3: mottatt i 2026 (bestillinger InlevDat starter med '260') ─────
+        best_df = pd.read_excel(os.path.join(script_dir, "bestillinger.xlsx"), dtype=str)
+        best_df.columns = best_df.columns.str.strip()
+        best_3018 = best_df[best_df['LstK'].astype(str).str.strip() == '3018'].copy()
+        best_3018['_inlev'] = best_3018['InlevDat'].astype(str).str.strip()
+        arts_krit3 = set(best_3018[best_3018['_inlev'].str.startswith('260')]['Artikelnr'].astype(str).str.strip())
+
+        # ── Omfang = union av alle 3 kriterier ────────────────────────────────────
+        omfang_arts = arts_krit1 | arts_krit2 | arts_krit3
+
+        # ── Telt = artikler i omfang som finnes i Inventeringshistorikk 2026 ──────
         inv_path = os.path.join(DAGLIG, "Inventeringshistorikk.xlsx")
         inv_df = pd.read_excel(inv_path, dtype=str)
         inv_df.columns = inv_df.columns.str.strip()
-
-        # Finn CreDt-kolonnen (YYMMDD som streng)
         credt_col = next((c for c in inv_df.columns if c.strip() == 'CreDt'), None)
         artnr_col = next((c for c in inv_df.columns if c.strip() == 'Artikelnr'), None)
 
@@ -496,49 +519,25 @@ try:
             inv_2026 = inv_df[inv_df[credt_col].astype(str).str.startswith('26')]
             inv_arts_2026 = set(inv_2026[artnr_col].astype(str).str.strip())
         else:
-            print("  ⚠️ Fant ikke CreDt/Artikelnr i Inventeringshistorikk — bruker tom mengde")
+            print("  ⚠️ Fant ikke CreDt/Artikelnr i Inventeringshistorikk")
             inv_arts_2026 = set()
 
-        # Les data_7 for omfang-beregning
-        data7_path = os.path.join(SJELDEN, "data (7).xlsx")
-        d7 = pd.read_excel(data7_path, dtype=str)
-        d7.columns = d7.columns.str.strip()
-
-        # Hent saldo fra master DataFrame (allerede lastet)
-        # master har kolonnen 'Tools_ArtNr' som matcher d7 'VareNr'
-        saldo_map = {}
-        if 'Tools_ArtNr' in master.columns and 'Lagersaldo' in master.columns:
-            for _, row in master[['Tools_ArtNr', 'Lagersaldo']].iterrows():
-                art = str(row['Tools_ArtNr']).strip()
-                try:
-                    saldo_map[art] = float(row['Lagersaldo']) if row['Lagersaldo'] != '' else 0.0
-                except (ValueError, TypeError):
-                    saldo_map[art] = 0.0
-
-        # Beregn omfang fra d7
-        omfang_arts = set()
-        for _, row in d7.iterrows():
-            varenr = str(row.get('VareNr', '')).strip()
-            status = str(row.get('VareStatus', '')).strip()
-            saldo  = saldo_map.get(varenr, 0.0)
-
-            if status == 'Sellable':
-                omfang_arts.add(varenr)
-            elif status in ('Planned Discontinued', 'Discontinued') and saldo > 0:
-                omfang_arts.add(varenr)
-
-        # Telt = Inv 2026 artikler som finnes i omfang
         telt_arts = inv_arts_2026 & omfang_arts
 
         varetelling_meta = {
             "omfang":         len(omfang_arts),
             "antall_telt":    len(telt_arts),
             "prosent_telt":   round(len(telt_arts) / len(omfang_arts) * 100, 1) if omfang_arts else 0,
-            "sist_oppdatert": datetime.now().strftime("%Y-%m-%d")
+            "sist_oppdatert": datetime.now().strftime("%Y-%m-%d"),
+            "logikk":         "Butler: saldo>0 OR solgt 2026 OR mottatt 2026"
         }
-        print(f"  Omfang:      {varetelling_meta['omfang']}")
-        print(f"  Telt i 2026: {varetelling_meta['antall_telt']}")
-        print(f"  Prosent:     {varetelling_meta['prosent_telt']}%")
+
+        print(f"  Krit 1 (saldo > 0):      {len(arts_krit1)}")
+        print(f"  Krit 2 (solgt i 2026):   {len(arts_krit2)} ({len(arts_krit2 - arts_krit1)} nye)")
+        print(f"  Krit 3 (mottatt i 2026): {len(arts_krit3)} ({len(arts_krit3 - arts_krit1 - arts_krit2)} nye)")
+        print(f"  Omfang totalt:           {varetelling_meta['omfang']}")
+        print(f"  Telt i 2026:             {varetelling_meta['antall_telt']}")
+        print(f"  Prosent:                 {varetelling_meta['prosent_telt']}%")
 
     except Exception as vt_err:
         print(f"  ⚠️ Varetelling-beregning feilet (fortsetter uten): {vt_err}")
@@ -546,7 +545,8 @@ try:
             "omfang": 0,
             "antall_telt": 0,
             "prosent_telt": 0,
-            "sist_oppdatert": ""
+            "sist_oppdatert": "",
+            "logikk": "feil"
         }
 
     data = {
