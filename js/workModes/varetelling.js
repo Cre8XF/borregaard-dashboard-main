@@ -254,7 +254,7 @@ class VartellingMode {
             return ua - ub;
         });
 
-        // ── Totaltelling 2026 — FASE 8.1: bruk varetelling_meta hvis tilgjengelig ──
+        // ── Totaltelling 2026 — henter fra varetelling_meta (Butler-logikk) ──
         const meta = window.app && window.app.vartellingMeta;
         const totaltArtikler  = meta ? meta.omfang      : items.length;
         const teltI2026Totalt = meta ? meta.antall_telt  : items.filter(item => {
@@ -262,7 +262,7 @@ class VartellingMode {
             return d.length === 8 && d >= '20260101';
         }).length;
         const pstTotalt = meta
-            ? meta.prosent_telt
+            ? Math.round(meta.prosent_telt)
             : (totaltArtikler > 0 ? Math.round((teltI2026Totalt / totaltArtikler) * 100) : 0);
 
         // sisteTeltTotalt beholdes fra InvDat (kun brukt til «Sist: dato»)
@@ -337,7 +337,10 @@ class VartellingMode {
                         Klikk <strong>Tell nå</strong> for å starte lokasjonssøk for en sone.
                     </p>
                     <p style="font-size:11px;color:#888;margin:0;">
-                        ℹ️ Tellingsomfang følger Butler-logikk: artikler med saldo, solgt i 2026, eller mottatt i 2026. Kilde: Master.xlsx + Ordrer_Jeeves + bestillinger + Inventeringshistorikk.
+                        ${meta
+                            ? `ℹ️ Tellingsomfang følger Butler-logikk: saldo>0, solgt i 2026, eller mottatt i 2026. Kilde: pipeline.`
+                            : `ℹ️ Ingen varetelling_meta funnet — viser InvDat-basert telling som fallback.`
+                        }
                     </p>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -645,7 +648,8 @@ class VartellingMode {
     }
 
     /**
-     * Beregn tellefremdrift for en sone basert på Sist_telt fra MV2.
+     * Beregn tellefremdrift for en sone basert på InvDat fra MV2.
+     * NB: Brukes kun for per-sone-visning. Totaltelling hentes fra varetelling_meta (Butler-logikk).
      *
      * @param {object} sone  - Soneobjekt med fra, til, sist_telt (manuell overstyring)
      * @param {Array}  items - Alle items fra store.getAllItems()
