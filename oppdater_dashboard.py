@@ -486,7 +486,11 @@ try:
         # ── Krit 1: artikler med saldo nå ────────────────────────────────────────
         master_full = pd.read_excel(os.path.join(script_dir, "Master.xlsx"), dtype=str)
         master_full.columns = master_full.columns.str.strip()
-        master_3018 = master_full[master_full['LstK'].astype(str).str.strip() == '3018.0'].copy()
+        _lstk_cols = [i for i, c in enumerate(master_full.columns) if c == 'LstK']
+        _lstk_idx = _lstk_cols[0] if _lstk_cols else None
+        if _lstk_idx is None:
+            raise ValueError("Finner ikke LstK-kolonne i Master.xlsx")
+        master_3018 = master_full[master_full.iloc[:, _lstk_idx].astype(str).str.strip() == '3018'].copy()
         master_3018['_saldo'] = pd.to_numeric(master_3018['Lagersaldo (hylla)'], errors='coerce').fillna(0)
         master_3018['_artnr'] = master_3018['Artikelnr'].astype(str).str.strip()
 
