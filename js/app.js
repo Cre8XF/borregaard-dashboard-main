@@ -944,7 +944,8 @@ class DashboardApp {
                 masterOnlyArticles: this.dataStore && this.dataStore.masterOnlyArticles
                     ? Array.from(this.dataStore.masterOnlyArticles.entries())
                     : [],
-                dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null
+                dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null,
+                vartellingMeta: this.vartellingMeta || null,
             };
 
             localStorage.setItem('borregaardDashboardV4', JSON.stringify(dataToSave));
@@ -971,6 +972,7 @@ class DashboardApp {
 
                 if (parsed.version === '4.3' && parsed.items && parsed.items.length > 0) {
                     this.dataStore = this.rebuildDataStore(parsed);
+                    if (parsed.vartellingMeta) this.vartellingMeta = parsed.vartellingMeta;
                     this.currentModule = parsed.currentModule || 'work';
 
                     console.log('[FASE 6.1] Lastet lagret data fra:', parsed.timestamp);
