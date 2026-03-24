@@ -486,7 +486,8 @@ try:
         # ── Krit 1: artikler med saldo nå ────────────────────────────────────────
         master_full = pd.read_excel(os.path.join(script_dir, "Master.xlsx"), dtype=str)
         master_full.columns = master_full.columns.str.strip()
-        master_3018 = master_full[master_full['LstK'].astype(str).str.strip() == '3018.0'].copy()
+        _lstk_col = master_full.columns.tolist().index('LstK')  # første forekomst (finnes i indeks 7 og 49)
+        master_3018 = master_full[master_full.iloc[:, _lstk_col].astype(str).str.strip() == '3018'].copy()
         master_3018['_saldo'] = pd.to_numeric(master_3018['Lagersaldo (hylla)'], errors='coerce').fillna(0)
         master_3018['_artnr'] = master_3018['Artikelnr'].astype(str).str.strip()
 
