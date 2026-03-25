@@ -3832,3 +3832,69 @@ button:hover {
 .sec-num  { font-size: 10px; color: var(--text-muted, #aaa); }
 .sec-name { font-size: 12px; font-weight: 500; color: var(--text, #333); }
 .sec-desc { font-size: 9px; color: var(--text-muted, #7f8c8d); }
+
+/* ── Omsetning-panel ─────────────────────────────────────────── */
+.omsetning-panel { padding: 1rem; }
+
+.omsetning-kpi-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+.kpi-kort {
+    background: var(--card-bg, #f5f7fa);
+    border: 1px solid var(--border, #e0e0e0);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    min-width: 160px;
+}
+.kpi-highlight { border-color: #4caf50; }
+.kpi-label { font-size: 0.75rem; color: #666; margin-bottom: 0.25rem; }
+.kpi-verdi { font-size: 1.35rem; font-weight: 700; }
+.kpi-sub   { font-size: 0.75rem; color: #888; margin-top: 0.2rem; }
+
+.omsetning-kontroller {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.kontroll-gruppe {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.kontroll-gruppe label { font-size: 0.85rem; font-weight: 600; }
+
+.visning-btn {
+    padding: 0.35rem 0.9rem;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.visning-btn.aktiv {
+    background: var(--primary, #1565c0);
+    color: white;
+    border-color: var(--primary, #1565c0);
+}
+
+.omsetning-tabell-wrapper { overflow-x: auto; }
+.omsetning-tabell {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.omsetning-tabell th, .omsetning-tabell td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border, #e0e0e0);
+    text-align: left;
+}
+.omsetning-tabell th { background: var(--header-bg, #f0f0f0); font-weight: 700; }
+.omsetning-tabell td.tall, .omsetning-tabell th.tall { text-align: right; }
+.omsetning-tabell .sum-rad td { background: var(--header-bg, #f0f0f0); }
+.ingen-data { text-align: center; color: #888; padding: 2rem; }

@@ -32,6 +32,7 @@ required = {
     "Ordrer_Jeeves.xlsx":           DAGLIG,
     "bestillinger.xlsx":            DAGLIG,
     "Inventeringshistorikk.xlsx":   DAGLIG,      # NY
+    "dagsomsetning.xlsx":           DAGLIG,      # NY
     "SA-Nummer.xlsx":               SJELDEN,
     "leverandører.xlsx":            SJELDEN,
     "Analyse_Lagerplan.xlsx":       UKENTLIG,
@@ -110,6 +111,17 @@ try:
     best = pd.read_excel(
         os.path.join(script_dir, "bestillinger.xlsx"), dtype=str
     ).fillna("")
+
+    # ── Dagsomsetning (valgfri) ─────────────────────────────────────────────────
+    salg_records = []
+    try:
+        salg_df = pd.read_excel(
+            os.path.join(script_dir, "dagsomsetning.xlsx"), dtype=str
+        ).fillna("")
+        salg_records = salg_df.to_dict(orient="records")
+        print(f"✅ Dagsomsetning lastet ({len(salg_records)} rader)")
+    except Exception as salg_err:
+        print(f"⚠️  dagsomsetning.xlsx ikke tilgjengelig (fortsetter uten): {salg_err}")
 
     # ── Prisliste (valgfri) ───────────────────────────────────────────────────
     pris_records = []
@@ -565,6 +577,7 @@ try:
         "bevegelse":          bevegelse,              # FASE 11.x
         "varetelling_meta":   varetelling_meta,       # FASE 8.1
         "ordrestockanalys":   ordrestock_records,     # FASE 9.1 — valgfri, periodisk
+        "dagsomsetning":      salg_records,           # NY
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
