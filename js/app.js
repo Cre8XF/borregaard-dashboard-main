@@ -39,6 +39,10 @@ class DashboardApp {
         // FASE 8.1: varetelling-metadata fra JSON
         this.vartellingMeta = null;
 
+        // Omsetning: daglig omsetningsdata og modul-instans
+        this.salgsData = [];
+        this.omsetningMode = new OmsetningMode(this);
+
         // Nåværende arbeidsmodus
         this.currentModule = 'work';
 
@@ -743,6 +747,14 @@ class DashboardApp {
         const contentDiv = document.getElementById('moduleContent');
         if (!contentDiv) return;
 
+        // Omsetning-mode trenger ikke dataStore
+        if (this.currentModule === 'omsetning') {
+            if (typeof OmsetningMode !== 'undefined' && this.omsetningMode) {
+                this.omsetningMode.render(contentDiv);
+            }
+            return;
+        }
+
         // Sjekk om vi har data
         if (!this.dataStore || this.dataStore.items.size === 0) {
             contentDiv.innerHTML = `
@@ -841,6 +853,12 @@ class DashboardApp {
             case 'dgKontroll':
                 if (typeof DGKontrollMode !== 'undefined') {
                     contentDiv.innerHTML = DGKontrollMode.render(this.dataStore);
+                }
+                break;
+
+            case 'omsetning':
+                if (typeof OmsetningMode !== 'undefined' && this.omsetningMode) {
+                    this.omsetningMode.render(contentDiv);
                 }
                 break;
 
@@ -1105,6 +1123,7 @@ class DashboardApp {
                 bevegelse:           payload.bevegelse            || {},   // FASE 11.x
                 varetelling_meta:    payload.varetelling_meta     || null, // FASE 8.1
                 ordrestockanalys:    payload.ordrestockanalys     || [],   // FASE 9.1
+                dagsomsetning:       payload.dagsomsetning        || [],   // NY
             });
 
         } catch (err) {
@@ -1122,7 +1141,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys, dagsomsetning }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1207,6 +1226,10 @@ class DashboardApp {
         }
 
         this.dataStore = store;
+
+        // Omsetning: lagre dagsomsetning-array for OmsetningMode
+        this.salgsData = dagsomsetning || [];
+        console.log(`[Omsetning] ${this.salgsData.length} dager lastet`);
 
         // FASE 8.1: lagre varetelling-metadata for bruk i varetelling.js
         if (varetelling_meta) {
