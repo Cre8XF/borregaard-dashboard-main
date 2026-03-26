@@ -946,64 +946,34 @@ class DashboardApp {
     /**
      * Lagre data til localStorage
      *
-     * FASE 6.1: Items are keyed by saNumber. No separate saMapping needed.
+     * FASE 8.0: Artikkeldata hentes fra JSON ved oppstart — lagres ikke i localStorage.
+     * Kun avvikslogg og små brukerpreferanser lagres.
      */
     saveData() {
+        // FASE 8.0: Artikkeldata hentes fra JSON ved oppstart — lagres ikke i localStorage.
+        // Kun avvikslogg og små brukerpreferanser lagres.
         try {
-            const dataToSave = {
-                version: '4.3',
-                currentModule: this.currentModule,
-                timestamp: new Date().toISOString(),
-                items: this.dataStore ? this.dataStore.getAllItems().map(i => i.toDisplayObject()) : [],
-                toolsLookup: this.dataStore ? Array.from(this.dataStore.toolsLookup.entries()) : [],
-                alternativeArticles: this.dataStore && this.dataStore.alternativeArticles
-                    ? Array.from(this.dataStore.alternativeArticles.entries())
-                    : [],
-                masterOnlyArticles: this.dataStore && this.dataStore.masterOnlyArticles
-                    ? Array.from(this.dataStore.masterOnlyArticles.entries())
-                    : [],
-                dataQuality: this.dataStore ? this.dataStore.getDataQualityReport() : null,
-                vartellingMeta: this.vartellingMeta || null,
-            };
-
-            localStorage.setItem('borregaardDashboardV4', JSON.stringify(dataToSave));
-            console.log('[FASE 6.1] Data lagret til localStorage');
-            return true;
-        } catch (error) {
-            console.error('Kunne ikke lagre til localStorage:', error);
-            if (error.name === 'QuotaExceededError') {
-                this.showToast('Lagringskvote overskredet', 'error');
+            if (this.avvikslogg && this.avvikslogg.length > 0) {
+                localStorage.setItem('borregaardAvvikslogg_v1',
+                    JSON.stringify(this.avvikslogg));
             }
-            return false;
+        } catch (e) {
+            console.warn('[saveData] Avvikslogg kunne ikke lagres (localStorage full):', e.message);
         }
     }
 
     /**
      * Last data fra localStorage
+     *
+     * FASE 8.0: Artikkeldata hentes alltid fra JSON via autoLoad().
+     * Kun avvikslogg lastes fra localStorage.
      */
     loadStoredData() {
         try {
-            const stored = localStorage.getItem('borregaardDashboardV4');
-
-            if (stored) {
-                const parsed = JSON.parse(stored);
-
-                if (parsed.version === '4.3' && parsed.items && parsed.items.length > 0) {
-                    this.dataStore = this.rebuildDataStore(parsed);
-                    if (parsed.vartellingMeta) this.vartellingMeta = parsed.vartellingMeta;
-                    this.currentModule = parsed.currentModule || 'work';
-
-                    console.log('[FASE 6.1] Lastet lagret data fra:', parsed.timestamp);
-
-                    this.updateSummaryCards();
-                    this.renderCurrentModule();
-                    this.showToast('Data lastet fra forrige økt', 'success');
-                } else if (parsed.version && parsed.version !== '4.3') {
-                    console.log(`[FASE 6.1] Gammel versjon ${parsed.version} — krever ny opplasting`);
-                }
-            }
-        } catch (error) {
-            console.error('Kunne ikke laste fra localStorage:', error);
+            const logg = localStorage.getItem('borregaardAvvikslogg_v1');
+            if (logg) this.avvikslogg = JSON.parse(logg);
+        } catch (e) {
+            console.warn('[loadData] Kunne ikke laste avvikslogg:', e.message);
         }
     }
 
@@ -1098,6 +1068,9 @@ class DashboardApp {
      * Feiler → opplastingsfeltet forblir synlig som fallback.
      */
     async autoLoad() {
+        // Rydd opp gammel stor cache fra pre-FASE-8.0
+        try { localStorage.removeItem('borregaardDashboardV4'); } catch(e) {}
+
         const statusEl = document.getElementById('data-status-text');
         if (statusEl) statusEl.textContent = '⏳ Laster data...';
 
