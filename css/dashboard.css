@@ -3898,3 +3898,85 @@ button:hover {
 .omsetning-tabell td.tall, .omsetning-tabell th.tall { text-align: right; }
 .omsetning-tabell .sum-rad td { background: var(--header-bg, #f0f0f0); }
 .ingen-data { text-align: center; color: #888; padding: 2rem; }
+
+/* ── Omsetning: drill-down ─────────────────────────────────────── */
+.oms-dag-klikk { cursor: pointer; }
+.oms-dag-klikk:hover { background: var(--hover-bg, #e8f0fe) !important; }
+.drill-ikon { font-size: 0.75rem; opacity: 0.5; }
+.kontroll-hint { font-size: 0.8rem; color: #888; font-style: italic; }
+
+.oms-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+}
+.oms-modal {
+    background: white;
+    border-radius: 10px;
+    width: min(900px, 95vw);
+    max-height: 85vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+}
+.oms-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border, #e0e0e0);
+    background: var(--primary, #1565c0);
+    border-radius: 10px 10px 0 0;
+}
+.oms-modal-header h3 { color: white; margin: 0; font-size: 1.1rem; }
+.oms-lukk-btn {
+    background: none; border: none; color: white;
+    font-size: 1.2rem; cursor: pointer; padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+.oms-lukk-btn:hover { background: rgba(255,255,255,0.2); }
+
+.oms-modal-innhold {
+    overflow-y: auto; padding: 1rem 1.25rem;
+    flex: 1;
+}
+.oms-dag-summary {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    padding: 0.75rem 0 1rem;
+    border-bottom: 1px solid var(--border, #e0e0e0);
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.oms-ordre-blokk { margin-bottom: 0.5rem; }
+.oms-ordre-header {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--card-bg, #f5f7fa);
+    border: 1px solid var(--border, #e0e0e0);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+.oms-ordre-header:hover { background: var(--hover-bg, #e8f0fe); }
+.oms-ordre-pil { color: #888; min-width: 1rem; }
+.oms-ordre-nr  { font-weight: 700; flex: 1; }
+.oms-ordre-nok { font-weight: 600; color: var(--primary, #1565c0); }
+.oms-ordre-dg, .oms-ordre-gp { color: #555; font-size: 0.85rem; }
+
+.oms-ordre-linjer {
+    margin: 0 0 0.25rem 1.5rem;
+    border: 1px solid var(--border, #e0e0e0);
+    border-top: none; border-radius: 0 0 6px 6px;
+    overflow: hidden;
+}
+.oms-linjer-tabell {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+}
+.oms-linjer-tabell th {
+    background: var(--header-bg, #f0f0f0);
+    padding: 0.4rem 0.6rem; text-align: left; font-weight: 600;
+}
+.oms-linjer-tabell td { padding: 0.4rem 0.6rem; border-top: 1px solid #f0f0f0; }
+.oms-linjer-tabell td.tall,
+.oms-linjer-tabell th.tall { text-align: right; }
+.oms-linjer-tabell td.art-nr { font-family: monospace; font-size: 0.8rem; color: #555; }
+.oms-linjer-tabell tr:hover td { background: #fafafa; }
