@@ -1,32 +1,43 @@
 /**
- * OmsetningMode — Daglig omsetningshistorikk
- * Viser Delivered value, Delivered quantity, Gross profit og Gross margin
- * med filtrering på periode og aggregering per dag/uke/måned.
+ * OmsetningMode — Daglig omsetningshistorikk med drill-down
+ *
+ * Rad-struktur fra JSON:
+ *   Date, Customer, Item, "Main item ID", "Order number",
+ *   "Delivered value", "Delivered quantity", "Gross profit", "Gross margin"
+ *
+ * Visning:
+ *   - Dagstabell (aggregert) — klikk på rad åpner modal
+ *   - Modal: ordrer for valgt dag, gruppert på Order number
+ *   - Inne i modal: ekspander ordre → artikkellinjene
  */
 class OmsetningMode {
 
     constructor(app) {
-        this.app = app;
-        this.visning = 'dag';       // 'dag' | 'uke' | 'maaned'
-        this.fraDato = null;        // Date-objekt eller null
-        this.tilDato = null;
-        this._parsedRows = null;
+        this.app      = app;
+        this.visning  = 'dag';   // 'dag' | 'uke' | 'maaned'
+        this.fraDato  = null;
+        this.tilDato  = null;
+        this._rows    = null;    // parsed + sortert cache
     }
 
-    // ── Dataparsing ──────────────────────────────────────────────────────────
+    // ── Parsing ──────────────────────────────────────────────────────────────
 
-    _parseRows() {
-        if (this._parsedRows) return this._parsedRows;
+    _getRows() {
+        if (this._rows) return this._rows;
         const raw = this.app.salgsData || [];
-        this._parsedRows = raw.map(r => ({
-            dato:      new Date(r['Date']),
-            nok:       parseFloat(r['Delivered value'])  || 0,
-            dg:        parseFloat(r['Delivered quantity'])|| 0,
-            bruttofort:parseFloat(r['Gross profit'])     || 0,
-            margin:    parseFloat(r['Gross margin'])     || 0,
+        this._rows = raw.map(r => ({
+            dato:     new Date(r['Date']),
+            item:     r['Item']          || '',
+            artNr:    r['Main item ID']  || '',
+            ordreNr:  String(r['Order number'] || ''),
+            nok:      parseFloat(r['Delivered value'])   || 0,
+            dg:       parseFloat(r['Delivered quantity']) || 0,
+            gp:       parseFloat(r['Gross profit'])      || 0,
+            margin:   r['Gross margin'] === '-' ? null
+                        : parseFloat(r['Gross margin'])  || 0,
         })).filter(r => !isNaN(r.dato.getTime()))
            .sort((a, b) => a.dato - b.dato);
-        return this._parsedRows;
+        return this._rows;
     }
 
     _filtrer(rows) {
@@ -37,185 +48,347 @@ class OmsetningMode {
         });
     }
 
-    // ISO-ukenummer (Mandag = start)
+    _datoKey(dato) {
+        return dato.toISOString().split('T')[0];
+    }
+
     _isoUke(dato) {
         const d = new Date(Date.UTC(dato.getFullYear(), dato.getMonth(), dato.getDate()));
         d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        const uke = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const uke = Math.ceil((((d - y0) / 86400000) + 1) / 7);
         return `${d.getUTCFullYear()}-U${String(uke).padStart(2, '0')}`;
     }
 
-    _grupperRader(rows) {
-        if (this.visning === 'dag') return rows.map(r => ({
-            label: r.dato.toLocaleDateString('nb-NO', { day:'2-digit', month:'2-digit', year:'numeric' }),
-            nok: r.nok, dg: r.dg, bruttofort: r.bruttofort, margin: r.margin, antallDager: 1
-        }));
+    // ── Aggregering ──────────────────────────────────────────────────────────
 
+    _grupperPerDag(rows) {
         const map = new Map();
         rows.forEach(r => {
-            const key = this.visning === 'uke'
-                ? this._isoUke(r.dato)
-                : `${r.dato.getFullYear()}-${String(r.dato.getMonth()+1).padStart(2,'0')}`;
-            if (!map.has(key)) map.set(key, { label: key, nok: 0, dg: 0, bruttofort: 0, antallDager: 0, marginSum: 0 });
+            const key = this._datoKey(r.dato);
+            if (!map.has(key)) map.set(key, {
+                key, label: r.dato.toLocaleDateString('nb-NO'),
+                nok: 0, dg: 0, gp: 0, marginSum: 0, marginCount: 0, antRader: 0
+            });
             const g = map.get(key);
-            g.nok        += r.nok;
-            g.dg         += r.dg;
-            g.bruttofort += r.bruttofort;
-            g.antallDager++;
-            g.marginSum  += r.margin;
+            g.nok += r.nok; g.dg += r.dg; g.gp += r.gp; g.antRader++;
+            if (r.margin !== null) { g.marginSum += r.margin; g.marginCount++; }
+        });
+        return Array.from(map.values()).map(g => ({
+            ...g, margin: g.marginCount > 0 ? g.marginSum / g.marginCount : null
+        }));
+    }
+
+    _grupperPerUke(rows) {
+        const map = new Map();
+        rows.forEach(r => {
+            const key = this._isoUke(r.dato);
+            if (!map.has(key)) map.set(key, {
+                key, label: key,
+                nok: 0, dg: 0, gp: 0, marginSum: 0, marginCount: 0, antDager: new Set()
+            });
+            const g = map.get(key);
+            g.nok += r.nok; g.dg += r.dg; g.gp += r.gp;
+            g.antDager.add(this._datoKey(r.dato));
+            if (r.margin !== null) { g.marginSum += r.margin; g.marginCount++; }
         });
         return Array.from(map.values()).map(g => ({
             ...g,
-            margin: g.antallDager > 0 ? g.marginSum / g.antallDager : 0
+            antRader: g.antDager.size,
+            margin: g.marginCount > 0 ? g.marginSum / g.marginCount : null
         }));
     }
 
-    // ── Nøkkeltall ───────────────────────────────────────────────────────────
-
-    _nokkelTall(rows) {
-        if (!rows.length) return { totalNok: 0, totalDg: 0, snittNok: 0, snittDg: 0, besteDag: null, snittMargin: 0 };
-        const totalNok   = rows.reduce((s, r) => s + r.nok, 0);
-        const totalDg    = rows.reduce((s, r) => s + r.dg, 0);
-        const snittMargin= rows.reduce((s, r) => s + r.margin, 0) / rows.length;
-        const besteDag   = rows.reduce((b, r) => r.nok > b.nok ? r : b, rows[0]);
-        return { totalNok, totalDg, snittNok: totalNok/rows.length, snittDg: totalDg/rows.length, besteDag, snittMargin };
+    _grupperPerMaaned(rows) {
+        const map = new Map();
+        rows.forEach(r => {
+            const key = `${r.dato.getFullYear()}-${String(r.dato.getMonth()+1).padStart(2,'0')}`;
+            const label = r.dato.toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' });
+            if (!map.has(key)) map.set(key, {
+                key, label,
+                nok: 0, dg: 0, gp: 0, marginSum: 0, marginCount: 0, antDager: new Set()
+            });
+            const g = map.get(key);
+            g.nok += r.nok; g.dg += r.dg; g.gp += r.gp;
+            g.antDager.add(this._datoKey(r.dato));
+            if (r.margin !== null) { g.marginSum += r.margin; g.marginCount++; }
+        });
+        return Array.from(map.values()).map(g => ({
+            ...g,
+            antRader: g.antDager.size,
+            margin: g.marginCount > 0 ? g.marginSum / g.marginCount : null
+        }));
     }
 
-    // ── Render ───────────────────────────────────────────────────────────────
+    _grupper(rows) {
+        if (this.visning === 'dag')    return this._grupperPerDag(rows);
+        if (this.visning === 'uke')    return this._grupperPerUke(rows);
+        return this._grupperPerMaaned(rows);
+    }
+
+    _kpi(rows) {
+        if (!rows.length) return {};
+        const totalNok = rows.reduce((s,r) => s+r.nok, 0);
+        const dagKeys  = new Set(rows.map(r => this._datoKey(r.dato)));
+        const antDager = dagKeys.size;
+        const margins  = rows.filter(r => r.margin !== null).map(r => r.margin);
+        const snittMargin = margins.length ? margins.reduce((a,b)=>a+b,0)/margins.length : 0;
+
+        // beste dag
+        const dagMap = new Map();
+        rows.forEach(r => {
+            const k = this._datoKey(r.dato);
+            dagMap.set(k, (dagMap.get(k)||0) + r.nok);
+        });
+        let besteDatoKey = '', besteNok = 0;
+        dagMap.forEach((v,k) => { if (v > besteNok) { besteNok = v; besteDatoKey = k; }});
+
+        return {
+            totalNok,
+            snittNok:  totalNok / antDager,
+            totalDg:   rows.reduce((s,r) => s+r.dg, 0),
+            snittDg:   rows.reduce((s,r) => s+r.dg, 0) / antDager,
+            snittMargin,
+            besteNok,
+            besteDato: besteDatoKey
+                ? new Date(besteDatoKey).toLocaleDateString('nb-NO')
+                : '',
+        };
+    }
+
+    // ── Render hoved-panel ───────────────────────────────────────────────────
 
     render(container) {
-        const rows    = this._filtrer(this._parseRows());
-        const grouped = this._grupperRader(rows);
-        const kpi     = this._nokkelTall(rows);
+        const allRows = this._filtrer(this._getRows());
+        const grouped = this._grupper(allRows);
+        const kpi     = this._kpi(allRows);
 
-        const fmt  = v => Math.round(v).toLocaleString('nb-NO') + ' kr';
-        const fmtDg= v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
-        const fmtPct=v => (v * 100).toFixed(1) + ' %';
+        const fmtNok = v => Math.round(v).toLocaleString('nb-NO') + ' kr';
+        const fmtDg  = v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+        const fmtPct = v => v !== null ? (v * 100).toFixed(1) + ' %' : '–';
+        const klikk  = this.visning === 'dag' ? 'oms-dag-klikk' : '';
 
         container.innerHTML = `
         <div class="omsetning-panel">
-           <!-- Nøkkeltall-kort -->
+
           <div class="omsetning-kpi-grid">
-            <div class="kpi-kort">
-              <div class="kpi-label">Total omsetning (periode)</div>
-              <div class="kpi-verdi">${fmt(kpi.totalNok)}</div>
-            </div>
-            <div class="kpi-kort">
-              <div class="kpi-label">Snitt per dag</div>
-              <div class="kpi-verdi">${fmt(kpi.snittNok)}</div>
-            </div>
-            <div class="kpi-kort">
-              <div class="kpi-label">Total DG (periode)</div>
-              <div class="kpi-verdi">${fmtDg(kpi.totalDg)}</div>
-            </div>
-            <div class="kpi-kort">
-              <div class="kpi-label">Snitt DG per dag</div>
-              <div class="kpi-verdi">${fmtDg(kpi.snittDg)}</div>
-            </div>
-            <div class="kpi-kort">
-              <div class="kpi-label">Snitt bruttomargin</div>
-              <div class="kpi-verdi">${fmtPct(kpi.snittMargin)}</div>
-            </div>
-            ${kpi.besteDag ? `
-            <div class="kpi-kort kpi-highlight">
-              <div class="kpi-label">Beste dag (NOK)</div>
-              <div class="kpi-verdi">${fmt(kpi.besteDag.nok)}</div>
-              <div class="kpi-sub">${kpi.besteDag.dato.toLocaleDateString('nb-NO')}</div>
+            <div class="kpi-kort"><div class="kpi-label">Total omsetning</div><div class="kpi-verdi">${fmtNok(kpi.totalNok||0)}</div></div>
+            <div class="kpi-kort"><div class="kpi-label">Snitt per dag</div><div class="kpi-verdi">${fmtNok(kpi.snittNok||0)}</div></div>
+            <div class="kpi-kort"><div class="kpi-label">Total DG</div><div class="kpi-verdi">${fmtDg(kpi.totalDg||0)}</div></div>
+            <div class="kpi-kort"><div class="kpi-label">Snitt DG per dag</div><div class="kpi-verdi">${fmtDg(kpi.snittDg||0)}</div></div>
+            <div class="kpi-kort"><div class="kpi-label">Snitt bruttomargin</div><div class="kpi-verdi">${fmtPct(kpi.snittMargin||0)}</div></div>
+            ${kpi.besteDato ? `<div class="kpi-kort kpi-highlight">
+              <div class="kpi-label">Beste dag</div>
+              <div class="kpi-verdi">${fmtNok(kpi.besteNok)}</div>
+              <div class="kpi-sub">${kpi.besteDato}</div>
             </div>` : ''}
           </div>
 
-           <!-- Kontroller -->
           <div class="omsetning-kontroller">
             <div class="kontroll-gruppe">
-              <label>Fra dato:</label>
-              <input type="date" id="omsFra" value="${this._dateTilInput(this.fraDato)}">
-              <label>Til dato:</label>
-              <input type="date" id="omsTil" value="${this._dateTilInput(this.tilDato)}">
+              <label>Fra:</label>
+              <input type="date" id="omsFra" value="${this._d2i(this.fraDato)}">
+              <label>Til:</label>
+              <input type="date" id="omsTil" value="${this._d2i(this.tilDato)}">
               <button id="omsFiltrerBtn" class="btn-sekundaer">Filtrer</button>
               <button id="omsNullstillBtn" class="btn-sekundaer">Nullstill</button>
             </div>
             <div class="kontroll-gruppe">
               <label>Vis per:</label>
-              <button class="visning-btn ${this.visning==='dag'?'aktiv':''}" data-visning="dag">Dag</button>
-              <button class="visning-btn ${this.visning==='uke'?'aktiv':''}" data-visning="uke">Uke</button>
-              <button class="visning-btn ${this.visning==='maaned'?'aktiv':''}" data-visning="maaned">Måned</button>
+              <button class="visning-btn ${this.visning==='dag'?'aktiv':''}" data-v="dag">Dag</button>
+              <button class="visning-btn ${this.visning==='uke'?'aktiv':''}" data-v="uke">Uke</button>
+              <button class="visning-btn ${this.visning==='maaned'?'aktiv':''}" data-v="maaned">Måned</button>
             </div>
+            ${this.visning === 'dag' ? `<div class="kontroll-hint">💡 Klikk på en dag for å se ordrer og artikler</div>` : ''}
           </div>
 
-           <!-- Tabell -->
           <div class="omsetning-tabell-wrapper">
             <table class="omsetning-tabell">
-              <thead>
-                <tr>
-                  <th>Periode</th>
-                  <th class="tall">Omsetning (kr)</th>
-                  <th class="tall">DG</th>
-                  <th class="tall">Bruttofortjeneste (kr)</th>
-                  <th class="tall">Margin</th>
-                  ${this.visning !== 'dag' ? '<th class="tall">Ant. dager</th>' : ''}
-                </tr>
-              </thead>
+              <thead><tr>
+                <th>Periode</th>
+                <th class="tall">Omsetning (kr)</th>
+                <th class="tall">DG</th>
+                <th class="tall">Bruttofortjeneste (kr)</th>
+                <th class="tall">Margin</th>
+                ${this.visning !== 'dag' ? '<th class="tall">Ant. dager</th>' : ''}
+              </tr></thead>
               <tbody>
                 ${grouped.length === 0
-                  ? `<tr><td colspan="5" class="ingen-data">Ingen data i valgt periode</td></tr>`
+                  ? `<tr><td colspan="6" class="ingen-data">Ingen data i valgt periode</td></tr>`
                   : grouped.map(g => `
-                    <tr>
-                      <td>${g.label}</td>
+                    <tr class="${klikk}" data-key="${g.key}" title="${this.visning==='dag'?'Klikk for detaljer':''}">
+                      <td>${g.label}${this.visning==='dag' ? ' <span class="drill-ikon">🔍</span>' : ''}</td>
                       <td class="tall">${Math.round(g.nok).toLocaleString('nb-NO')}</td>
                       <td class="tall">${fmtDg(g.dg)}</td>
-                      <td class="tall">${Math.round(g.bruttofort).toLocaleString('nb-NO')}</td>
+                      <td class="tall">${Math.round(g.gp).toLocaleString('nb-NO')}</td>
                       <td class="tall">${fmtPct(g.margin)}</td>
-                      ${this.visning !== 'dag' ? `<td class="tall">${g.antallDager}</td>` : ''}
+                      ${this.visning !== 'dag' ? `<td class="tall">${g.antRader}</td>` : ''}
                     </tr>`).join('')
                 }
               </tbody>
               ${grouped.length > 1 ? `
-              <tfoot>
-                <tr class="sum-rad">
-                  <td><strong>Sum</strong></td>
-                  <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.nok,0)).toLocaleString('nb-NO')}</strong></td>
-                  <td class="tall"><strong>${fmtDg(grouped.reduce((s,g)=>s+g.dg,0))}</strong></td>
-                  <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.bruttofort,0)).toLocaleString('nb-NO')}</strong></td>
-                  <td class="tall"></td>
-                  ${this.visning !== 'dag' ? `<td class="tall"><strong>${grouped.reduce((s,g)=>s+g.antallDager,0)}</strong></td>` : ''}
-                </tr>
-              </tfoot>` : ''}
+              <tfoot><tr class="sum-rad">
+                <td><strong>Sum</strong></td>
+                <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.nok,0)).toLocaleString('nb-NO')}</strong></td>
+                <td class="tall"><strong>${fmtDg(grouped.reduce((s,g)=>s+g.dg,0))}</strong></td>
+                <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.gp,0)).toLocaleString('nb-NO')}</strong></td>
+                <td></td>
+                ${this.visning !== 'dag' ? `<td class="tall"><strong>${grouped.reduce((s,g)=>s+(g.antRader||0),0)}</strong></td>` : ''}
+              </tr></tfoot>` : ''}
             </table>
+          </div>
+        </div>
+
+        <!-- Modal -->
+        <div id="omsModal" class="oms-modal-overlay" style="display:none">
+          <div class="oms-modal">
+            <div class="oms-modal-header">
+              <h3 id="omsModalTittel"></h3>
+              <button id="omsModalLukk" class="oms-lukk-btn">✕</button>
+            </div>
+            <div id="omsModalInnhold" class="oms-modal-innhold"></div>
           </div>
         </div>`;
 
-        this._bindEvents(container);
+        this._bindEvents(container, allRows);
     }
 
-    _dateTilInput(d) {
-        if (!d) return '';
-        return d.toISOString().split('T')[0];
+    // ── Drill-down modal ─────────────────────────────────────────────────────
+
+    _aapneDag(datoKey, allRows, container) {
+        const dagsRader = allRows.filter(r => this._datoKey(r.dato) === datoKey);
+        if (!dagsRader.length) return;
+
+        const dato = new Date(datoKey).toLocaleDateString('nb-NO', {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+        });
+
+        // Grupper på ordrenummer
+        const ordreMap = new Map();
+        dagsRader.forEach(r => {
+            if (!ordreMap.has(r.ordreNr)) ordreMap.set(r.ordreNr, {
+                ordreNr: r.ordreNr, linjer: [], nok: 0, dg: 0, gp: 0
+            });
+            const o = ordreMap.get(r.ordreNr);
+            o.linjer.push(r);
+            o.nok += r.nok; o.dg += r.dg; o.gp += r.gp;
+        });
+
+        const fmtNok = v => Math.round(v).toLocaleString('nb-NO');
+        const fmtDg  = v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+        const fmtPct = v => v !== null ? (v * 100).toFixed(1) + ' %' : '–';
+
+        const ordrer = Array.from(ordreMap.values())
+            .sort((a,b) => b.nok - a.nok);
+
+        const totalNok = dagsRader.reduce((s,r)=>s+r.nok,0);
+        const totalDg  = dagsRader.reduce((s,r)=>s+r.dg,0);
+        const totalGp  = dagsRader.reduce((s,r)=>s+r.gp,0);
+
+        container.querySelector('#omsModalTittel').textContent =
+            `${dato.charAt(0).toUpperCase() + dato.slice(1)}`;
+
+        container.querySelector('#omsModalInnhold').innerHTML = `
+          <div class="oms-dag-summary">
+            <span><strong>Omsetning:</strong> ${fmtNok(totalNok)} kr</span>
+            <span><strong>DG:</strong> ${fmtDg(totalDg)}</span>
+            <span><strong>Bruttofortjeneste:</strong> ${fmtNok(totalGp)} kr</span>
+            <span><strong>Antall ordrer:</strong> ${ordrer.length}</span>
+          </div>
+          ${ordrer.map(o => `
+          <div class="oms-ordre-blokk">
+            <div class="oms-ordre-header" data-ordre="${o.ordreNr}">
+              <span class="oms-ordre-pil">▶</span>
+              <span class="oms-ordre-nr">Ordre ${o.ordreNr}</span>
+              <span class="oms-ordre-nok">${fmtNok(o.nok)} kr</span>
+              <span class="oms-ordre-dg">DG: ${fmtDg(o.dg)}</span>
+              <span class="oms-ordre-gp">GP: ${fmtNok(o.gp)} kr</span>
+            </div>
+            <div class="oms-ordre-linjer" id="linjer-${o.ordreNr}" style="display:none">
+              <table class="oms-linjer-tabell">
+                <thead><tr>
+                  <th>Art.nr</th><th>Beskrivelse</th>
+                  <th class="tall">NOK</th><th class="tall">DG</th>
+                  <th class="tall">GP</th><th class="tall">Margin</th>
+                </tr></thead>
+                <tbody>
+                  ${o.linjer.map(l => `
+                  <tr>
+                    <td class="art-nr">${l.artNr}</td>
+                    <td>${l.item}</td>
+                    <td class="tall">${fmtNok(l.nok)}</td>
+                    <td class="tall">${fmtDg(l.dg)}</td>
+                    <td class="tall">${fmtNok(l.gp)}</td>
+                    <td class="tall">${fmtPct(l.margin)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>`).join('')}`;
+
+        container.querySelector('#omsModal').style.display = 'flex';
+
+        // Ekspander/kollaps ordre
+        container.querySelectorAll('.oms-ordre-header').forEach(h => {
+            h.addEventListener('click', () => {
+                const id  = h.dataset.ordre;
+                const div = container.querySelector(`#linjer-${id}`);
+                const pil = h.querySelector('.oms-ordre-pil');
+                const vis = div.style.display === 'none';
+                div.style.display = vis ? 'block' : 'none';
+                pil.textContent   = vis ? '▼' : '▶';
+            });
+        });
+
+        // Auto-ekspander hvis bare én ordre
+        if (ordrer.length === 1) {
+            const eneste = container.querySelector('.oms-ordre-header');
+            if (eneste) eneste.click();
+        }
     }
 
-    _bindEvents(container) {
+    // ── Events ───────────────────────────────────────────────────────────────
+
+    _bindEvents(container, allRows) {
         container.querySelector('#omsFiltrerBtn')?.addEventListener('click', () => {
             const fra = container.querySelector('#omsFra').value;
             const til = container.querySelector('#omsTil').value;
             this.fraDato = fra ? new Date(fra) : null;
             this.tilDato = til ? new Date(til + 'T23:59:59') : null;
-            this._parsedRows = null;
+            this._rows = null;
             this.render(container);
         });
 
         container.querySelector('#omsNullstillBtn')?.addEventListener('click', () => {
-            this.fraDato = null;
-            this.tilDato = null;
-            this._parsedRows = null;
+            this.fraDato = null; this.tilDato = null;
+            this._rows = null;
             this.render(container);
         });
 
         container.querySelectorAll('.visning-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                this.visning = btn.dataset.visning;
-                this._parsedRows = null;
+                this.visning = btn.dataset.v;
+                this._rows = null;
                 this.render(container);
             });
         });
+
+        // Dag-klikk → modal
+        container.querySelectorAll('.oms-dag-klikk').forEach(tr => {
+            tr.addEventListener('click', () => {
+                this._aapneDag(tr.dataset.key, allRows, container);
+            });
+        });
+
+        // Lukk modal
+        container.querySelector('#omsModalLukk')?.addEventListener('click', () => {
+            container.querySelector('#omsModal').style.display = 'none';
+        });
+        container.querySelector('#omsModal')?.addEventListener('click', e => {
+            if (e.target.id === 'omsModal')
+                container.querySelector('#omsModal').style.display = 'none';
+        });
     }
+
+    _d2i(d) { return d ? d.toISOString().split('T')[0] : ''; }
 }
