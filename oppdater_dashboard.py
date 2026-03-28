@@ -33,6 +33,7 @@ required = {
     "bestillinger.xlsx":            DAGLIG,
     "Inventeringshistorikk.xlsx":   DAGLIG,      # NY
     "dagsomsetning.xlsx":           DAGLIG,      # NY
+    "Orderingang.xlsx":             DAGLIG,      # FASE 10.x
     "SA-Nummer.xlsx":               SJELDEN,
     "leverandører.xlsx":            SJELDEN,
     "Analyse_Lagerplan.xlsx":       UKENTLIG,
@@ -111,6 +112,40 @@ try:
     best = pd.read_excel(
         os.path.join(script_dir, "bestillinger.xlsx"), dtype=str
     ).fillna("")
+
+    # ── Orderingang — DG% per ordrelinje (FASE 10.x) ─────────────────────────
+    oi_records = []
+    try:
+        oi_df = pd.read_excel(
+            os.path.join(script_dir, "Orderingang.xlsx"),
+            dtype=str
+        ).fillna("")
+
+        # Filtrer kun Borregaard - TOOLS
+        oi_df = oi_df[oi_df["LstK"].str.strip() == "Borregaard - TOOLS"].copy()
+
+        def parse_no(val):
+            """Parse norsk tallformat: '47 264,50' → 47264.5"""
+            try:
+                return float(str(val).replace(" ", "").replace(",", "."))
+            except (ValueError, TypeError):
+                return None
+
+        for _, row in oi_df.iterrows():
+            ordrenr   = str(row.get("OrderNr", "")).strip()
+            artnr     = str(row.get("Artikelnr", "")).strip()
+            radbidrag = parse_no(row.get("Radbidrag i %", ""))
+            if not ordrenr or not artnr or radbidrag is None:
+                continue
+            oi_records.append({
+                "ordrenr":   ordrenr,
+                "artnr":     artnr,
+                "radbidrag": round(radbidrag, 3),
+            })
+
+        print(f"✅ Orderingang lastet ({len(oi_records)} linjer med DG%)")
+    except Exception as oi_err:
+        print(f"⚠️  Orderingang ikke tilgjengelig (fortsetter uten): {oi_err}")
 
     # ── Dagsomsetning (valgfri) ─────────────────────────────────────────────────
     salg_records = []
@@ -578,6 +613,7 @@ try:
         "varetelling_meta":   varetelling_meta,       # FASE 8.1
         "ordrestockanalys":   ordrestock_records,     # FASE 9.1 — valgfri, periodisk
         "dagsomsetning":      salg_records,           # NY
+        "orderingang":        oi_records,             # FASE 10.x
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
