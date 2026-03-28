@@ -218,14 +218,14 @@ class OmsetningMode {
                 </span>
               </span>
               <span style="font-size:13px;color:#2e75b6;font-weight:600;">${fmtNok(o.nok)} kr
-                <span style="color:#64748b;font-weight:400;margin-left:8px;">Ant: ${Math.round(o.dg).toLocaleString('nb-NO')}&nbsp;&nbsp;DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
+                <span style="color:#64748b;font-weight:400;margin-left:8px;">DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
               </span>
             </div>
             <div>
               <table class="oms-linjer-tabell">
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
-                  <th class="tall">NOK</th><th class="tall">DG</th>
+                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
                   <th class="tall">GP</th><th class="tall">Margin</th>
                 </tr></thead>
                 <tbody>
@@ -234,6 +234,7 @@ class OmsetningMode {
                     <td class="art-nr">${l.artNr}</td>
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
+                    <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
                     <td class="tall">${fmtDg(l.dg)}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
                     <td class="tall">${fmtPct(l.margin)}</td>
@@ -480,7 +481,6 @@ class OmsetningMode {
               <span class="oms-ordre-pil">▶</span>
               <span class="oms-ordre-nr">Ordre ${o.ordreNr}</span>
               <span class="oms-ordre-nok">${fmtNok(o.nok)} kr</span>
-              <span class="oms-ordre-ant">Ant: ${Math.round(o.dg).toLocaleString('nb-NO')}</span>
               <span class="oms-ordre-dg">DG: ${fmtDg(o.dg)}</span>
               <span class="oms-ordre-gp">GP: ${fmtNok(o.gp)} kr</span>
             </div>
@@ -488,7 +488,7 @@ class OmsetningMode {
               <table class="oms-linjer-tabell">
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
-                  <th class="tall">NOK</th><th class="tall">DG</th>
+                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
                   <th class="tall">GP</th><th class="tall">Margin</th>
                 </tr></thead>
                 <tbody>
@@ -497,6 +497,7 @@ class OmsetningMode {
                     <td class="art-nr">${l.artNr}</td>
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
+                    <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
                     <td class="tall">${fmtDg(l.dg)}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
                     <td class="tall">${fmtPct(l.margin)}</td>
