@@ -218,7 +218,7 @@ class OmsetningMode {
                 </span>
               </span>
               <span style="font-size:13px;color:#2e75b6;font-weight:600;">${fmtNok(o.nok)} kr
-                <span style="color:#64748b;font-weight:400;margin-left:8px;">DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
+                <span style="color:#64748b;font-weight:400;margin-left:8px;">Ant: ${Math.round(o.dg).toLocaleString('nb-NO')}&nbsp;&nbsp;DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
               </span>
             </div>
             <div>
@@ -480,6 +480,7 @@ class OmsetningMode {
               <span class="oms-ordre-pil">▶</span>
               <span class="oms-ordre-nr">Ordre ${o.ordreNr}</span>
               <span class="oms-ordre-nok">${fmtNok(o.nok)} kr</span>
+              <span class="oms-ordre-ant">Ant: ${Math.round(o.dg).toLocaleString('nb-NO')}</span>
               <span class="oms-ordre-dg">DG: ${fmtDg(o.dg)}</span>
               <span class="oms-ordre-gp">GP: ${fmtNok(o.gp)} kr</span>
             </div>
