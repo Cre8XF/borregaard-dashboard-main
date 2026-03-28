@@ -27,19 +27,24 @@ class OmsetningMode {
 
     _getRows() {
         if (this._rows) return this._rows;
-        const raw = this.app.salgsData || [];
-        this._rows = raw.map(r => ({
-            dato:     new Date(r['Date']),
-            item:     r['Item']          || '',
-            artNr:    r['Main item ID']  || '',
-            ordreNr:  String(r['Order number'] || ''),
-            nok:      parseFloat(r['Delivered value'])   || 0,
-            dg:       parseFloat(r['Delivered quantity']) || 0,
-            gp:       parseFloat(r['Gross profit'])      || 0,
-            margin:   r['Gross margin'] === '-' ? null
-                        : parseFloat(r['Gross margin'])  || 0,
-        })).filter(r => !isNaN(r.dato.getTime()))
-           .sort((a, b) => a.dato - b.dato);
+        const raw    = this.app.salgsData || [];
+        const dgMap  = this.app.dataStore?.orderingangDGMap || {};
+        this._rows = raw.map(r => {
+            const dgKey = `${r['Order number']}|${r['Main item ID']}`;
+            return {
+                dato:    new Date(r['Date']),
+                item:    r['Item']          || '',
+                artNr:   r['Main item ID']  || '',
+                ordreNr: String(r['Order number'] || ''),
+                nok:     parseFloat(r['Delivered value'])    || 0,
+                dg:      parseFloat(r['Delivered quantity']) || 0,
+                gp:      parseFloat(r['Gross profit'])       || 0,
+                margin:  r['Gross margin'] === '-' ? null
+                           : parseFloat(r['Gross margin'])   || 0,
+                dgPct:   dgMap[dgKey] ?? null,
+            };
+        }).filter(r => !isNaN(r.dato.getTime()))
+          .sort((a, b) => a.dato - b.dato);
         return this._rows;
     }
 
@@ -226,7 +231,7 @@ class OmsetningMode {
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
                   <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
-                  <th class="tall">GP</th><th class="tall">Margin</th>
+                  <th class="tall">GP</th><th class="tall">DG%</th>
                 </tr></thead>
                 <tbody>
                   ${o.linjer.map(l => `
@@ -237,7 +242,7 @@ class OmsetningMode {
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
                     <td class="tall">${fmtDg(l.dg)}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
-                    <td class="tall">${fmtPct(l.margin)}</td>
+                    <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
@@ -489,7 +494,7 @@ class OmsetningMode {
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
                   <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
-                  <th class="tall">GP</th><th class="tall">Margin</th>
+                  <th class="tall">GP</th><th class="tall">DG%</th>
                 </tr></thead>
                 <tbody>
                   ${o.linjer.map(l => `
@@ -500,7 +505,7 @@ class OmsetningMode {
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
                     <td class="tall">${fmtDg(l.dg)}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
-                    <td class="tall">${fmtPct(l.margin)}</td>
+                    <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>

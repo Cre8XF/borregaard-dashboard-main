@@ -1097,6 +1097,7 @@ class DashboardApp {
                 varetelling_meta:    payload.varetelling_meta     || null, // FASE 8.1
                 ordrestockanalys:    payload.ordrestockanalys     || [],   // FASE 9.1
                 dagsomsetning:       payload.dagsomsetning        || [],   // NY
+                orderingang:         payload.orderingang           || [],   // FASE 10.x
             });
 
         } catch (err) {
@@ -1114,7 +1115,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys, dagsomsetning }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys, dagsomsetning, orderingang }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1136,6 +1137,18 @@ class DashboardApp {
         }
 
         store.calculateAll();
+
+        // FASE 10.x: Bygg orderingang DG-map — { "ordrenr|artnr" → radbidrag% }
+        if (orderingang && orderingang.length > 0) {
+            store.orderingangDGMap = {};
+            orderingang.forEach(row => {
+                const key = `${row.ordrenr}|${row.artnr}`;
+                store.orderingangDGMap[key] = row.radbidrag;
+            });
+            console.log(`[FASE 10.x] orderingangDGMap: ${Object.keys(store.orderingangDGMap).length} linjer`);
+        } else {
+            store.orderingangDGMap = {};
+        }
 
         // FASE 9.0: Bygg prisMap og berik alle items med prisdata
         if (prisliste && prisliste.length > 0) {
