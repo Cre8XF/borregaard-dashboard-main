@@ -9,6 +9,7 @@
  *   - Dagstabell (aggregert) — klikk på rad åpner modal
  *   - Modal: ordrer for valgt dag, gruppert på Order number
  *   - Inne i modal: ekspander ordre → artikkellinjene
+ *   - Søkefelt: søk på art.nr, ordrenummer eller varebeskrivelse
  */
 class OmsetningMode {
 
@@ -18,6 +19,8 @@ class OmsetningMode {
         this.fraDato  = null;
         this.tilDato  = null;
         this._rows    = null;    // parsed + sortert cache
+        this._sokTerm = '';
+        this._sokResultatInfo = '';
     }
 
     // ── Parsing ──────────────────────────────────────────────────────────────
@@ -156,6 +159,181 @@ class OmsetningMode {
         };
     }
 
+    // ── Søk ──────────────────────────────────────────────────────────────────
+
+    _matcherSok(row) {
+        if (!this._sokTerm) return true;
+        const t = this._sokTerm.toLowerCase();
+        return (
+            (row.artNr   || '').toString().toLowerCase().includes(t) ||
+            (row.ordreNr || '').toString().toLowerCase().includes(t) ||
+            (row.item    || '').toString().toLowerCase().includes(t)
+        );
+    }
+
+    _formatDatoKort(dato) {
+        return `${dato.getDate()}.${dato.getMonth() + 1}.${dato.getFullYear()}`;
+    }
+
+    _renderSokResultater(allRows) {
+        const treff = allRows.filter(r => this._matcherSok(r));
+
+        // Grupper på ordrenummer, behold tidligste dato per ordre
+        const ordreMap = new Map();
+        treff.forEach(r => {
+            if (!ordreMap.has(r.ordreNr)) ordreMap.set(r.ordreNr, {
+                ordreNr: r.ordreNr, dato: r.dato, linjer: [], nok: 0, dg: 0, gp: 0
+            });
+            const o = ordreMap.get(r.ordreNr);
+            o.linjer.push(r);
+            o.nok += r.nok; o.dg += r.dg; o.gp += r.gp;
+            if (r.dato < o.dato) o.dato = r.dato;
+        });
+
+        const ordrer = Array.from(ordreMap.values())
+            .sort((a, b) => b.dato - a.dato || b.nok - a.nok);
+
+        this._sokResultatInfo = treff.length === 0
+            ? 'Ingen treff'
+            : `${treff.length} treff på ${ordrer.length} ordre${ordrer.length !== 1 ? 'r' : ''}`;
+
+        if (ordrer.length === 0) {
+            return `<div style="padding:24px;text-align:center;color:#94a3b8;font-size:14px;">Ingen treff for «${this._sokTerm}»</div>`;
+        }
+
+        const fmtNok = v => Math.round(v).toLocaleString('nb-NO');
+        const fmtDg  = v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+        const fmtPct = v => v !== null ? (v * 100).toFixed(1) + ' %' : '–';
+
+        return `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${ordrer.map(o => `
+          <div class="oms-ordre-blokk" style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        padding:10px 16px;background:#f0f7ff;border-left:3px solid #2e75b6;">
+              <span style="font-weight:700;font-size:14px;">
+                Ordre ${o.ordreNr}
+                <span style="font-size:12px;color:#64748b;font-weight:400;margin-left:8px;">
+                  — ${this._formatDatoKort(o.dato)}
+                </span>
+              </span>
+              <span style="font-size:13px;color:#2e75b6;font-weight:600;">${fmtNok(o.nok)} kr
+                <span style="color:#64748b;font-weight:400;margin-left:8px;">DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
+              </span>
+            </div>
+            <div>
+              <table class="oms-linjer-tabell">
+                <thead><tr>
+                  <th>Art.nr</th><th>Beskrivelse</th>
+                  <th class="tall">NOK</th><th class="tall">DG</th>
+                  <th class="tall">GP</th><th class="tall">Margin</th>
+                </tr></thead>
+                <tbody>
+                  ${o.linjer.map(l => `
+                  <tr>
+                    <td class="art-nr">${l.artNr}</td>
+                    <td>${l.item}</td>
+                    <td class="tall">${fmtNok(l.nok)}</td>
+                    <td class="tall">${fmtDg(l.dg)}</td>
+                    <td class="tall">${fmtNok(l.gp)}</td>
+                    <td class="tall">${fmtPct(l.margin)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>`).join('')}
+        </div>`;
+    }
+
+    _renderTabell(grouped) {
+        const fmtDg  = v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+        const fmtPct = v => v !== null ? (v * 100).toFixed(1) + ' %' : '–';
+        const klikk  = this.visning === 'dag' ? 'oms-dag-klikk' : '';
+
+        return `
+        <div class="omsetning-tabell-wrapper">
+          <table class="omsetning-tabell">
+            <thead><tr>
+              <th>Periode</th>
+              <th class="tall">Omsetning (kr)</th>
+              <th class="tall">DG</th>
+              <th class="tall">Bruttofortjeneste (kr)</th>
+              <th class="tall">Margin</th>
+              ${this.visning !== 'dag' ? '<th class="tall">Ant. dager</th>' : ''}
+            </tr></thead>
+            <tbody>
+              ${grouped.length === 0
+                ? `<tr><td colspan="6" class="ingen-data">Ingen data i valgt periode</td></tr>`
+                : grouped.map(g => `
+                  <tr class="${klikk}" data-key="${g.key}" title="${this.visning==='dag'?'Klikk for detaljer':''}">
+                    <td>${g.label}${this.visning==='dag' ? ' <span class="drill-ikon">🔍</span>' : ''}</td>
+                    <td class="tall">${Math.round(g.nok).toLocaleString('nb-NO')}</td>
+                    <td class="tall">${fmtDg(g.dg)}</td>
+                    <td class="tall">${Math.round(g.gp).toLocaleString('nb-NO')}</td>
+                    <td class="tall">${fmtPct(g.margin)}</td>
+                    ${this.visning !== 'dag' ? `<td class="tall">${g.antRader}</td>` : ''}
+                  </tr>`).join('')
+              }
+            </tbody>
+            ${grouped.length > 1 ? `
+            <tfoot><tr class="sum-rad">
+              <td><strong>Sum</strong></td>
+              <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.nok,0)).toLocaleString('nb-NO')}</strong></td>
+              <td class="tall"><strong>${fmtDg(grouped.reduce((s,g)=>s+g.dg,0))}</strong></td>
+              <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.gp,0)).toLocaleString('nb-NO')}</strong></td>
+              <td></td>
+              ${this.visning !== 'dag' ? `<td class="tall"><strong>${grouped.reduce((s,g)=>s+(g.antRader||0),0)}</strong></td>` : ''}
+            </tr></tfoot>` : ''}
+          </table>
+        </div>`;
+    }
+
+    _renderOrdreContainer(allRows, grouped) {
+        if (this._sokTerm) {
+            return this._renderSokResultater(allRows);
+        }
+        return this._renderTabell(grouped);
+    }
+
+    _oppdaterOmsetningVisning(container, allRows) {
+        const grouped = this._grupper(allRows);
+
+        const ordreContainer = container.querySelector('#omsetningOrdreContainer');
+        if (ordreContainer) {
+            ordreContainer.innerHTML = this._renderOrdreContainer(allRows, grouped);
+            if (!this._sokTerm) {
+                ordreContainer.querySelectorAll('.oms-dag-klikk').forEach(tr => {
+                    tr.addEventListener('click', () => {
+                        this._aapneDag(tr.dataset.key, allRows, container);
+                    });
+                });
+            }
+        }
+
+        // Oppdater søkestatus (nullstill-knapp + treff-info)
+        const sokStatus = container.querySelector('#omsetningSearchStatus');
+        if (sokStatus) {
+            if (this._sokTerm) {
+                sokStatus.innerHTML = `
+                  <button id="omsetningNullstill"
+                          style="padding:7px 14px;border-radius:8px;border:1.5px solid #e2e8f0;
+                                 background:#fff;color:#64748b;font-size:12px;cursor:pointer;
+                                 white-space:nowrap;">
+                    ✕ Nullstill
+                  </button>
+                  <span style="font-size:12px;color:#64748b;">${this._sokResultatInfo}</span>`;
+                sokStatus.querySelector('#omsetningNullstill')?.addEventListener('click', () => {
+                    this._sokTerm = '';
+                    const searchEl = container.querySelector('#omsetningSearch');
+                    if (searchEl) searchEl.value = '';
+                    this._oppdaterOmsetningVisning(container, allRows);
+                });
+            } else {
+                sokStatus.innerHTML = '';
+            }
+        }
+    }
+
     // ── Render hoved-panel ───────────────────────────────────────────────────
 
     render(container) {
@@ -163,10 +341,14 @@ class OmsetningMode {
         const grouped = this._grupper(allRows);
         const kpi     = this._kpi(allRows);
 
+        // Pre-populate sokResultatInfo if søk er aktivt ved render
+        if (this._sokTerm) {
+            this._renderSokResultater(allRows);
+        }
+
         const fmtNok = v => Math.round(v).toLocaleString('nb-NO') + ' kr';
         const fmtDg  = v => v.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
         const fmtPct = v => v !== null ? (v * 100).toFixed(1) + ' %' : '–';
-        const klikk  = this.visning === 'dag' ? 'oms-dag-klikk' : '';
 
         container.innerHTML = `
         <div class="omsetning-panel">
@@ -184,6 +366,35 @@ class OmsetningMode {
             </div>` : ''}
           </div>
 
+          <!-- Ordresøk-bar -->
+          <div style="display:flex;align-items:center;gap:10px;margin:0 0 14px 0;">
+            <div style="position:relative;flex:1;max-width:420px;">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);
+                           color:#94a3b8;font-size:15px;pointer-events:none;">🔍</span>
+              <input
+                id="omsetningSearch"
+                type="text"
+                placeholder="Søk art.nr eller ordrenummer…"
+                value="${this._sokTerm.replace(/"/g, '&quot;')}"
+                style="width:100%;padding:8px 12px 8px 34px;border:1.5px solid #cbd5e1;
+                       border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;
+                       transition:border-color .15s;"
+                onfocus="this.style.borderColor='#2e75b6'"
+                onblur="this.style.borderColor='#cbd5e1'">
+            </div>
+            <div id="omsetningSearchStatus" style="display:flex;align-items:center;gap:8px;">
+              ${this._sokTerm ? `
+                <button id="omsetningNullstill"
+                        style="padding:7px 14px;border-radius:8px;border:1.5px solid #e2e8f0;
+                               background:#fff;color:#64748b;font-size:12px;cursor:pointer;
+                               white-space:nowrap;">
+                  ✕ Nullstill
+                </button>
+                <span style="font-size:12px;color:#64748b;">${this._sokResultatInfo}</span>
+              ` : ''}
+            </div>
+          </div>
+
           <div class="omsetning-kontroller">
             <div class="kontroll-gruppe">
               <label>Fra:</label>
@@ -199,43 +410,11 @@ class OmsetningMode {
               <button class="visning-btn ${this.visning==='uke'?'aktiv':''}" data-v="uke">Uke</button>
               <button class="visning-btn ${this.visning==='maaned'?'aktiv':''}" data-v="maaned">Måned</button>
             </div>
-            ${this.visning === 'dag' ? `<div class="kontroll-hint">💡 Klikk på en dag for å se ordrer og artikler</div>` : ''}
+            ${this.visning === 'dag' && !this._sokTerm ? `<div class="kontroll-hint">💡 Klikk på en dag for å se ordrer og artikler</div>` : ''}
           </div>
 
-          <div class="omsetning-tabell-wrapper">
-            <table class="omsetning-tabell">
-              <thead><tr>
-                <th>Periode</th>
-                <th class="tall">Omsetning (kr)</th>
-                <th class="tall">DG</th>
-                <th class="tall">Bruttofortjeneste (kr)</th>
-                <th class="tall">Margin</th>
-                ${this.visning !== 'dag' ? '<th class="tall">Ant. dager</th>' : ''}
-              </tr></thead>
-              <tbody>
-                ${grouped.length === 0
-                  ? `<tr><td colspan="6" class="ingen-data">Ingen data i valgt periode</td></tr>`
-                  : grouped.map(g => `
-                    <tr class="${klikk}" data-key="${g.key}" title="${this.visning==='dag'?'Klikk for detaljer':''}">
-                      <td>${g.label}${this.visning==='dag' ? ' <span class="drill-ikon">🔍</span>' : ''}</td>
-                      <td class="tall">${Math.round(g.nok).toLocaleString('nb-NO')}</td>
-                      <td class="tall">${fmtDg(g.dg)}</td>
-                      <td class="tall">${Math.round(g.gp).toLocaleString('nb-NO')}</td>
-                      <td class="tall">${fmtPct(g.margin)}</td>
-                      ${this.visning !== 'dag' ? `<td class="tall">${g.antRader}</td>` : ''}
-                    </tr>`).join('')
-                }
-              </tbody>
-              ${grouped.length > 1 ? `
-              <tfoot><tr class="sum-rad">
-                <td><strong>Sum</strong></td>
-                <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.nok,0)).toLocaleString('nb-NO')}</strong></td>
-                <td class="tall"><strong>${fmtDg(grouped.reduce((s,g)=>s+g.dg,0))}</strong></td>
-                <td class="tall"><strong>${Math.round(grouped.reduce((s,g)=>s+g.gp,0)).toLocaleString('nb-NO')}</strong></td>
-                <td></td>
-                ${this.visning !== 'dag' ? `<td class="tall"><strong>${grouped.reduce((s,g)=>s+(g.antRader||0),0)}</strong></td>` : ''}
-              </tr></tfoot>` : ''}
-            </table>
+          <div id="omsetningOrdreContainer">
+            ${this._renderOrdreContainer(allRows, grouped)}
           </div>
         </div>
 
@@ -350,6 +529,20 @@ class OmsetningMode {
     // ── Events ───────────────────────────────────────────────────────────────
 
     _bindEvents(container, allRows) {
+        // Søk
+        container.querySelector('#omsetningSearch')?.addEventListener('input', e => {
+            this._sokTerm = e.target.value.trim();
+            this._oppdaterOmsetningVisning(container, allRows);
+        });
+
+        // Nullstill søk (initial render, hvis synlig)
+        container.querySelector('#omsetningNullstill')?.addEventListener('click', () => {
+            this._sokTerm = '';
+            const searchEl = container.querySelector('#omsetningSearch');
+            if (searchEl) searchEl.value = '';
+            this._oppdaterOmsetningVisning(container, allRows);
+        });
+
         container.querySelector('#omsFiltrerBtn')?.addEventListener('click', () => {
             const fra = container.querySelector('#omsFra').value;
             const til = container.querySelector('#omsTil').value;
@@ -373,12 +566,14 @@ class OmsetningMode {
             });
         });
 
-        // Dag-klikk → modal
-        container.querySelectorAll('.oms-dag-klikk').forEach(tr => {
-            tr.addEventListener('click', () => {
-                this._aapneDag(tr.dataset.key, allRows, container);
+        // Dag-klikk → modal (kun i normal modus uten søk)
+        if (!this._sokTerm) {
+            container.querySelectorAll('.oms-dag-klikk').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    this._aapneDag(tr.dataset.key, allRows, container);
+                });
             });
-        });
+        }
 
         // Lukk modal
         container.querySelector('#omsModalLukk')?.addEventListener('click', () => {
