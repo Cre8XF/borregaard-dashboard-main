@@ -1147,6 +1147,7 @@ class DashboardApp {
                     dg:       row.radbidrag,
                     radbidr:  row.radbidr,
                     radverdi: row.radverdi,
+                    prisval:  row.prisval,
                 };
             });
             console.log(`[FASE 10.x] orderingangDGMap: ${Object.keys(store.orderingangDGMap).length} linjer`);

@@ -45,6 +45,7 @@ class OmsetningMode {
                 dgPct:    entry ? entry.dg       : null,
                 radbidr:  entry ? entry.radbidr  : null,
                 radverdi: entry ? entry.radverdi : null,
+                prisval:  entry ? entry.prisval  : null,
             };
         }).filter(r => !isNaN(r.dato.getTime()))
           .sort((a, b) => a.dato - b.dato);
@@ -236,7 +237,7 @@ class OmsetningMode {
               <table class="oms-linjer-tabell">
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
-                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
+                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">Pris/stk</th>
                   <th class="tall">GP</th><th class="tall">DG%</th>
                 </tr></thead>
                 <tbody>
@@ -246,7 +247,7 @@ class OmsetningMode {
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
-                    <td class="tall">${fmtDg(l.dg)}</td>
+                    <td class="tall">${l.prisval !== null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
                     <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
@@ -502,7 +503,7 @@ class OmsetningMode {
               <table class="oms-linjer-tabell">
                 <thead><tr>
                   <th>Art.nr</th><th>Beskrivelse</th>
-                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">DG</th>
+                  <th class="tall">NOK</th><th class="tall">Ant</th><th class="tall">Pris/stk</th>
                   <th class="tall">GP</th><th class="tall">DG%</th>
                 </tr></thead>
                 <tbody>
@@ -512,7 +513,7 @@ class OmsetningMode {
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
-                    <td class="tall">${fmtDg(l.dg)}</td>
+                    <td class="tall">${l.prisval !== null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
                     <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
