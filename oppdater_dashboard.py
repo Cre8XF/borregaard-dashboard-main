@@ -8,6 +8,7 @@ Rogers morgenrutine:
 """
 
 import os
+import re
 import sys
 import json
 import shutil
@@ -131,19 +132,40 @@ try:
             except (ValueError, TypeError):
                 return None
 
+        oi_map = {}  # key = "ordrenr|artnr"
         for _, row in oi_df.iterrows():
             ordrenr   = str(row.get("OrderNr", "")).strip()
-            artnr     = str(row.get("Artikelnr", "")).strip()
-            radbidrag = parse_no(row.get("Radbidrag i %", ""))
-            if not ordrenr or not artnr or radbidrag is None:
+            artnr_raw = str(row.get("Artikelnr", "")).strip()
+            artnr     = re.sub(r'-\w{1,3}$', '', artnr_raw)
+            if not ordrenr or not artnr:
                 continue
+            radbidrag_pct = parse_no(row.get("Radbidrag i %", ""))
+            radbidr       = parse_no(row.get("Radbidr i basvaluta", "")) or 0
+            radverdi      = parse_no(row.get("Radvärde i valuta", "")) or 0
+            prisval       = parse_no(row.get("PrisVal", "")) or 0
+            if radbidrag_pct is None:
+                continue
+            key = f"{ordrenr}|{artnr}"
+            if key not in oi_map:
+                oi_map[key] = {"ordrenr": ordrenr, "artnr": artnr,
+                               "radbidr": 0, "radverdi": 0,
+                               "prisval_sum": 0, "prisval_count": 0}
+            oi_map[key]["radbidr"]       += radbidr
+            oi_map[key]["radverdi"]      += radverdi
+            oi_map[key]["prisval_sum"]   += prisval
+            oi_map[key]["prisval_count"] += 1
+
+        oi_records = []
+        for key, v in oi_map.items():
+            dg = (v["radbidr"] / v["radverdi"] * 100) if v["radverdi"] > 0 else 0
+            prisval_snitt = (v["prisval_sum"] / v["prisval_count"]) if v["prisval_count"] > 0 else 0
             oi_records.append({
-                "ordrenr":   ordrenr,
-                "artnr":     artnr,
-                "radbidrag": round(radbidrag, 3),
-                "radbidr":   round(parse_no(row.get("Radbidr i basvaluta", "")) or 0, 2),
-                "radverdi":  round(parse_no(row.get("Radvärde i valuta", "")) or 0, 2),
-                "prisval":   round(parse_no(row.get("PrisVal", "")) or 0, 2),
+                "ordrenr":   v["ordrenr"],
+                "artnr":     v["artnr"],
+                "radbidrag": round(dg, 3),
+                "radbidr":   round(v["radbidr"], 2),
+                "radverdi":  round(v["radverdi"], 2),
+                "prisval":   round(prisval_snitt, 2),
             })
 
         print(f"✅ Orderingang lastet ({len(oi_records)} linjer med DG%)")
