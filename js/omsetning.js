@@ -31,17 +31,20 @@ class OmsetningMode {
         const dgMap  = this.app.dataStore?.orderingangDGMap || {};
         this._rows = raw.map(r => {
             const dgKey = `${r['Order number']}|${r['Main item ID']}`;
+            const entry = dgMap[dgKey] ?? null;
             return {
-                dato:    new Date(r['Date']),
-                item:    r['Item']          || '',
-                artNr:   r['Main item ID']  || '',
-                ordreNr: String(r['Order number'] || ''),
-                nok:     parseFloat(r['Delivered value'])    || 0,
-                dg:      parseFloat(r['Delivered quantity']) || 0,
-                gp:      parseFloat(r['Gross profit'])       || 0,
-                margin:  r['Gross margin'] === '-' ? null
-                           : parseFloat(r['Gross margin'])   || 0,
-                dgPct:   dgMap[dgKey] ?? null,
+                dato:     new Date(r['Date']),
+                item:     r['Item']          || '',
+                artNr:    r['Main item ID']  || '',
+                ordreNr:  String(r['Order number'] || ''),
+                nok:      parseFloat(r['Delivered value'])    || 0,
+                dg:       parseFloat(r['Delivered quantity']) || 0,
+                gp:       parseFloat(r['Gross profit'])       || 0,
+                margin:   r['Gross margin'] === '-' ? null
+                            : parseFloat(r['Gross margin'])   || 0,
+                dgPct:    entry ? entry.dg       : null,
+                radbidr:  entry ? entry.radbidr  : null,
+                radverdi: entry ? entry.radverdi : null,
             };
         }).filter(r => !isNaN(r.dato.getTime()))
           .sort((a, b) => a.dato - b.dato);
@@ -187,11 +190,14 @@ class OmsetningMode {
         const ordreMap = new Map();
         treff.forEach(r => {
             if (!ordreMap.has(r.ordreNr)) ordreMap.set(r.ordreNr, {
-                ordreNr: r.ordreNr, dato: r.dato, linjer: [], nok: 0, dg: 0, gp: 0
+                ordreNr: r.ordreNr, dato: r.dato, linjer: [],
+                nok: 0, dg: 0, gp: 0, radbidr: 0, radverdi: 0
             });
             const o = ordreMap.get(r.ordreNr);
             o.linjer.push(r);
             o.nok += r.nok; o.dg += r.dg; o.gp += r.gp;
+            o.radbidr  += r.radbidr  ?? 0;
+            o.radverdi += r.radverdi ?? 0;
             if (r.dato < o.dato) o.dato = r.dato;
         });
 
@@ -223,7 +229,7 @@ class OmsetningMode {
                 </span>
               </span>
               <span style="font-size:13px;color:#2e75b6;font-weight:600;">${fmtNok(o.nok)} kr
-                <span style="color:#64748b;font-weight:400;margin-left:8px;">DG: ${fmtDg(o.dg)}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
+                <span style="color:#64748b;font-weight:400;margin-left:8px;">DG: ${o.radverdi > 0 ? (o.radbidr / o.radverdi * 100).toFixed(1) + ' %' : '–'}&nbsp;&nbsp;GP: ${fmtNok(o.gp)} kr</span>
               </span>
             </div>
             <div>
@@ -452,11 +458,14 @@ class OmsetningMode {
         const ordreMap = new Map();
         dagsRader.forEach(r => {
             if (!ordreMap.has(r.ordreNr)) ordreMap.set(r.ordreNr, {
-                ordreNr: r.ordreNr, linjer: [], nok: 0, dg: 0, gp: 0
+                ordreNr: r.ordreNr, linjer: [],
+                nok: 0, dg: 0, gp: 0, radbidr: 0, radverdi: 0
             });
             const o = ordreMap.get(r.ordreNr);
             o.linjer.push(r);
             o.nok += r.nok; o.dg += r.dg; o.gp += r.gp;
+            o.radbidr  += r.radbidr  ?? 0;
+            o.radverdi += r.radverdi ?? 0;
         });
 
         const fmtNok = v => Math.round(v).toLocaleString('nb-NO');
@@ -486,7 +495,7 @@ class OmsetningMode {
               <span class="oms-ordre-pil">▶</span>
               <span class="oms-ordre-nr">Ordre ${o.ordreNr}</span>
               <span class="oms-ordre-nok">${fmtNok(o.nok)} kr</span>
-              <span class="oms-ordre-dg">DG: ${fmtDg(o.dg)}</span>
+              <span class="oms-ordre-dg">DG: ${o.radverdi > 0 ? (o.radbidr / o.radverdi * 100).toFixed(1) + ' %' : '–'}</span>
               <span class="oms-ordre-gp">GP: ${fmtNok(o.gp)} kr</span>
             </div>
             <div class="oms-ordre-linjer" id="linjer-${o.ordreNr}" style="display:none">
