@@ -143,6 +143,7 @@ try:
                 "radbidrag": round(radbidrag, 3),
                 "radbidr":   round(parse_no(row.get("Radbidr i basvaluta", "")) or 0, 2),
                 "radverdi":  round(parse_no(row.get("Radvärde i valuta", "")) or 0, 2),
+                "prisval":   round(parse_no(row.get("PrisVal", "")) or 0, 2),
             })
 
         print(f"✅ Orderingang lastet ({len(oi_records)} linjer med DG%)")
