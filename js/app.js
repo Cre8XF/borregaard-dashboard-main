@@ -1143,7 +1143,11 @@ class DashboardApp {
             store.orderingangDGMap = {};
             orderingang.forEach(row => {
                 const key = `${row.ordrenr}|${row.artnr}`;
-                store.orderingangDGMap[key] = row.radbidrag;
+                store.orderingangDGMap[key] = {
+                    dg:       row.radbidrag,
+                    radbidr:  row.radbidr,
+                    radverdi: row.radverdi,
+                };
             });
             console.log(`[FASE 10.x] orderingangDGMap: ${Object.keys(store.orderingangDGMap).length} linjer`);
         } else {
