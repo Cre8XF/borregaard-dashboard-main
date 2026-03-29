@@ -42,10 +42,10 @@ class OmsetningMode {
                 gp:       parseFloat(r['Gross profit'])       || 0,
                 margin:   r['Gross margin'] === '-' ? null
                             : parseFloat(r['Gross margin'])   || 0,
-                dgPct:    entry ? entry.dg       : null,
-                radbidr:  entry ? entry.radbidr  : null,
-                radverdi: entry ? entry.radverdi : null,
-                prisval:  entry ? entry.prisval  : null,
+                dgPct:    entry?.dg       ?? null,
+                radbidr:  entry?.radbidr  ?? null,
+                radverdi: entry?.radverdi ?? null,
+                prisval:  entry?.prisval  ?? null,
             };
         }).filter(r => !isNaN(r.dato.getTime()))
           .sort((a, b) => a.dato - b.dato);
@@ -247,9 +247,9 @@ class OmsetningMode {
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
-                    <td class="tall">${l.prisval !== null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
+                    <td class="tall">${l.prisval != null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
-                    <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
+                    <td class="tall">${l.dgPct != null ? l.dgPct.toFixed(1) + ' %' : (l.margin != null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
@@ -513,9 +513,9 @@ class OmsetningMode {
                     <td>${l.item}</td>
                     <td class="tall">${fmtNok(l.nok)}</td>
                     <td class="tall">${Math.round(l.dg).toLocaleString('nb-NO')}</td>
-                    <td class="tall">${l.prisval !== null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
+                    <td class="tall">${l.prisval != null ? l.prisval.toLocaleString('nb-NO') + ' kr' : '–'}</td>
                     <td class="tall">${fmtNok(l.gp)}</td>
-                    <td class="tall">${l.dgPct !== null ? l.dgPct.toFixed(1) + ' %' : (l.margin !== null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
+                    <td class="tall">${l.dgPct != null ? l.dgPct.toFixed(1) + ' %' : (l.margin != null ? (l.margin * 100).toFixed(1) + ' %' : '–')}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
