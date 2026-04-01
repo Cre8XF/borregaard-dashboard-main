@@ -283,6 +283,43 @@ class VartellingMode {
                        : pstTotalt >= 40 ? '#e65100'
                        : '#c62828';
 
+        // Månedsmål-beregning
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth(); // 0-basert
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const dayOfMonth = now.getDate();
+        const daysLeft = daysInMonth - dayOfMonth;
+
+        const maanedNavn = now.toLocaleString('no-NO', { month: 'long' });
+        const maanedNavn_cap = maanedNavn.charAt(0).toUpperCase() + maanedNavn.slice(1);
+
+        // 10% av totalt omfang = månedsmål
+        const maanedsMaal = Math.round(totaltArtikler * 0.10);
+
+        // Telt denne måneden: InvDat i inneværende måned
+        const mndStr = `${year}${String(month + 1).padStart(2, '0')}`;
+        const teltDenneMnd = items.filter(item => {
+            const d = item.invDat ? String(item.invDat).replace(/\D/g, '') : '';
+            return d.length === 8 && d.startsWith(mndStr);
+        }).length;
+
+        const gjenstar = Math.max(0, maanedsMaal - teltDenneMnd);
+
+        // Forventet tempo: lineært fordelt på måneden
+        const forventetNaa = Math.round((dayOfMonth / daysInMonth) * maanedsMaal);
+        const bak = forventetNaa - teltDenneMnd;
+
+        // RAG
+        let ragFarge, ragIkon;
+        if (teltDenneMnd >= forventetNaa) {
+            ragFarge = '#1a6b2c'; ragIkon = '🟢';
+        } else if (bak <= maanedsMaal * 0.20) {
+            ragFarge = '#e65100'; ragIkon = '🟡';
+        } else {
+            ragFarge = '#c62828'; ragIkon = '🔴';
+        }
+
         // Beregn info for alle sesjoner og del i aktive/fullførte
         const sesjonInfoList = plan.map((sone) => ({
             sone,
@@ -315,6 +352,15 @@ class VartellingMode {
                                 · Sist: ${sisteTeltTotalt}
                             </span>
                         ` : ''}
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;justify-content:center;gap:6px;padding:0 18px;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;">
+                    <div style="font-size:11px;font-weight:700;color:#1B3A6B;letter-spacing:0.5px;">
+                        📅 ${maanedNavn_cap} ${year} — 10%-mål
+                    </div>
+                    <div style="font-size:12px;color:${ragFarge};font-weight:600;">
+                        Telt: ${teltDenneMnd} / ${maanedsMaal} &nbsp;•&nbsp; Gjenstår: ${gjenstar} art &nbsp;•&nbsp; ${daysLeft} dager igjen &nbsp;${ragIkon}
                     </div>
                 </div>
 
