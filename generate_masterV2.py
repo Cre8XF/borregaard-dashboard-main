@@ -10,6 +10,9 @@ Kildefiler (alle i samme mappe som dette scriptet):
   5. leverandører.xlsx          — LevLedTid, Transportdagar (nøkkel: Företagsnr)
   6. SA-Nummer.xlsx             — fallback SA-nr for artikler ikke i data_7 (IKKE lokasjon)
 
+Kildefiler i 03-Sjelden (ikke validert daglig):
+  7. Tools_Kalkylpris.xlsx      — Kalkylpris_Inn: innkjøpspris Tools fra leverandør (≠ salgspris til Borregaard)
+
 Output:
   Borregaard_SA_Master_v2.xlsx  — 33 kolonner, ark "SA-Oversikt"
 
@@ -32,7 +35,8 @@ LAGERPLAN_FILE   = os.path.join(SCRIPT_DIR, 'Analyse_Lagerplan.xlsx')
 LEVERANDOR_FILE  = os.path.join(SCRIPT_DIR, 'leverandører.xlsx')
 SA_FILE          = os.path.join(SCRIPT_DIR, 'SA-Nummer.xlsx')
 ORDRER_FILE      = os.path.join(SCRIPT_DIR, 'Ordrer_Jeeves.xlsx')
-PRISLISTE_FILE = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\20260319_Borregaard_Prisliste.xlsx"
+PRISLISTE_FILE   = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\20260319_Borregaard_Prisliste.xlsx"
+KALKYLPRIS_FILE  = r"C:\Users\ROGSOR0319\_Datahub\Excel-eksporter\03-Sjelden\Tools_Kalkylpris.xlsx"
 OUTPUT_FILE      = os.path.join(SCRIPT_DIR, 'Borregaard_SA_Master_v2.xlsx')
 
 
@@ -265,7 +269,44 @@ def main():
     else:
         print(f'  INFO: Prisliste ikke funnet — kalkylpris kun fra Master_Artikkelstatus')
 
-    # ── 7. Ordrer_Jeeves.xlsx — salgshistorikk ────────────────────────────────
+    # ── 7. Tools_Kalkylpris.xlsx — innkjøpspris inn til Tools ────────────────
+    kalkyl_map = {}  # artikelnr -> kalkylpris_float (innkjøpspris fra leverandør)
+    if os.path.exists(KALKYLPRIS_FILE):
+        print('Leser Tools_Kalkylpris.xlsx (Kalkylpris_Inn)...')
+        try:
+            wb_kalk = openpyxl.load_workbook(KALKYLPRIS_FILE, read_only=True, data_only=True)
+            ws_kalk = wb_kalk.active
+            rows_kalk = list(ws_kalk.iter_rows(values_only=True))
+            wb_kalk.close()
+            if rows_kalk:
+                headers_kalk = [str(h).strip() if h is not None else '' for h in rows_kalk[0]]
+                try:
+                    art_idx  = headers_kalk.index('Artikelnr')
+                    pris_idx = headers_kalk.index('Kalkylpris bas')
+                except ValueError as e:
+                    print(f'  ADVARSEL: Forventet kolonne ikke funnet i Tools_Kalkylpris.xlsx: {e}')
+                    art_idx = pris_idx = None
+                if art_idx is not None:
+                    count_kalk = 0
+                    for r in rows_kalk[1:]:
+                        artnr = str(r[art_idx] or '').strip() if art_idx < len(r) else ''
+                        if not artnr or artnr in ('None', 'nan', ''):
+                            continue
+                        pris_raw = r[pris_idx] if pris_idx < len(r) else None
+                        try:
+                            pris_float = float(str(pris_raw).replace(',', '.').replace(' ', ''))
+                            if pris_float > 0:
+                                kalkyl_map[artnr] = pris_float
+                                count_kalk += 1
+                        except (ValueError, TypeError):
+                            pass
+                    print(f'  Kalkylpris_Inn-oppslag: {count_kalk} artikler')
+        except Exception as e:
+            print(f'  ADVARSEL: Kunne ikke lese Tools_Kalkylpris.xlsx: {e}')
+    else:
+        print(f'  INFO: Tools_Kalkylpris.xlsx ikke funnet — Kalkylpris_Inn forblir tom')
+
+    # ── 8. Ordrer_Jeeves.xlsx — salgshistorikk ────────────────────────────────
     ordre_by_art = {}
     if os.path.exists(ORDRER_FILE):
         print('Leser Ordrer_Jeeves.xlsx (salgshistorikk)...')
@@ -304,7 +345,7 @@ def main():
         'Item category 1', 'Item category 2', 'Item category 3',
         'Ordre_TotAntall', 'Ordre_TotVerdi', 'Ordre_SisteDato', 'Ordre_Antall',
         'Dagens_Pris',
-        'Kalkylpris_bas', 'EOK',
+        'Kalkylpris_bas', 'Kalkylpris_Inn', 'EOK',
         'LevLedTid', 'Transportdagar',
         'InvDat',
     ]
@@ -387,6 +428,7 @@ def main():
             'Ordre_Antall':    o.get('linjer', 0) or '',
             'Dagens_Pris':     '',
             'Kalkylpris_bas':  kalkylpris,
+            'Kalkylpris_Inn':  kalkyl_map.get(varenr, ''),
             'EOK':             val(l, 'EOK'),
             'LevLedTid':       lev_tuple[0],
             'Transportdagar':  lev_tuple[1],
@@ -428,6 +470,8 @@ def main():
     print(f'  Telt i 2026:               {telt2026_count} av {len(output_rows)}')
     print(f'  LAGERFØRT ikke-tomme:      {lagerfort_count} av {len(output_rows)}')
     print(f'  VAREMERKE ikke-tomme:      {varemerke_count} av {len(output_rows)}')
+    kalkylinn_count = sum(1 for r in output_rows if r.get('Kalkylpris_Inn') not in ('', None))
+    print(f'  Kalkylpris_Inn ikke-tomme:     {kalkylinn_count} av {len(output_rows)}')
     pris_fallback_count = sum(
         1 for r in output_rows
         if r.get('Kalkylpris_bas') and str(r.get('Kalkylpris_bas')) not in ('', '0', 'nan')
