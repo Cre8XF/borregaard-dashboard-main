@@ -141,7 +141,7 @@ try:
                 continue
             radbidrag_pct = parse_no(row.get("Radbidrag i %", ""))
             radbidr       = parse_no(row.get("Radbidr i basvaluta", "")) or 0
-            radverdi      = parse_no(row.get("Radvärde i valuta", "")) or 0
+            radverdi      = parse_no(row.get("Radvärde i basvaluta", "")) or 0
             prisval       = parse_no(row.get("PrisVal", "")) or 0
             if radbidrag_pct is None:
                 continue
@@ -269,19 +269,16 @@ try:
         from datetime import timedelta
         og_raw = pd.read_excel(ORDERINGANG_PATH, header=0, dtype=str)
         og_raw.columns = [str(c).strip() for c in og_raw.columns]
-        cols = og_raw.columns.tolist()
 
-        # Hent kolonner via 0-basert indeks (rad 1 = header)
-        col_art_nr = cols[3]   # Artikelnr
-        col_beskr  = cols[10]  # Artikelbeskrivning
-        col_pris   = cols[22]  # PrisVal
-        col_ksv    = cols[7]   # KSV fakt.rad
-        col_dg     = cols[8]   # Täckningsgrad
-        col_dato   = cols[12]  # OrdDtm
-        col_dk     = cols[25]  # D/K
+        col_art_nr = "Artikelnr"
+        col_beskr  = "Artikelbeskrivning"
+        col_pris   = "PrisVal"
+        col_ksv    = "Radbidr i basvaluta"
+        col_dg     = "Radbidrag i %"
+        col_dato   = "OrdDtm"
 
-        # Filtrer kun D-rader (debet/salg)
-        og = og_raw[og_raw[col_dk].astype(str).str.strip().str.upper() == 'D'].copy()
+        # Filtrer kun Invoiced-rader
+        og = og_raw[og_raw["OrdRdSt"].astype(str).str.strip() == "Invoiced"].copy()
 
         # Parse dato YYMMDD → datetime
         def parse_yymmdd(val):
@@ -376,16 +373,14 @@ try:
         # Les Orderingang (gjenbruk ORDERINGANG_PATH fra DG-kontroll)
         og_vs = pd.read_excel(ORDERINGANG_PATH, header=0, dtype=str)
         og_vs.columns = [str(c).strip() for c in og_vs.columns]
-        cols_vs = og_vs.columns.tolist()
 
-        col_ordernr_vs = cols_vs[0]   # OrderNr
-        col_artnr_vs   = cols_vs[3]   # Artikelnr
-        col_qty_vs     = cols_vs[4]   # OrdRadAnt
-        col_dato_vs    = cols_vs[12]  # OrdDtm
-        col_dk_vs      = cols_vs[25]  # D/K
+        col_ordernr_vs = "OrderNr"
+        col_artnr_vs   = "Artikelnr"
+        col_qty_vs     = "OrdRadAnt"
+        col_dato_vs    = "OrdDtm"
 
-        # Filtrer kun D-rader (salg)
-        og_vs = og_vs[og_vs[col_dk_vs].astype(str).str.strip() == 'D'].copy()
+        # Filtrer kun Invoiced-rader
+        og_vs = og_vs[og_vs["OrdRdSt"].astype(str).str.strip() == "Invoiced"].copy()
 
         # Parse dato YYMMDD → datetime
         def parse_yymmdd_vs(val):
