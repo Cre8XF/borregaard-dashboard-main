@@ -755,6 +755,14 @@ class DashboardApp {
             return;
         }
 
+        // Utskutte lager-mode trenger ikke dataStore
+        if (this.currentModule === 'utskutteLager') {
+            if (typeof UtskutteLagerMode !== 'undefined') {
+                UtskutteLagerMode.render(contentDiv, this.utskutteLager);
+            }
+            return;
+        }
+
         // Sjekk om vi har data
         if (!this.dataStore || this.dataStore.items.size === 0) {
             contentDiv.innerHTML = `
