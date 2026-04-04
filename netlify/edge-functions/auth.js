@@ -12,23 +12,20 @@ export default async function handler(req, context) {
             const input = params.get("password");
 
             if (PASSWORD && input === PASSWORD) {
-                const response = await context.next();
-                const newRes = new Response(response.body, response);
-                newRes.headers.append(
-                    "Set-Cookie",
-                    "bd_auth=ok; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000"
-                );
-                return newRes;
+                const headers = new Headers();
+                headers.set("Set-Cookie", "bd_auth=ok; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000");
+                headers.set("Content-Type", "application/json");
+                return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
             }
 
-            return new Response(loginPage("Feil passord — prøv igjen"), {
+            return new Response(JSON.stringify({ ok: false }), {
                 status: 401,
-                headers: { "content-type": "text/html;charset=utf-8" }
+                headers: { "content-type": "application/json" }
             });
         } catch(e) {
-            return new Response(loginPage("Feil: " + e.message), {
+            return new Response(JSON.stringify({ ok: false, error: e.message }), {
                 status: 400,
-                headers: { "content-type": "text/html;charset=utf-8" }
+                headers: { "content-type": "application/json" }
             });
         }
     }
@@ -64,13 +61,45 @@ function loginPage(error) {
   <div class="card">
     <h1>Borregaard Dashboard</h1>
     <p>Logg inn for å fortsette</p>
-    <form method="POST">
-      <label for="pw">Passord</label>
-      <input type="password" id="pw" name="password" autofocus autocomplete="current-password">
-      ${error ? `<div class="error">${error}</div>` : ""}
-      <button type="submit">Logg inn</button>
-    </form>
+    <div id="error" style="color:#c0392b;font-size:13px;margin-bottom:1rem;display:none;"></div>
+    <label for="pw">Passord</label>
+    <input type="password" id="pw" autofocus autocomplete="current-password">
+    <button id="btn" onclick="loggInn()">Logg inn</button>
   </div>
+  <script>
+    document.getElementById('pw').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') loggInn();
+    });
+    async function loggInn() {
+      const pw = document.getElementById('pw').value;
+      const btn = document.getElementById('btn');
+      const err = document.getElementById('error');
+      btn.textContent = 'Logger inn...';
+      btn.disabled = true;
+      try {
+        const res = await fetch(window.location.href, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'password=' + encodeURIComponent(pw)
+        });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          err.textContent = 'Feil passord — prøv igjen';
+          err.style.display = 'block';
+          btn.textContent = 'Logg inn';
+          btn.disabled = false;
+          document.getElementById('pw').value = '';
+          document.getElementById('pw').focus();
+        }
+      } catch(e) {
+        err.textContent = 'Noe gikk galt — prøv igjen';
+        err.style.display = 'block';
+        btn.textContent = 'Logg inn';
+        btn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>`;
 }
