@@ -7,10 +7,11 @@ export default async function handler(req, context) {
 
     if (req.method === "POST") {
         try {
-            const formData = await req.formData();
-            const input = formData.get("password");
+            const body = await req.text();
+            const params = new URLSearchParams(body);
+            const input = params.get("password");
 
-            if (input === PASSWORD) {
+            if (PASSWORD && input === PASSWORD) {
                 const response = await context.next();
                 const newRes = new Response(response.body, response);
                 newRes.headers.append(
@@ -25,7 +26,7 @@ export default async function handler(req, context) {
                 headers: { "content-type": "text/html;charset=utf-8" }
             });
         } catch(e) {
-            return new Response(loginPage("Noe gikk galt — prøv igjen"), {
+            return new Response(loginPage("Feil: " + e.message), {
                 status: 400,
                 headers: { "content-type": "text/html;charset=utf-8" }
             });
