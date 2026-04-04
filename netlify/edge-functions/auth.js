@@ -1,29 +1,35 @@
 export default async function handler(req, context) {
     const PASSWORD = Deno.env.get("DASHBOARD_PASSWORD");
     const cookie = req.headers.get("cookie") || "";
-    const authed = cookie.includes("bd_auth=ok");
+    const authed = cookie.split(";").some(c => c.trim() === "bd_auth=ok");
 
     if (authed) return context.next();
 
     if (req.method === "POST") {
-        const body = await req.text();
-        const params = new URLSearchParams(body);
-        const input = params.get("password");
+        try {
+            const formData = await req.formData();
+            const input = formData.get("password");
 
-        if (input === PASSWORD) {
-            const response = await context.next();
-            const newRes = new Response(response.body, response);
-            newRes.headers.append(
-                "Set-Cookie",
-                "bd_auth=ok; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400"
-            );
-            return newRes;
+            if (input === PASSWORD) {
+                const response = await context.next();
+                const newRes = new Response(response.body, response);
+                newRes.headers.append(
+                    "Set-Cookie",
+                    "bd_auth=ok; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000"
+                );
+                return newRes;
+            }
+
+            return new Response(loginPage("Feil passord — prøv igjen"), {
+                status: 401,
+                headers: { "content-type": "text/html;charset=utf-8" }
+            });
+        } catch(e) {
+            return new Response(loginPage("Noe gikk galt — prøv igjen"), {
+                status: 400,
+                headers: { "content-type": "text/html;charset=utf-8" }
+            });
         }
-
-        return new Response(loginPage("Feil passord — prøv igjen"), {
-            status: 401,
-            headers: { "content-type": "text/html;charset=utf-8" }
-        });
     }
 
     return new Response(loginPage(""), {
