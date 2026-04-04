@@ -758,7 +758,7 @@ class DashboardApp {
         // Utskutte lager-mode trenger ikke dataStore
         if (this.currentModule === 'utskutteLager') {
             if (typeof UtskutteLagerMode !== 'undefined') {
-                UtskutteLagerMode.render(contentDiv, this.utskutteLager);
+                contentDiv.innerHTML = UtskutteLagerMode.render(this.utskutteLager || []);
             }
             return;
         }

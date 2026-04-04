@@ -165,6 +165,7 @@ class UtskutteLagerMode {
     // ── Hoved-render ─────────────────────────────────────────────────────────
 
     static render(records) {
+        if (!records || !Array.isArray(records)) records = [];
         const agg    = this._aggreger(records);
         const linjer = this._filtrer(records);
 
