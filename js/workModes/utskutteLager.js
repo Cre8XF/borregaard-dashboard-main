@@ -9,7 +9,8 @@ class UtskutteLagerMode {
 
     static _aktivLokasjon = 'alle';
     static _periode       = 'alle';
-    static _sokTekst      = '';
+    static _sokTerm       = '';
+    static _records       = [];
     static _expanderte    = new Set();
     static _sortering     = 'dato';
     static _sorterAsc     = false;
@@ -140,7 +141,7 @@ class UtskutteLagerMode {
     // ── Søk på tvers av item_id og item ───────────────────────────────────────
 
     static _filtrerSok(runder) {
-        const q = this._sokTekst.trim().toLowerCase();
+        const q = this._sokTerm.trim().toLowerCase();
         if (!q) return runder;
         return runder.filter(g =>
             g.linjer.some(r =>
@@ -148,6 +149,27 @@ class UtskutteLagerMode {
                 (r.item    || '').toLowerCase().includes(q)
             )
         );
+    }
+
+    // ── Oppdater kun tabell og teller (uten full re-render) ───────────────────
+
+    static _oppdaterTabell(records) {
+        const etterLok     = this._filtrer(records);
+        const etterPeriode = this._filtrerPeriode(etterLok);
+        const runder       = this._gruppert(etterPeriode);
+        const synlige      = this._filtrerSok(runder);
+
+        const tbl = document.getElementById('utskutteTabell');
+        if (tbl) tbl.innerHTML = this._renderGruppertTabell(synlige);
+
+        const aktNavn = this._aktivLokasjon === 'alle'
+            ? 'Alle lokasjoner'
+            : (this._lokasjoner().find(l => l.id === this._aktivLokasjon)?.navn || this._aktivLokasjon);
+
+        const lbl = document.getElementById('utskutteAntall');
+        if (lbl) lbl.innerHTML = `Viser <strong>${synlige.length}</strong> runder
+            (${synlige.reduce((s, g) => s + g.linjer.length, 0)} linjer)
+            for: <em>${this.esc(aktNavn)}</em>`;
     }
 
     // ── Render sammendragskort ────────────────────────────────────────────────
@@ -272,6 +294,8 @@ class UtskutteLagerMode {
 
     static render(records) {
         if (!records || !Array.isArray(records)) records = [];
+        this._records = records;
+
         const agg = this._aggreger(records);
 
         // Pipeline: lokasjon-filter → periode-filter → grupper → søk
@@ -292,6 +316,17 @@ class UtskutteLagerMode {
             { v: '30',   l: '30 dager' },
             { v: '90',   l: '90 dager' },
         ];
+
+        // Bind søkefelt etter at HTML er injisert i DOM
+        setTimeout(() => {
+            const el = document.getElementById('utskutteSok');
+            if (el) {
+                el.addEventListener('input', function() {
+                    UtskutteLagerMode._sokTerm = this.value;
+                    UtskutteLagerMode._oppdaterTabell(UtskutteLagerMode._records);
+                });
+            }
+        }, 0);
 
         return `
 <style>
@@ -386,19 +421,21 @@ class UtskutteLagerMode {
       ).join('')}
     </select>
     <input class="utskutte-sok-input"
+           id="utskutteSok"
            type="search"
            placeholder="Søk art.nr eller artikkelnavn…"
-           value="${this.esc(this._sokTekst)}"
-           oninput="UtskutteLagerMode.oppdaterSok(this.value)" />
+           value="${this.esc(this._sokTerm)}" />
   </div>
 
-  <div class="utskutte-antall-lbl">
+  <div id="utskutteAntall" class="utskutte-antall-lbl">
     Viser <strong>${synlige.length}</strong> runder
     (${synlige.reduce((s, g) => s + g.linjer.length, 0)} linjer)
     for: <em>${this.esc(aktNavn)}</em>
   </div>
 
-  ${this._renderGruppertTabell(synlige)}
+  <div id="utskutteTabell">
+    ${this._renderGruppertTabell(synlige)}
+  </div>
 </div>`;
     }
 
@@ -415,8 +452,8 @@ class UtskutteLagerMode {
     }
 
     static oppdaterSok(v) {
-        this._sokTekst = v;
-        if (window.app) window.app.renderCurrentModule();
+        this._sokTerm = v;
+        this._oppdaterTabell(this._records);
     }
 
     static toggleRunde(key) {
