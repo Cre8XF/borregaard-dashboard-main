@@ -856,6 +856,12 @@ class DashboardApp {
                 }
                 break;
 
+            case 'utskutteLager':
+                if (typeof UtskutteLagerMode !== 'undefined') {
+                    contentDiv.innerHTML = UtskutteLagerMode.render(this.utskutteLager || []);
+                }
+                break;
+
             case 'omsetning':
                 if (typeof OmsetningMode !== 'undefined' && this.omsetningMode) {
                     this.omsetningMode.render(contentDiv);
@@ -1098,6 +1104,7 @@ class DashboardApp {
                 ordrestockanalys:    payload.ordrestockanalys     || [],   // FASE 9.1
                 dagsomsetning:       payload.dagsomsetning        || [],   // NY
                 orderingang:         payload.orderingang           || [],   // FASE 10.x
+                utskutteLager:       payload.utskutteLager         || [],   // FASE 12
             });
 
         } catch (err) {
@@ -1115,7 +1122,7 @@ class DashboardApp {
      *
      * @param {Object} param0 - { master, orders, bestillinger } — arrays av objekter
      */
-    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys, dagsomsetning, orderingang }) {
+    async processJsonData({ master, orders, bestillinger, prisliste, dgKontroll, vedlikeholdsstopp, lavverdiListe, bevegelse, varetelling_meta, ordrestockanalys, dagsomsetning, orderingang, utskutteLager }) {
         if (!master || master.length === 0) {
             throw new Error('master-arrayen er tom — ingen artikler å prosessere.');
         }
@@ -1221,6 +1228,10 @@ class DashboardApp {
         // Omsetning: lagre dagsomsetning-array for OmsetningMode
         this.salgsData = dagsomsetning || [];
         console.log(`[Omsetning] ${this.salgsData.length} dager lastet`);
+
+        // FASE 12: Utskutte lager
+        this.utskutteLager = utskutteLager || [];
+        console.log(`[FASE 12] Utskutte lager: ${this.utskutteLager.length} ordrelinjer lastet`);
 
         // FASE 8.1: lagre varetelling-metadata for bruk i varetelling.js
         if (varetelling_meta) {

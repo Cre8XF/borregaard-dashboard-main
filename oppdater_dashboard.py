@@ -620,6 +620,51 @@ try:
             "logikk": "feil"
         }
 
+    # ── Utskutte lager (FASE 12) ─────────────────────────────────────────────────
+    UTSKUTTE_MAP = {
+        "424186-2": "ØST: Spriten",
+        "424186-3": "VEST: Cellulose",
+        "424186-4": "Kokeri",
+        "424186-5": "ALVA",
+        "424186-6": "SENTRALV.",
+        "424186-7": "Grace",
+    }
+    UTSKUTTE_RAMPE = {
+        "424186-2": "R-229",
+        "424186-3": "R-275",
+        "424186-4": "R-125",
+        "424186-5": "R-265",
+        "424186-6": "R-156",
+        "424186-7": "",
+    }
+
+    utskutte_df = orders[orders["Delivery location ID"].isin(UTSKUTTE_MAP.keys())].copy()
+    utskutte_df["lokasjon"]       = utskutte_df["Delivery location ID"].map(UTSKUTTE_MAP)
+    utskutte_df["rampe"]          = utskutte_df["Delivery location ID"].map(UTSKUTTE_RAMPE)
+    utskutte_df["deliv_id"]       = utskutte_df["Delivery location ID"]
+    utskutte_df["Date"]           = pd.to_datetime(utskutte_df["Date"], errors="coerce")
+    utskutte_df["Delivered value"]    = pd.to_numeric(utskutte_df["Delivered value"], errors="coerce").fillna(0)
+    utskutte_df["Delivered quantity"] = pd.to_numeric(utskutte_df["Delivered quantity"], errors="coerce").fillna(0)
+
+    # Records for JS (alle ordrelinjer, utskutte lager kun)
+    utskutte_records = []
+    for _, row in utskutte_df.iterrows():
+        if pd.isna(row["Date"]):
+            continue
+        utskutte_records.append({
+            "dato":      row["Date"].strftime("%Y-%m-%d"),
+            "deliv_id":  row["Delivery location ID"],
+            "lokasjon":  row["lokasjon"],
+            "rampe":     row["rampe"],
+            "item_id":   str(row.get("Item ID", "")),
+            "item":      str(row.get("Item", "")),
+            "verdi":     float(row["Delivered value"]),
+            "antall":    float(row["Delivered quantity"]),
+            "ordre_nr":  str(row.get("Order number", "")),
+        })
+
+    print(f"  Utskutte lager:          {len(utskutte_records)} ordrelinjer, {utskutte_df['Delivery location ID'].nunique()} lokasjoner")
+
     data = {
         "generert":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "master":             master.to_dict(orient="records"),
@@ -634,6 +679,7 @@ try:
         "ordrestockanalys":   ordrestock_records,     # FASE 9.1 — valgfri, periodisk
         "dagsomsetning":      salg_records,           # NY
         "orderingang":        oi_records,             # FASE 10.x
+        "utskutteLager":      utskutte_records,       # FASE 12
     }
 
     os.makedirs(os.path.join(script_dir, "data"), exist_ok=True)
